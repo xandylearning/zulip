@@ -2,7 +2,7 @@ name: Deploy Zulip (self-hosted)
 
 on:
   push:
-    branches: [ main ]         # change if you deploy from another branch
+    branches: [ dev ]         # change if you deploy from another branch
     paths-ignore:
       - "README.md"
       - ".github/**"
