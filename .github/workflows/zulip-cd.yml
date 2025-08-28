@@ -139,12 +139,12 @@ jobs:
       run: |
         if [ -n "$SUDO_CMD" ]; then
           cd /home/zulip/zulip-server
-          $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install -r requirements/prod.txt
-          $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install -r requirements/dev.txt
+          $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install -e .
+          $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install -e .[prod]
         else
           cd ~/zulip-server
-          ~/zulip-py3-venv/bin/pip install -r requirements/prod.txt
-          ~/zulip-py3-venv/bin/pip install -r requirements/dev.txt
+          ~/zulip-py3-venv/bin/pip install -e .
+          ~/zulip-py3-venv/bin/pip install -e .[prod]
         fi
 
     - name: Install Node.js dependencies
