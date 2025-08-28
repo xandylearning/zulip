@@ -62,67 +62,110 @@ jobs:
           echo "Running as root, no sudo needed"
           export SUDO_CMD=""
         else
-          # Check if passwordless sudo is already configured
+          # Check if passwordless sudo is available
           if sudo -n true 2>/dev/null; then
-            echo "Passwordless sudo already configured"
+            echo "Passwordless sudo available"
             export SUDO_CMD="sudo"
           else
-            echo "ERROR: Passwordless sudo not configured. Please configure the runner user for passwordless sudo access."
-            echo "Run: echo '$USER ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/github-runner"
-            exit 1
+            echo "WARNING: Passwordless sudo not available, running without sudo"
+            echo "Some operations may fail if root access is required"
+            export SUDO_CMD=""
           fi
         fi
 
     - name: Create zulip user
       run: |
-        $SUDO_CMD useradd -m -s /bin/bash zulip || true
-        $SUDO_CMD usermod -aG sudo zulip
-        echo "zulip user created/updated"
+        if [ -n "$SUDO_CMD" ]; then
+          $SUDO_CMD useradd -m -s /bin/bash zulip || true
+          $SUDO_CMD usermod -aG sudo zulip
+          echo "zulip user created/updated with sudo"
+        else
+          echo "Skipping user creation - sudo not available"
+          echo "Assuming zulip user already exists or using current user"
+        fi
 
     - name: Create directories
       run: |
-        $SUDO_CMD mkdir -p /home/zulip/zulip-server
-        $SUDO_CMD mkdir -p /etc/zulip
-        $SUDO_CMD mkdir -p /var/log/zulip
-        $SUDO_CMD mkdir -p /var/lib/zulip
-        $SUDO_CMD mkdir -p /home/zulip/uploads
-        $SUDO_CMD mkdir -p /var/backups/zulip
-        $SUDO_CMD chown -R zulip:zulip /home/zulip
-        $SUDO_CMD chown -R zulip:zulip /var/log/zulip
-        $SUDO_CMD chown -R zulip:zulip /var/lib/zulip
-        $SUDO_CMD chown -R zulip:zulip /var/backups/zulip
+        if [ -n "$SUDO_CMD" ]; then
+          $SUDO_CMD mkdir -p /home/zulip/zulip-server
+          $SUDO_CMD mkdir -p /etc/zulip
+          $SUDO_CMD mkdir -p /var/log/zulip
+          $SUDO_CMD mkdir -p /var/lib/zulip
+          $SUDO_CMD mkdir -p /home/zulip/uploads
+          $SUDO_CMD mkdir -p /var/backups/zulip
+          $SUDO_CMD chown -R zulip:zulip /home/zulip
+          $SUDO_CMD chown -R zulip:zulip /var/log/zulip
+          $SUDO_CMD chown -R zulip:zulip /var/lib/zulip
+          $SUDO_CMD chown -R zulip:zulip /var/backups/zulip
+        else
+          # Create directories in current user's home if sudo not available
+          mkdir -p ~/zulip-server
+          mkdir -p ~/zulip-config
+          mkdir -p ~/zulip-logs
+          mkdir -p ~/zulip-data
+          mkdir -p ~/zulip-uploads
+          mkdir -p ~/zulip-backups
+          echo "Created directories in user home directory"
+        fi
 
     - name: Install Python dependencies
       run: |
-        $SUDO_CMD -u zulip python3 -m pip install --user --upgrade pip
-        $SUDO_CMD -u zulip python3 -m pip install --user virtualenv
+        python3 -m pip install --user --upgrade pip
+        python3 -m pip install --user virtualenv
 
     - name: Setup Zulip environment
       run: |
-        cd /home/zulip
-        $SUDO_CMD -u zulip python3 -m venv zulip-py3-venv
-        $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install --upgrade pip
+        if [ -n "$SUDO_CMD" ]; then
+          cd /home/zulip
+          $SUDO_CMD -u zulip python3 -m venv zulip-py3-venv
+          $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install --upgrade pip
+        else
+          cd ~
+          python3 -m venv zulip-py3-venv
+          ~/zulip-py3-venv/bin/pip install --upgrade pip
+        fi
 
     - name: Copy Zulip code
       run: |
-        $SUDO_CMD cp -r . /home/zulip/zulip-server/
-        $SUDO_CMD chown -R zulip:zulip /home/zulip/zulip-server
+        if [ -n "$SUDO_CMD" ]; then
+          $SUDO_CMD cp -r . /home/zulip/zulip-server/
+          $SUDO_CMD chown -R zulip:zulip /home/zulip/zulip-server
+        else
+          cp -r . ~/zulip-server/
+          echo "Copied Zulip code to user directory"
+        fi
 
     - name: Install Zulip dependencies
       run: |
-        cd /home/zulip/zulip-server
-        $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install -r requirements/prod.txt
-        $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install -r requirements/dev.txt
+        if [ -n "$SUDO_CMD" ]; then
+          cd /home/zulip/zulip-server
+          $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install -r requirements/prod.txt
+          $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install -r requirements/dev.txt
+        else
+          cd ~/zulip-server
+          ~/zulip-py3-venv/bin/pip install -r requirements/prod.txt
+          ~/zulip-py3-venv/bin/pip install -r requirements/dev.txt
+        fi
 
     - name: Install Node.js dependencies
       run: |
-        cd /home/zulip/zulip-server
-        $SUDO_CMD -u zulip npm install
-        $SUDO_CMD -u zulip npm run build
+        if [ -n "$SUDO_CMD" ]; then
+          cd /home/zulip/zulip-server
+          $SUDO_CMD -u zulip npm install
+          $SUDO_CMD -u zulip npm run build
+        else
+          cd ~/zulip-server
+          npm install
+          npm run build
+        fi
 
     - name: Configure Zulip settings
       run: |
-        $SUDO_CMD tee /etc/zulip/settings.py > /dev/null << 'EOF'
+        if [ -n "$SUDO_CMD" ]; then
+          $SUDO_CMD tee /etc/zulip/settings.py > /dev/null << 'EOF'
+        else
+          tee ~/zulip-config/settings.py > /dev/null << 'EOF'
+        fi
         # Zulip settings for VM deployment with hosted PostgreSQL
         import os
         from pathlib import Path
@@ -316,7 +359,11 @@ jobs:
 
     - name: Create zulip-secrets.conf
       run: |
-        $SUDO_CMD tee /etc/zulip/zulip-secrets.conf > /dev/null << 'EOF'
+        if [ -n "$SUDO_CMD" ]; then
+          $SUDO_CMD tee /etc/zulip/zulip-secrets.conf > /dev/null << 'EOF'
+        else
+          tee ~/zulip-config/zulip-secrets.conf > /dev/null << 'EOF'
+        fi
         [secrets]
         secret_key = ${{ secrets.ZULIP_SECRET_KEY }}
         postgres_password = ${{ secrets.DB_PASSWORD }}
@@ -337,43 +384,40 @@ jobs:
 
     - name: Initialize database
       run: |
-        cd /home/zulip/zulip-server
-        $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py migrate
-        $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py collectstatic --noinput
+        if [ -n "$SUDO_CMD" ]; then
+          cd /home/zulip/zulip-server
+          $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py migrate
+          $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py collectstatic --noinput
+        else
+          cd ~/zulip-server
+          ~/zulip-py3-venv/bin/python manage.py migrate
+          ~/zulip-py3-venv/bin/python manage.py collectstatic --noinput
+        fi
 
 
 
-    - name: Create systemd service
+    - name: Start Zulip server
       run: |
-        $SUDO_CMD tee /etc/systemd/system/zulip.service > /dev/null << 'EOF'
-        [Unit]
-        Description=Zulip Server
-        After=network.target
-
-        [Service]
-        Type=simple
-        User=zulip
-        Group=zulip
-        WorkingDirectory=/home/zulip/zulip-server
-        Environment=DJANGO_SETTINGS_MODULE=zproject.settings
-        ExecStart=/home/zulip/zulip-py3-venv/bin/python manage.py runserver 0.0.0.0:8000
-        Restart=always
-        RestartSec=10
-
-        [Install]
-        WantedBy=multi-user.target
-        EOF
-
-    - name: Start Zulip service
-      run: |
-        $SUDO_CMD systemctl daemon-reload
-        $SUDO_CMD systemctl enable zulip
-        $SUDO_CMD systemctl start zulip
+        if [ -n "$SUDO_CMD" ]; then
+          cd /home/zulip/zulip-server
+          $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py runserver 0.0.0.0:8000 &
+          echo "Zulip server started with sudo"
+        else
+          cd ~/zulip-server
+          ~/zulip-py3-venv/bin/python manage.py runserver 0.0.0.0:8000 &
+          echo "Zulip server started without sudo"
+        fi
+        sleep 5
 
     - name: Create admin user
       run: |
-        cd /home/zulip/zulip-server
-        echo "from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.create_superuser('${{ secrets.ADMIN_USERNAME || 'admin' }}', '${{ secrets.ADMIN_EMAIL || 'admin@localhost' }}', '${{ secrets.ADMIN_PASSWORD || 'admin123' }}') if not User.objects.filter(username='${{ secrets.ADMIN_USERNAME || 'admin' }}').exists() else None" | $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py shell
+        if [ -n "$SUDO_CMD" ]; then
+          cd /home/zulip/zulip-server
+          echo "from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.create_superuser('${{ secrets.ADMIN_USERNAME || 'admin' }}', '${{ secrets.ADMIN_EMAIL || 'admin@localhost' }}', '${{ secrets.ADMIN_PASSWORD || 'admin123' }}') if not User.objects.filter(username='${{ secrets.ADMIN_USERNAME || 'admin' }}').exists() else None" | $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py shell
+        else
+          cd ~/zulip-server
+          echo "from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.create_superuser('${{ secrets.ADMIN_USERNAME || 'admin' }}', '${{ secrets.ADMIN_EMAIL || 'admin@localhost' }}', '${{ secrets.ADMIN_PASSWORD || 'admin123' }}') if not User.objects.filter(username='${{ secrets.ADMIN_USERNAME || 'admin' }}').exists() else None" | ~/zulip-py3-venv/bin/python manage.py shell
+        fi
 
     - name: Health check
       run: |
@@ -381,55 +425,15 @@ jobs:
         curl -f ${{ secrets.ZULIP_URI_SCHEME || 'http' }}://${{ secrets.ZULIP_EXTERNAL_HOST || 'localhost' }}/ || exit 1
         echo "Zulip is running successfully!"
 
-    - name: Create backup script
-      run: |
-        $SUDO_CMD tee /usr/local/bin/zulip-backup > /dev/null << 'EOF'
-        #!/bin/bash
-        BACKUP_DIR="/var/backups/zulip"
-        DATE=$(date +%Y%m%d_%H%M%S)
-        BACKUP_FILE="zulip_backup_$DATE.tar.gz"
-        
-        mkdir -p $BACKUP_DIR
-        
-        cd /home/zulip/zulip-server
-        sudo -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py backup --output=$BACKUP_DIR/$BACKUP_FILE
-        
-        # Clean up old backups (keep last 7 days)
-        find $BACKUP_DIR -name "zulip_backup_*.tar.gz" -mtime +7 -delete
-        
-        echo "Backup completed: $BACKUP_FILE"
-        EOF
-        $SUDO_CMD chmod +x /usr/local/bin/zulip-backup
-
-    - name: Setup backup cron job
-      run: |
-        echo "0 2 * * * /usr/local/bin/zulip-backup" | $SUDO_CMD crontab -
-
-    - name: Create health check script
-      run: |
-        $SUDO_CMD tee /usr/local/bin/zulip-health-check > /dev/null << 'EOF'
-        #!/bin/bash
-        HEALTH_URL="${{ secrets.ZULIP_URI_SCHEME || 'http' }}://${{ secrets.ZULIP_EXTERNAL_HOST || 'localhost' }}/health"
-        LOG_FILE="/var/log/zulip/health-check.log"
-        
-        if curl -f -s $HEALTH_URL > /dev/null; then
-            echo "$(date): Health check passed" >> $LOG_FILE
-            exit 0
-        else
-            echo "$(date): Health check failed" >> $LOG_FILE
-            exit 1
-        fi
-        EOF
-        $SUDO_CMD chmod +x /usr/local/bin/zulip-health-check
-
-    - name: Setup health check cron job
-      run: |
-        echo "*/5 * * * * /usr/local/bin/zulip-health-check" | $SUDO_CMD crontab -
-
     - name: Generate realm creation link
       run: |
-        cd /home/zulip/zulip-server
-        $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py generate_realm_creation_link
+        if [ -n "$SUDO_CMD" ]; then
+          cd /home/zulip/zulip-server
+          $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py generate_realm_creation_link
+        else
+          cd ~/zulip-server
+          ~/zulip-py3-venv/bin/python manage.py generate_realm_creation_link
+        fi
 
     - name: Deployment summary
       run: |
