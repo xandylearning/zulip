@@ -2,7 +2,7 @@ name: Deploy Zulip (External Postgres) on Self-Hosted VM
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ dev ]
     paths-ignore: [ 'docs/**', 'help/**', 'locale/**' ]
   workflow_dispatch:
     inputs:
