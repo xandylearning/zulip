@@ -55,6 +55,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        path: ./zulip-source
 
     - name: Show inputs
       run: |
@@ -208,6 +209,7 @@ jobs:
       run: |
         set -e
         REF="${{ github.event.inputs.ref || 'main' }}"
+        cd ./zulip-source
         sudo /home/zulip/deployments/current/scripts/upgrade-zulip-from-git "$REF"
 
     - name: Switch to simple HTTP-only Nginx if requested
