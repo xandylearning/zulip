@@ -51,6 +51,18 @@ jobs:
     runs-on: self-hosted
 
     steps:
+    - name: Clean workspace
+      run: |
+        set -e
+        echo "Cleaning up workspace..."
+        # Remove any existing checkout directories
+        rm -rf ./zulip-source || true
+        rm -rf ./zulip || true
+        # Clean up any temporary files
+        find . -name "*.tmp" -delete || true
+        find . -name "*.log" -delete || true
+        echo "Workspace cleaned successfully"
+        
     - name: Checkout (not strictly required, but useful for versioning)
       uses: actions/checkout@v4
       with:
