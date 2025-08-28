@@ -125,36 +125,38 @@ jobs:
           ~/zulip-py3-venv/bin/pip install --upgrade pip
         fi
 
-    - name: Copy Zulip code
+    - name: Setup Zulip working directory
       run: |
         if [ -n "$SUDO_CMD" ]; then
-          $SUDO_CMD cp -r . /home/zulip/zulip-server/
-          $SUDO_CMD chown -R zulip:zulip /home/zulip/zulip-server
+          echo "Using system directory: /home/zulip/zulip-server"
+          export ZULIP_DIR="/home/zulip/zulip-server"
         else
-          cp -r . ~/zulip-server/
-          echo "Copied Zulip code to user directory"
+          echo "Using user directory: ~/zulip-server"
+          export ZULIP_DIR="$HOME/zulip-server"
+          # Create symlink to current directory if it doesn't exist
+          if [ ! -L "$ZULIP_DIR" ]; then
+            ln -sf "$(pwd)" "$ZULIP_DIR"
+          fi
         fi
 
     - name: Install Zulip dependencies
       run: |
+        cd $ZULIP_DIR
         if [ -n "$SUDO_CMD" ]; then
-          cd /home/zulip/zulip-server
           $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install -e .
           $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install -e .[prod]
         else
-          cd ~/zulip-server
           ~/zulip-py3-venv/bin/pip install -e .
           ~/zulip-py3-venv/bin/pip install -e .[prod]
         fi
 
     - name: Install Node.js dependencies
       run: |
+        cd $ZULIP_DIR
         if [ -n "$SUDO_CMD" ]; then
-          cd /home/zulip/zulip-server
           $SUDO_CMD -u zulip npm install
           $SUDO_CMD -u zulip npm run build
         else
-          cd ~/zulip-server
           npm install
           npm run build
         fi
@@ -384,12 +386,11 @@ jobs:
 
     - name: Initialize database
       run: |
+        cd $ZULIP_DIR
         if [ -n "$SUDO_CMD" ]; then
-          cd /home/zulip/zulip-server
           $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py migrate
           $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py collectstatic --noinput
         else
-          cd ~/zulip-server
           ~/zulip-py3-venv/bin/python manage.py migrate
           ~/zulip-py3-venv/bin/python manage.py collectstatic --noinput
         fi
@@ -398,12 +399,11 @@ jobs:
 
     - name: Start Zulip server
       run: |
+        cd $ZULIP_DIR
         if [ -n "$SUDO_CMD" ]; then
-          cd /home/zulip/zulip-server
           $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py runserver 0.0.0.0:8000 &
           echo "Zulip server started with sudo"
         else
-          cd ~/zulip-server
           ~/zulip-py3-venv/bin/python manage.py runserver 0.0.0.0:8000 &
           echo "Zulip server started without sudo"
         fi
@@ -411,11 +411,10 @@ jobs:
 
     - name: Create admin user
       run: |
+        cd $ZULIP_DIR
         if [ -n "$SUDO_CMD" ]; then
-          cd /home/zulip/zulip-server
           echo "from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.create_superuser('${{ secrets.ADMIN_USERNAME || 'admin' }}', '${{ secrets.ADMIN_EMAIL || 'admin@localhost' }}', '${{ secrets.ADMIN_PASSWORD || 'admin123' }}') if not User.objects.filter(username='${{ secrets.ADMIN_USERNAME || 'admin' }}').exists() else None" | $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py shell
         else
-          cd ~/zulip-server
           echo "from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.create_superuser('${{ secrets.ADMIN_USERNAME || 'admin' }}', '${{ secrets.ADMIN_EMAIL || 'admin@localhost' }}', '${{ secrets.ADMIN_PASSWORD || 'admin123' }}') if not User.objects.filter(username='${{ secrets.ADMIN_USERNAME || 'admin' }}').exists() else None" | ~/zulip-py3-venv/bin/python manage.py shell
         fi
 
@@ -427,11 +426,10 @@ jobs:
 
     - name: Generate realm creation link
       run: |
+        cd $ZULIP_DIR
         if [ -n "$SUDO_CMD" ]; then
-          cd /home/zulip/zulip-server
           $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py generate_realm_creation_link
         else
-          cd ~/zulip-server
           ~/zulip-py3-venv/bin/python manage.py generate_realm_creation_link
         fi
 
