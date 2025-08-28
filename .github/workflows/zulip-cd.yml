@@ -55,12 +55,26 @@ jobs:
       run: |
         set -e
         echo "Cleaning up workspace..."
+        
+        # Get the current workspace path
+        WORKSPACE_PATH=$(pwd)
+        echo "Current workspace: $WORKSPACE_PATH"
+        
         # Remove any existing checkout directories
         rm -rf ./zulip-source || true
         rm -rf ./zulip || true
+        
+        # Remove nested zulip directories that might be causing conflicts
+        find . -type d -name "zulip" -path "*/zulip/zulip*" -exec rm -rf {} + || true
+        
         # Clean up any temporary files
         find . -name "*.tmp" -delete || true
         find . -name "*.log" -delete || true
+        
+        # List current directory contents for debugging
+        echo "Current directory contents:"
+        ls -la || true
+        
         echo "Workspace cleaned successfully"
         
     - name: Checkout (not strictly required, but useful for versioning)
