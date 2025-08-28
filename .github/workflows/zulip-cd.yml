@@ -55,10 +55,28 @@ jobs:
       with:
         node-version: ${{ env.NODE_VERSION }}
 
+    - name: Configure sudo access
+      run: |
+        # Check if we're running as root
+        if [ "$EUID" -eq 0 ]; then
+          echo "Running as root, no sudo needed"
+          export SUDO_CMD=""
+        else
+          # Check if passwordless sudo is already configured
+          if sudo -n true 2>/dev/null; then
+            echo "Passwordless sudo already configured"
+            export SUDO_CMD="sudo"
+          else
+            echo "ERROR: Passwordless sudo not configured. Please configure the runner user for passwordless sudo access."
+            echo "Run: echo '$USER ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/github-runner"
+            exit 1
+          fi
+        fi
+
     - name: Install system dependencies
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
+        $SUDO_CMD apt-get update
+        $SUDO_CMD apt-get install -y \
           build-essential \
           libffi-dev \
           libssl-dev \
@@ -85,54 +103,54 @@ jobs:
 
     - name: Create zulip user
       run: |
-        sudo useradd -m -s /bin/bash zulip || true
-        sudo usermod -aG sudo zulip
+        $SUDO_CMD useradd -m -s /bin/bash zulip || true
+        $SUDO_CMD usermod -aG sudo zulip
         echo "zulip user created/updated"
 
     - name: Create directories
       run: |
-        sudo mkdir -p /home/zulip/zulip-server
-        sudo mkdir -p /etc/zulip
-        sudo mkdir -p /var/log/zulip
-        sudo mkdir -p /var/lib/zulip
-        sudo mkdir -p /home/zulip/uploads
-        sudo mkdir -p /var/backups/zulip
-        sudo chown -R zulip:zulip /home/zulip
-        sudo chown -R zulip:zulip /var/log/zulip
-        sudo chown -R zulip:zulip /var/lib/zulip
-        sudo chown -R zulip:zulip /var/backups/zulip
+        $SUDO_CMD mkdir -p /home/zulip/zulip-server
+        $SUDO_CMD mkdir -p /etc/zulip
+        $SUDO_CMD mkdir -p /var/log/zulip
+        $SUDO_CMD mkdir -p /var/lib/zulip
+        $SUDO_CMD mkdir -p /home/zulip/uploads
+        $SUDO_CMD mkdir -p /var/backups/zulip
+        $SUDO_CMD chown -R zulip:zulip /home/zulip
+        $SUDO_CMD chown -R zulip:zulip /var/log/zulip
+        $SUDO_CMD chown -R zulip:zulip /var/lib/zulip
+        $SUDO_CMD chown -R zulip:zulip /var/backups/zulip
 
     - name: Install Python dependencies
       run: |
-        sudo -u zulip python3 -m pip install --user --upgrade pip
-        sudo -u zulip python3 -m pip install --user virtualenv
+        $SUDO_CMD -u zulip python3 -m pip install --user --upgrade pip
+        $SUDO_CMD -u zulip python3 -m pip install --user virtualenv
 
     - name: Setup Zulip environment
       run: |
         cd /home/zulip
-        sudo -u zulip python3 -m venv zulip-py3-venv
-        sudo -u zulip /home/zulip/zulip-py3-venv/bin/pip install --upgrade pip
+        $SUDO_CMD -u zulip python3 -m venv zulip-py3-venv
+        $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install --upgrade pip
 
     - name: Copy Zulip code
       run: |
-        sudo cp -r . /home/zulip/zulip-server/
-        sudo chown -R zulip:zulip /home/zulip/zulip-server
+        $SUDO_CMD cp -r . /home/zulip/zulip-server/
+        $SUDO_CMD chown -R zulip:zulip /home/zulip/zulip-server
 
     - name: Install Zulip dependencies
       run: |
         cd /home/zulip/zulip-server
-        sudo -u zulip /home/zulip/zulip-py3-venv/bin/pip install -r requirements/prod.txt
-        sudo -u zulip /home/zulip/zulip-py3-venv/bin/pip install -r requirements/dev.txt
+        $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install -r requirements/prod.txt
+        $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/pip install -r requirements/dev.txt
 
     - name: Install Node.js dependencies
       run: |
         cd /home/zulip/zulip-server
-        sudo -u zulip npm install
-        sudo -u zulip npm run build
+        $SUDO_CMD -u zulip npm install
+        $SUDO_CMD -u zulip npm run build
 
     - name: Configure Zulip settings
       run: |
-        sudo tee /etc/zulip/settings.py > /dev/null << 'EOF'
+        $SUDO_CMD tee /etc/zulip/settings.py > /dev/null << 'EOF'
         # Zulip settings for VM deployment with hosted PostgreSQL
         import os
         from pathlib import Path
@@ -188,7 +206,7 @@ jobs:
         CACHES = {
             'default': {
                 'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-                'LOCATION': 'redis://:zulip@127.0.0.1:6379/1',
+                'LOCATION': 'redis://:zulip1133@127.0.0.1:6379/1',
             }
         }
 
@@ -326,7 +344,7 @@ jobs:
 
     - name: Create zulip-secrets.conf
       run: |
-        sudo tee /etc/zulip/zulip-secrets.conf > /dev/null << 'EOF'
+        $SUDO_CMD tee /etc/zulip/zulip-secrets.conf > /dev/null << 'EOF'
         [secrets]
         secret_key = ${{ secrets.ZULIP_SECRET_KEY }}
         postgres_password = ${{ secrets.DB_PASSWORD }}
@@ -342,40 +360,40 @@ jobs:
     - name: Configure Redis with password
       run: |
         # Configure Redis with password
-        sudo sed -i 's/# requirepass foobared/requirepass zulip1133/' /etc/redis/redis.conf
-        sudo systemctl restart redis-server
+        $SUDO_CMD sed -i 's/# requirepass foobared/requirepass zulip1133/' /etc/redis/redis.conf
+        $SUDO_CMD systemctl restart redis-server
 
     - name: Configure RabbitMQ with password
       run: |
         # Start RabbitMQ service first
-        sudo systemctl start rabbitmq-server
-        sudo systemctl enable rabbitmq-server
+        $SUDO_CMD systemctl start rabbitmq-server
+        $SUDO_CMD systemctl enable rabbitmq-server
         
         # Wait for RabbitMQ to be ready
         sleep 10
         
         # Configure RabbitMQ with password
-        sudo rabbitmqctl add_user zulip zulip1133 || true
-        sudo rabbitmqctl set_permissions -p / zulip ".*" ".*" ".*" || true
-        sudo rabbitmqctl set_user_tags zulip administrator || true
+        $SUDO_CMD rabbitmqctl add_user zulip zulip1133 || true
+        $SUDO_CMD rabbitmqctl set_permissions -p / zulip ".*" ".*" ".*" || true
+        $SUDO_CMD rabbitmqctl set_user_tags zulip administrator || true
 
     - name: Configure Memcached with password
       run: |
         # Install SASL for Memcached authentication
-        sudo apt-get install -y libsasl2-2 libsasl2-modules sasl2-bin
+        $SUDO_CMD apt-get install -y libsasl2-2 libsasl2-modules sasl2-bin
         
         # Create SASL configuration for Memcached
-        sudo tee /etc/sasl2/memcached.conf > /dev/null << 'EOF'
+        $SUDO_CMD tee /etc/sasl2/memcached.conf > /dev/null << 'EOF'
         mech_list: plain
         log_level: 5
         sasldb_path: /etc/sasl2/memcached-sasldb2
         EOF
         
         # Create SASL user for Memcached
-        echo 'zulip1133' | sudo saslpasswd2 -a memcached -c zulip -p
+        echo 'zulip1133' | $SUDO_CMD saslpasswd2 -a memcached -c zulip -p
         
         # Configure Memcached to use SASL
-        sudo tee /etc/memcached.conf > /dev/null << 'EOF'
+        $SUDO_CMD tee /etc/memcached.conf > /dev/null << 'EOF'
         # memcached default config file
         #  -m 64
         -m 128
@@ -385,7 +403,7 @@ jobs:
         -S
         EOF
         
-        sudo systemctl restart memcached
+        $SUDO_CMD systemctl restart memcached
 
     - name: Test database connection
       run: |
@@ -394,12 +412,12 @@ jobs:
     - name: Initialize database
       run: |
         cd /home/zulip/zulip-server
-        sudo -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py migrate
-        sudo -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py collectstatic --noinput
+        $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py migrate
+        $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py collectstatic --noinput
 
     - name: Configure nginx
       run: |
-        sudo tee /etc/nginx/sites-available/zulip > /dev/null << 'EOF'
+        $SUDO_CMD tee /etc/nginx/sites-available/zulip > /dev/null << 'EOF'
         server {
             listen 80;
             server_name ${{ secrets.ZULIP_EXTERNAL_HOST || 'localhost' }};
@@ -478,13 +496,13 @@ jobs:
 
     - name: Enable nginx site
       run: |
-        sudo ln -sf /etc/nginx/sites-available/zulip /etc/nginx/sites-enabled/
-        sudo rm -f /etc/nginx/sites-enabled/default
-        sudo nginx -t
+        $SUDO_CMD ln -sf /etc/nginx/sites-available/zulip /etc/nginx/sites-enabled/
+        $SUDO_CMD rm -f /etc/nginx/sites-enabled/default
+        $SUDO_CMD nginx -t
 
     - name: Create systemd service
       run: |
-        sudo tee /etc/systemd/system/zulip.service > /dev/null << 'EOF'
+        $SUDO_CMD tee /etc/systemd/system/zulip.service > /dev/null << 'EOF'
         [Unit]
         Description=Zulip Server
         After=network.target redis-server.service rabbitmq-server.service memcached.service
@@ -505,22 +523,22 @@ jobs:
 
     - name: Start services
       run: |
-        sudo systemctl daemon-reload
-        sudo systemctl enable zulip
-        sudo systemctl enable nginx
-        sudo systemctl enable redis-server
-        sudo systemctl enable rabbitmq-server
-        sudo systemctl enable memcached
-        sudo systemctl start redis-server
-        sudo systemctl start rabbitmq-server
-        sudo systemctl start memcached
-        sudo systemctl start zulip
-        sudo systemctl start nginx
+        $SUDO_CMD systemctl daemon-reload
+        $SUDO_CMD systemctl enable zulip
+        $SUDO_CMD systemctl enable nginx
+        $SUDO_CMD systemctl enable redis-server
+        $SUDO_CMD systemctl enable rabbitmq-server
+        $SUDO_CMD systemctl enable memcached
+        $SUDO_CMD systemctl start redis-server
+        $SUDO_CMD systemctl start rabbitmq-server
+        $SUDO_CMD systemctl start memcached
+        $SUDO_CMD systemctl start zulip
+        $SUDO_CMD systemctl start nginx
 
     - name: Create admin user
       run: |
         cd /home/zulip/zulip-server
-        echo "from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.create_superuser('${{ secrets.ADMIN_USERNAME || 'admin' }}', '${{ secrets.ADMIN_EMAIL || 'admin@localhost' }}', '${{ secrets.ADMIN_PASSWORD || 'admin123' }}') if not User.objects.filter(username='${{ secrets.ADMIN_USERNAME || 'admin' }}').exists() else None" | sudo -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py shell
+        echo "from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.create_superuser('${{ secrets.ADMIN_USERNAME || 'admin' }}', '${{ secrets.ADMIN_EMAIL || 'admin@localhost' }}', '${{ secrets.ADMIN_PASSWORD || 'admin123' }}') if not User.objects.filter(username='${{ secrets.ADMIN_USERNAME || 'admin' }}').exists() else None" | $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py shell
 
     - name: Health check
       run: |
@@ -530,7 +548,7 @@ jobs:
 
     - name: Create backup script
       run: |
-        sudo tee /usr/local/bin/zulip-backup > /dev/null << 'EOF'
+        $SUDO_CMD tee /usr/local/bin/zulip-backup > /dev/null << 'EOF'
         #!/bin/bash
         BACKUP_DIR="/var/backups/zulip"
         DATE=$(date +%Y%m%d_%H%M%S)
@@ -546,15 +564,15 @@ jobs:
         
         echo "Backup completed: $BACKUP_FILE"
         EOF
-        sudo chmod +x /usr/local/bin/zulip-backup
+        $SUDO_CMD chmod +x /usr/local/bin/zulip-backup
 
     - name: Setup backup cron job
       run: |
-        echo "0 2 * * * /usr/local/bin/zulip-backup" | sudo crontab -
+        echo "0 2 * * * /usr/local/bin/zulip-backup" | $SUDO_CMD crontab -
 
     - name: Create health check script
       run: |
-        sudo tee /usr/local/bin/zulip-health-check > /dev/null << 'EOF'
+        $SUDO_CMD tee /usr/local/bin/zulip-health-check > /dev/null << 'EOF'
         #!/bin/bash
         HEALTH_URL="${{ secrets.ZULIP_URI_SCHEME || 'http' }}://${{ secrets.ZULIP_EXTERNAL_HOST || 'localhost' }}/health"
         LOG_FILE="/var/log/zulip/health-check.log"
@@ -567,16 +585,16 @@ jobs:
             exit 1
         fi
         EOF
-        sudo chmod +x /usr/local/bin/zulip-health-check
+        $SUDO_CMD chmod +x /usr/local/bin/zulip-health-check
 
     - name: Setup health check cron job
       run: |
-        echo "*/5 * * * * /usr/local/bin/zulip-health-check" | sudo crontab -
+        echo "*/5 * * * * /usr/local/bin/zulip-health-check" | $SUDO_CMD crontab -
 
     - name: Generate realm creation link
       run: |
         cd /home/zulip/zulip-server
-        sudo -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py generate_realm_creation_link
+        $SUDO_CMD -u zulip /home/zulip/zulip-py3-venv/bin/python manage.py generate_realm_creation_link
 
     - name: Deployment summary
       run: |
