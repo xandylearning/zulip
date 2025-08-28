@@ -1,307 +1,132 @@
-name: Deploy Zulip (External Postgres) on Self-Hosted VM
+name: Deploy Zulip (self-hosted)
 
 on:
   push:
-    branches: [ dev ]
-    paths-ignore: [ 'docs/**', 'help/**', 'locale/**' ]
+    branches: [ main ]         # change if you deploy from another branch
+    paths-ignore:
+      - "README.md"
+      - ".github/**"
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Git ref (branch/tag) to deploy from your fork'
-        required: true
-        default: 'main'
-      ssl_mode:
-        description: 'TLS mode: none | self-signed | certbot'
-        required: true
-        default: 'none'
-        type: choice
-        options: [ 'none', 'self-signed', 'certbot' ]
-      managed_db:
-        description: 'Managed DB (RDS/Cloud SQL)? sets missing dictionaries'
-        required: true
-        default: 'true'
-        type: choice
-        options: [ 'true', 'false' ]
+        description: "Branch/tag/commit to deploy (defaults to pushed ref)"
+        required: false
+        default: ""
+      health_timeout:
+        description: "Health check timeout (seconds)"
+        required: false
+        default: "60"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zulip-prod-deploy
+  cancel-in-progress: true
 
 env:
-  # Zulip/host basics
-  ZULIP_HOSTNAME: ${{ secrets.ZULIP_HOSTNAME }}          # e.g. chat.example.com or <IP>.nip.io
-  ADMIN_EMAIL:   ${{ secrets.ZULIP_ADMIN_EMAIL }}        # e.g. you@example.com
-  # External Postgres
-  DB_HOST:       ${{ secrets.DB_HOST }}
-  DB_PORT:       ${{ secrets.DB_PORT || '5432' }}
-  DB_NAME:       ${{ secrets.DB_NAME || 'zulip' }}
-  DB_USER:       ${{ secrets.DB_USER || 'zulip' }}
-  DB_PASSWORD:   ${{ secrets.DB_PASSWORD }}
-  POSTGRES_VERSION: ${{ secrets.POSTGRES_VERSION || '17' }}
-  DB_SSLMODE:    ${{ secrets.DB_SSLMODE || 'require' }}  # require / verify-full as per provider
-  # Local services passwords (stable across runs)
-  MEMCACHED_USERNAME: ${{ secrets.MEMCACHED_USERNAME || 'zulip@localhost' }}
-  MEMCACHED_PASSWORD: ${{ secrets.MEMCACHED_PASSWORD }}
-  REDIS_PASSWORD:     ${{ secrets.REDIS_PASSWORD }}
-  RABBITMQ_USERNAME:  ${{ secrets.RABBITMQ_USERNAME || 'zulip' }}
-  RABBITMQ_PASSWORD:  ${{ secrets.RABBITMQ_PASSWORD }}
-  RABBITMQ_VHOST:     ${{ secrets.RABBITMQ_VHOST || '/' }}
-  # Fork to deploy (defaults to the repo running this workflow; override via secret if needed)
-  FORK_REPO_URL: ${{ secrets.FORK_REPO_URL || format('https://github.com/{0}.git', github.repository) }}
+  ZULIP_DEPLOY_DIR: /home/zulip/deployments/current
+  # Set to your public hostname (the same value as EXTERNAL_HOST in settings.py)
+  ZULIP_HOST: chat.example.com
 
 jobs:
   deploy:
-    name: Deploy Zulip
-    runs-on: self-hosted
+    runs-on: [self-hosted, zulip-prod]
+    timeout-minutes: 45
+    
+ 
+    
+    defaults:
+      run:
+        shell: bash
 
     steps:
-    - name: Clean workspace
-      run: |
-        set -e
-        echo "Cleaning up workspace..."
-        
-        # Get the current workspace path
-        WORKSPACE_PATH=$(pwd)
-        echo "Current workspace: $WORKSPACE_PATH"
-        
-        # Remove any existing checkout directories
-        rm -rf ./zulip-source || true
-        rm -rf ./zulip || true
-        
-        # Remove nested zulip directories that might be causing conflicts
-        find . -type d -name "zulip" -path "*/zulip/zulip*" -exec rm -rf {} + || true
-        
-        # Clean up any temporary files
-        find . -name "*.tmp" -delete || true
-        find . -name "*.log" -delete || true
-        
-        # List current directory contents for debugging
-        echo "Current directory contents:"
-        ls -la || true
-        
-        echo "Workspace cleaned successfully"
-        
-    - name: Checkout (not strictly required, but useful for versioning)
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        path: ./zulip-source
+      - name: Show trigger
+        run: |
+          echo "Triggered by: $GITHUB_EVENT_NAME"
+          echo "Repo: $GITHUB_REPOSITORY"
+          echo "Ref from event: $GITHUB_REF_NAME"
 
-    - name: Show inputs
-      run: |
-        echo "Ref: ${{ github.event.inputs.ref || 'main' }}"
-        echo "SSL mode: ${{ github.event.inputs.ssl_mode || 'none' }}"
-        echo "Managed DB: ${{ github.event.inputs.managed_db || 'true' }}"
-
-    - name: Pre-flight checks
-      run: |
-        set -e
-        if [ -z "${ZULIP_HOSTNAME}" ] || [ -z "${ADMIN_EMAIL}" ]; then
-          echo "ZULIP_HOSTNAME and ADMIN_EMAIL secrets are required."; exit 1; fi
-        if [ -z "${DB_HOST}" ] || [ -z "${DB_PASSWORD}" ]; then
-          echo "DB_HOST and DB_PASSWORD secrets are required for external Postgres."; exit 1; fi
-        if ! id -u zulip >/dev/null 2>&1; then sudo useradd -m -s /bin/bash zulip; fi
-
-    - name: Ensure swap if RAM < 5G and no swap
-      run: |
-        set -e
-        MEM_MB=$(grep MemTotal /proc/meminfo | awk '{print int($2/1024)}')
-        HAS_SWAP=$(swapon --show | wc -l)
-        if [ "$MEM_MB" -lt 5000 ] && [ "$HAS_SWAP" -eq 0 ]; then
-          echo "Configuring 2G swap..."
-          sudo fallocate -l 2G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          grep -q "/swapfile" /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-        fi
-
-    - name: Install system packages (no local Postgres)
-      run: |
-        set -e
-        sudo apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-          curl jq ca-certificates gnupg lsb-release \
-          memcached sasl2-bin libsasl2-2 libsasl2-modules libmemcached-tools \
-          redis-server rabbitmq-server \
-          nginx python3-certbot-nginx || true
-
-    - name: Persist Zulip secrets file (idempotent)
-      run: |
-        set -e
-        sudo install -d -m 0750 -o root -g zulip /etc/zulip
-        sudo touch /etc/zulip/zulip-secrets.conf
-        sudo chgrp zulip /etc/zulip/zulip-secrets.conf
-        sudo chmod 0640 /etc/zulip/zulip-secrets.conf
-        add_kv () { key="$1"; val="$2"; f="/etc/zulip/zulip-secrets.conf"; grep -qE "^[[:space:]]*$key[[:space:]]*=" "$f" || echo "$key = $val" | sudo tee -a "$f" >/dev/null; }
-        add_kv postgres_password   "${DB_PASSWORD}"
-        add_kv memcached_password  "${MEMCACHED_PASSWORD}"
-        add_kv redis_password      "${REDIS_PASSWORD}"
-        add_kv rabbitmq_password   "${RABBITMQ_PASSWORD}"
-
-    - name: Configure Memcached (SASL), Redis, RabbitMQ (idempotent)
-      run: |
-        set -e
-        # --- Memcached SASL ---
-        sudo install -d /etc/sasl2
-        sudo tee /etc/sasl2/memcached.conf >/dev/null <<EOF
-        mech_list: plain
-        log_level: 5
-        sasldb_path: /etc/sasl2/memcached-sasldb2
-        EOF
-        printf "%s" "${MEMCACHED_PASSWORD}" | sudo saslpasswd2 -a memcached -c -p -f /etc/sasl2/memcached-sasldb2 "${MEMCACHED_USERNAME}" || true
-        sudo chown memcache:memcache /etc/sasl2/memcached-sasldb2; sudo chmod 640 /etc/sasl2/memcached-sasldb2
-        sudo sed -i 's/^-l .*/-l 127.0.0.1/' /etc/memcached.conf
-        grep -q '^-U ' /etc/memcached.conf && sudo sed -i 's/^-U .*/-U 0/' /etc/memcached.conf || echo "-U 0" | sudo tee -a /etc/memcached.conf >/dev/null
-        grep -q '^-S$' /etc/memcached.conf || echo "-S" | sudo tee -a /etc/memcached.conf >/dev/null
-        sudo systemctl enable memcached; sudo systemctl restart memcached
-
-        # --- Redis ---
-        sudo cp -n /etc/redis/redis.conf /etc/redis/redis.conf.backup || true
-        sudo sed -i 's/^# *bind .*/bind 127.0.0.1 ::1/' /etc/redis/redis.conf
-        sudo sed -i 's/^protected-mode .*/protected-mode yes/' /etc/redis/redis.conf
-        if grep -q '^requirepass ' /etc/redis/redis.conf; then
-          sudo sed -i "s/^requirepass .*/requirepass ${REDIS_PASSWORD//\//\\/}/" /etc/redis/redis.conf
-        else
-          echo "requirepass ${REDIS_PASSWORD}" | sudo tee -a /etc/redis/redis.conf >/dev/null
-        fi
-        sudo sed -i 's/^save .*/save ""/' /etc/redis/redis.conf
-        sudo sed -i 's/^appendonly .*/appendonly no/' /etc/redis/redis.conf
-        sudo sed -i 's/^supervised .*/supervised systemd/' /etc/redis/redis.conf
-        sudo systemctl enable redis-server; sudo systemctl restart redis-server
-
-        # --- RabbitMQ ---
-        sudo systemctl enable rabbitmq-server; sudo systemctl restart rabbitmq-server
-        for i in {1..30}; do sudo rabbitmqctl status >/dev/null 2>&1 && break || sleep 1; done
-        sudo rabbitmqctl add_user "${RABBITMQ_USERNAME}" "${RABBITMQ_PASSWORD}" 2>/dev/null || sudo rabbitmqctl change_password "${RABBITMQ_USERNAME}" "${RABBITMQ_PASSWORD}"
-        sudo rabbitmqctl add_vhost "${RABBITMQ_VHOST}" 2>/dev/null || true
-        sudo rabbitmqctl set_permissions -p "${RABBITMQ_VHOST}" "${RABBITMQ_USERNAME}" ".*" ".*" ".*"
-
-    - name: Install Zulip from release tarball (no local DB) — first time only
-      run: |
-        set -e
-        if [ ! -d /home/zulip/deployments/current ]; then
-          TMP=$(mktemp -d)
-          cd "$TMP"
-          curl -fLO https://download.zulip.com/server/zulip-server-latest.tar.gz
-          tar -xf zulip-server-latest.tar.gz
-          cd zulip-server-*
-          PUPPET_CLASSES="zulip::profile::standalone_nodb"
-          if [ "${{ github.event.inputs.managed_db || 'true' }}" = "true" ]; then
-            PUPPET_CLASSES="$PUPPET_CLASSES,zulip::process_fts_updates"
-            MISSING="--postgresql-missing-dictionaries"
-          fi
-          SSL="${{ github.event.inputs.ssl_mode || 'none' }}"
-          if [ "$SSL" = "self-signed" ]; then
-            CERTFLAG="--self-signed-cert"
-          elif [ "$SSL" = "certbot" ]; then
-            CERTFLAG="--certbot"
+      - name: Determine ref to deploy
+        id: pickref
+        run: |
+          REF_INPUT="${{ github.event.inputs.ref }}"
+          if [[ -n "$REF_INPUT" ]]; then
+            echo "ref=$REF_INPUT" >> "$GITHUB_OUTPUT"
           else
-            CERTFLAG="--self-signed-cert"  # install expects TLS; we’ll switch nginx to HTTP next step if wanted
+            echo "ref=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
-          sudo ./scripts/setup/install --hostname="${ZULIP_HOSTNAME}" --email="${ADMIN_EMAIL}" \
-            $CERTFLAG --puppet-classes="$PUPPET_CLASSES" ${MISSING:-}
-        else
-          echo "Zulip already installed — skipping."
-        fi
+          echo "Deploying ref: $(cat $GITHUB_OUTPUT)"
 
-    - name: Point Zulip to external Postgres + set versions/hostname/scheme
-      run: |
-        set -e
-        # /etc/zulip/zulip.conf — pin Postgres version and repo URL
-        sudo awk 'BEGIN{p=1} {print} END{}' /etc/zulip/zulip.conf >/tmp/zulip.conf.tmp
-        sudo cp /etc/zulip/zulip.conf /etc/zulip/zulip.conf.bak || true
-        echo '[deployment]' | sudo tee /etc/zulip/zulip.conf >/dev/null
-        echo "git_repo_url = ${FORK_REPO_URL}" | sudo tee -a /etc/zulip/zulip.conf >/dev/null
-        echo '' | sudo tee -a /etc/zulip/zulip.conf >/dev/null
-        echo '[postgresql]' | sudo tee -a /etc/zulip/zulip.conf >/dev/null
-        echo "version = ${POSTGRES_VERSION}" | sudo tee -a /etc/zulip/zulip.conf >/dev/null
+      # We don't deploy the checked-out code; Zulip's script pulls from git_repo_url on the server.
+      # Still, checkout keeps the run familiar and allows future steps to read repo files if needed.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-        # /etc/zulip/settings.py — add remote DB and host/scheme
-        SCHEME="https"
-        if [ "${{ github.event.inputs.ssl_mode || 'none' }}" = "none" ]; then SCHEME="http"; fi
-        sudo cp -n /etc/zulip/settings.py /etc/zulip/settings.py.bak || true
-        sudo sed -i '/^EXTERNAL_HOST/d;/^EXTERNAL_URI_SCHEME/d;/^REMOTE_POSTGRES_/d' /etc/zulip/settings.py
-        echo "EXTERNAL_HOST = \"${ZULIP_HOSTNAME}\"" | sudo tee -a /etc/zulip/settings.py >/dev/null
-        echo "EXTERNAL_URI_SCHEME = \"${SCHEME}\"" | sudo tee -a /etc/zulip/settings.py >/dev/null
-        echo "REMOTE_POSTGRES_HOST = \"${DB_HOST}\"" | sudo tee -a /etc/zulip/settings.py >/dev/null
-        echo "REMOTE_POSTGRES_PORT = ${DB_PORT}" | sudo tee -a /etc/zulip/settings.py >/dev/null
-        echo "REMOTE_POSTGRES_SSLMODE = \"${DB_SSLMODE}\"" | sudo tee -a /etc/zulip/settings.py >/dev/null
+      - name: Deploy from fork via Zulip script
+        run: |
+          set -euo pipefail
+          REF="${{ steps.pickref.outputs.ref }}"
+          echo "Starting upgrade-zulip-from-git $REF"
+          sudo ${ZULIP_DEPLOY_DIR}/scripts/upgrade-zulip-from-git "$REF" | sudo tee /tmp/zulip_upgrade.log
+          echo "Upgrade script finished."
 
-        # /etc/zulip/zulip-secrets.conf — DB user (if different) not needed; Zulip reads DB user from settings.py (default 'zulip')
+      - name: Process health (supervisor)
+        run: |
+          set -e
+          sudo supervisorctl status
+          # Fail if any core services are not RUNNING
+          bad=$(sudo supervisorctl status | awk '$2!="RUNNING"{print}')
+          if [[ -n "$bad" ]]; then
+            echo "Some processes not RUNNING:"
+            echo "$bad"
+            exit 1
+          fi
 
-    - name: Initialize Zulip DB schema on external Postgres (safe to re-run)
-      run: |
-        set -e
-        sudo -u zulip /home/zulip/deployments/current/scripts/setup/initialize-database || true
+      - name: HTTP health check
+        run: |
+          set -euo pipefail
+          timeout="${{ github.event.inputs.health_timeout || '60' }}"
+          echo "HTTP health timeout: $timeout seconds"
+          end=$((SECONDS + timeout))
+          ok=0
+          # Try homepage and a public static file
+          while (( SECONDS < end )); do
+            if curl -fsS -k "https://127.0.0.1/" >/dev/null 2>&1 \
+            && curl -fsS -k "https://127.0.0.1/static/version.json" >/dev/null 2>&1; then
+              ok=1; break
+            fi
+            sleep 2
+          done
+          if [[ "$ok" -ne 1 ]]; then
+            echo "HTTP health check failed"
+            exit 1
+          fi
+          echo "HTTP health check passed."
 
-    - name: Deploy your fork/branch (upgrade-from-git)
-      run: |
-        set -e
-        REF="${{ github.event.inputs.ref || 'main' }}"
-        cd ./zulip-source
-        sudo /home/zulip/deployments/current/scripts/upgrade-zulip-from-git "$REF"
+      - name: Save upgrade log (artifact-like to job log)
+        if: always()
+        run: |
+          echo "::group::/var/log/zulip/upgrade.log (tail)"
+          sudo tail -n 200 /var/log/zulip/upgrade.log || true
+          echo "::endgroup::"
+          echo "::group::/tmp/zulip_upgrade.log"
+          sudo cat /tmp/zulip_upgrade.log || true
+          echo "::endgroup::"
 
-    - name: Switch to simple HTTP-only Nginx if requested
-      if: ${{ github.event.inputs.ssl_mode == 'none' }}
-      run: |
-        set -e
-        echo 'server {' | sudo tee /etc/nginx/sites-available/zulip >/dev/null
-        echo '    listen 80 default_server;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '    server_name _;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '    client_max_body_size 200m;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '    location /static/ {' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        alias /home/zulip/prod-static/;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        expires 1y;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        add_header Cache-Control "public, immutable";' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '    }' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '    location /user_uploads/ {' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        alias /home/zulip/uploads/;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        expires 1y;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        add_header Cache-Control "public";' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '    }' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '    location / {' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        proxy_pass         http://127.0.0.1:9993;  # Zulip default upstream' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        proxy_http_version 1.1;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        proxy_set_header   Upgrade $http_upgrade;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        proxy_set_header   Connection "upgrade";' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        proxy_set_header   Host $host;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        proxy_set_header   X-Real-IP $remote_addr;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        proxy_set_header   X-Forwarded-Proto $scheme;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        proxy_read_timeout 300s;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        proxy_send_timeout 300s;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '    }' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '    location = /health {' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        access_log off;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        return 200 "ok";' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '        add_header Content-Type text/plain;' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '    }' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        echo '}' | sudo tee -a /etc/nginx/sites-available/zulip >/dev/null
-        sudo ln -sf /etc/nginx/sites-available/zulip /etc/nginx/sites-enabled/zulip
-        sudo rm -f /etc/nginx/sites-enabled/default
-        sudo nginx -t
-        sudo systemctl reload nginx
-
-    - name: Restart services & show health
-      run: |
-        set -e
-        sudo supervisorctl restart all || true
-        sleep 5
-        curl -fsS "http://${ZULIP_HOSTNAME}/health" || true
-
-    - name: Generate (or re-print) org creation link
-      run: |
-        set -e
-        LINK=$(sudo -u zulip /home/zulip/deployments/current/manage.py generate_realm_creation_link)
-        echo "### Zulip Realm Creation Link" >> $GITHUB_STEP_SUMMARY
-        echo "$LINK" >> $GITHUB_STEP_SUMMARY
-
-    - name: Summary
-      run: |
-        echo "## Deployed Zulip on ${ZULIP_HOSTNAME}" >> $GITHUB_STEP_SUMMARY
-        echo "- External DB: ${DB_HOST}:${DB_PORT}/${DB_NAME} (user ${DB_USER})" >> $GITHUB_STEP_SUMMARY
-        echo "- Fork: ${FORK_REPO_URL}" >> $GITHUB_STEP_SUMMARY
-        echo "- Ref: ${{ github.event.inputs.ref || 'main' }}" >> $GITHUB_STEP_SUMMARY
-        echo "- SSL mode: ${{ github.event.inputs.ssl_mode || 'none' }}" >> $GITHUB_STEP_SUMMARY
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          set -euo pipefail
+          echo "Rolling back to previous deployment..."
+          prev=$(ls -1dt /home/zulip/deployments/* | sed -n '2p' || true)
+          if [[ -z "$prev" ]]; then
+            echo "No previous deployment found; cannot rollback."
+            exit 1
+          fi
+          echo "Switching 'current' symlink to: $prev"
+          sudo ln -sfn "$prev" /home/zulip/deployments/current
+          sudo ${prev}/scripts/restart-server
+          sudo supervisorctl status
+          echo "Rollback attempted."
