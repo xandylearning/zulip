@@ -1,4 +1,4 @@
-name: Deploy Zulip (self-hosted)
+name: Deploy Zulip
 
 on:
   push:
@@ -31,10 +31,8 @@ env:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, zulip-prod]
+    runs-on: [self-hosted]
     timeout-minutes: 45
-    
- 
     
     defaults:
       run:
