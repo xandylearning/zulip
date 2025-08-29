@@ -1,8 +1,8 @@
-name: Deploy Zulip
+name: Deploy Zulip (self-hosted)
 
 on:
   push:
-    branches: [ dev ]         # change if you deploy from another branch
+    branches: [ main ]
     paths-ignore:
       - "README.md"
       - ".github/**"
@@ -26,14 +26,13 @@ concurrency:
 
 env:
   ZULIP_DEPLOY_DIR: /home/zulip/deployments/current
-  # Set to your public hostname (the same value as EXTERNAL_HOST in settings.py)
   ZULIP_HOST: dev.zulip.xandylearning.in
 
 jobs:
   deploy:
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, zulip-prod]
     timeout-minutes: 45
-    
+
     defaults:
       run:
         shell: bash
@@ -56,8 +55,91 @@ jobs:
           fi
           echo "Deploying ref: $(cat $GITHUB_OUTPUT)"
 
-      # We don't deploy the checked-out code; Zulip's script pulls from git_repo_url on the server.
-      # Still, checkout keeps the run familiar and allows future steps to read repo files if needed.
+      - name: Preflight — ensure 2G swap if RAM < 5G
+        run: |
+          set -euo pipefail
+          mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+          if (( mem_mb < 5120 )); then
+            if ! swapon --show | grep -q '^/swapfile'; then
+              sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+              sudo chmod 600 /swapfile
+              sudo mkswap /swapfile
+              sudo swapon /swapfile
+              if ! grep -q '^/swapfile ' /etc/fstab; then
+                echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+              fi
+              echo "Swap created:"; swapon --show
+            else
+              echo "Swap already present:"; swapon --show
+            fi
+          else
+            echo "RAM >= 5G; skipping swap."; free -h
+          fi
+
+      - name: Preflight — nginx sanity & fragments
+        run: |
+          set -euo pipefail
+          if [[ -L /etc/nginx/sites-enabled/zulip-enterprise ]] && \
+             [[ "$(readlink -f /etc/nginx/sites-enabled/zulip-enterprise)" == "/etc/nginx/sites-available/zulip-enterprise" ]]; then
+            echo "Removing duplicate /etc/nginx/sites-enabled/zulip-enterprise"
+            sudo rm -f /etc/nginx/sites-enabled/zulip-enterprise || true
+          fi
+          if [[ ! -L /etc/nginx/sites-enabled/zulip ]]; then
+            echo "Creating primary site symlink -> zulip-enterprise"
+            sudo ln -s /etc/nginx/sites-available/zulip-enterprise /etc/nginx/sites-enabled/zulip
+          fi
+          need_puppet=0
+          for f in /etc/nginx/zulip-include/trusted-proto /etc/nginx/zulip-include/s3-cache /etc/nginx/zulip-include/upstreams; do
+            [[ -e "$f" ]] || { echo "Missing: $f"; need_puppet=1; }
+          done
+          if (( need_puppet )); then
+            echo "Running zulip-puppet-apply to restore nginx include fragments..."
+            sudo /home/zulip/deployments/current/scripts/zulip-puppet-apply || true
+          fi
+          sudo nginx -t
+
+      - name: Configure external PostgreSQL (optional)
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          # Skip if no DB_HOST is configured
+          if [[ -z "${DB_HOST:-}" ]]; then
+            echo "No external PostgreSQL configured, skipping..."
+            exit 0
+          fi
+          port="${DB_PORT:-5432}"
+          name="${DB_NAME:-zulip}"
+          user="${DB_USER:-zulip}"
+          if [[ -n "${DB_PASSWORD:-}" ]]; then
+            sudo sed -i '/^postgres_password/d' /etc/zulip/zulip-secrets.conf
+            echo "postgres_password = ${DB_PASSWORD}" | sudo tee -a /etc/zulip/zulip-secrets.conf
+          fi
+          sudo python3 - "$DB_HOST" "$port" "$name" "$user" <<'PY'
+          import pathlib, sys
+          p = pathlib.Path('/etc/zulip/settings.py')
+          s = p.read_text()
+          BEGIN, END = '# --- BEGIN CI MANAGED DB ---', '# --- END CI MANAGED DB ---'
+          block = f"""{BEGIN}
+          DATABASES["default"]["HOST"] = "{sys.argv[1]}"
+          DATABASES["default"]["PORT"] = {sys.argv[2]}
+          DATABASES["default"]["NAME"] = "{sys.argv[3]}"
+          DATABASES["default"]["USER"] = "{sys.argv[4]}"
+          from zproject.config import get_secret
+          DATABASES["default"]["PASSWORD"] = get_secret("postgres_password")
+          {END}
+          """
+          if BEGIN in s and END in s:
+              s = s.split(BEGIN)[0] + block + s.split(END,1)[1]
+          else:
+              s += "\n" + block
+          p.write_text(s)
+          PY
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -68,63 +150,42 @@ jobs:
           REF="${{ steps.pickref.outputs.ref }}"
           echo "Starting upgrade-zulip-from-git $REF"
           sudo ${ZULIP_DEPLOY_DIR}/scripts/upgrade-zulip-from-git "$REF" | sudo tee /tmp/zulip_upgrade.log
-          echo "Upgrade script finished."
 
       - name: Process health (supervisor)
         run: |
           set -e
           sudo supervisorctl status
-          # Fail if any core services are not RUNNING
           bad=$(sudo supervisorctl status | awk '$2!="RUNNING"{print}')
           if [[ -n "$bad" ]]; then
-            echo "Some processes not RUNNING:"
-            echo "$bad"
-            exit 1
-          fi
+            echo "Some processes not RUNNING:"; echo "$bad"; exit 1; fi
 
       - name: HTTP health check
         run: |
           set -euo pipefail
           timeout="${{ github.event.inputs.health_timeout || '60' }}"
-          echo "HTTP health timeout: $timeout seconds"
           end=$((SECONDS + timeout))
           ok=0
-          # Try homepage and a public static file
           while (( SECONDS < end )); do
             if curl -fsS -k "https://127.0.0.1/" >/dev/null 2>&1 \
-            && curl -fsS -k "https://127.0.0.1/static/version.json" >/dev/null 2>&1; then
+            && curl -fsS -k "https://127.0.0.1/static/version.json" >/dev/null 2>&1 \
+            && curl -fsS -k "https://127.0.0.1/health" >/dev/null 2>&1; then
               ok=1; break
             fi
             sleep 2
           done
-          if [[ "$ok" -ne 1 ]]; then
-            echo "HTTP health check failed"
-            exit 1
-          fi
-          echo "HTTP health check passed."
+          if [[ "$ok" -ne 1 ]]; then echo "HTTP health check failed"; exit 1; fi
 
-      - name: Save upgrade log (artifact-like to job log)
+      - name: Save logs (always)
         if: always()
         run: |
-          echo "::group::/var/log/zulip/upgrade.log (tail)"
-          sudo tail -n 200 /var/log/zulip/upgrade.log || true
-          echo "::endgroup::"
-          echo "::group::/tmp/zulip_upgrade.log"
-          sudo cat /tmp/zulip_upgrade.log || true
-          echo "::endgroup::"
+          echo "::group::/var/log/zulip/upgrade.log"; sudo tail -n 200 /var/log/zulip/upgrade.log || true; echo "::endgroup::"
+          echo "::group::/tmp/zulip_upgrade.log"; sudo cat /tmp/zulip_upgrade.log || true; echo "::endgroup::"
 
       - name: Rollback on failure
         if: failure()
         run: |
           set -euo pipefail
-          echo "Rolling back to previous deployment..."
           prev=$(ls -1dt /home/zulip/deployments/* | sed -n '2p' || true)
-          if [[ -z "$prev" ]]; then
-            echo "No previous deployment found; cannot rollback."
-            exit 1
-          fi
-          echo "Switching 'current' symlink to: $prev"
+          if [[ -z "$prev" ]]; then exit 1; fi
           sudo ln -sfn "$prev" /home/zulip/deployments/current
           sudo ${prev}/scripts/restart-server
-          sudo supervisorctl status
-          echo "Rollback attempted."
