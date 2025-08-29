@@ -27,7 +27,7 @@ concurrency:
 env:
   ZULIP_DEPLOY_DIR: /home/zulip/deployments/current
   # Set to your public hostname (the same value as EXTERNAL_HOST in settings.py)
-  ZULIP_HOST: chat.example.com
+  ZULIP_HOST: dev.zulip.xandylearning.in
 
 jobs:
   deploy:
