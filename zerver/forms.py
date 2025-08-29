@@ -72,7 +72,10 @@ PASSWORD_TOO_WEAK_ERROR = gettext_lazy("The password is too weak.")
 
 
 def email_is_not_mit_mailing_list(email: str) -> None:
-    """Prevent MIT mailing lists from signing up for Zulip"""
+    """Prevent MIT mailing lists from signing up for Zulip
+    This is a workaround for a bug in the MIT DNS server.
+    See https://github.com/zulip/zulip/issues/24000 for more details.
+    """
     address = Address(addr_spec=email)
     if address.domain == "mit.edu":
         # Check whether the user exists and can get mail.
