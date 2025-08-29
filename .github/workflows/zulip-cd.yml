@@ -96,6 +96,22 @@ jobs:
             echo "Running zulip-puppet-apply to restore nginx include fragments..."
             sudo /home/zulip/deployments/current/scripts/zulip-puppet-apply || true
           fi
+          
+          # Check for duplicate resolver directives and fix them
+          for include_file in /etc/nginx/zulip-include/*; do
+            if [[ -f "$include_file" ]]; then
+              resolver_count=$(grep -c "^[[:space:]]*resolver" "$include_file" 2>/dev/null || true)
+              if (( resolver_count > 1 )); then
+                echo "Found $resolver_count resolver directives in $(basename "$include_file"), fixing..."
+                # Create temp file with only the first resolver directive
+                sudo awk '/^[[:space:]]*resolver/ && !seen {seen=1; print; next} !/^[[:space:]]*resolver/ {print}' \
+                  "$include_file" > "/tmp/$(basename "$include_file")-fixed"
+                sudo mv "/tmp/$(basename "$include_file")-fixed" "$include_file"
+                echo "Fixed duplicate resolver directives in $(basename "$include_file")"
+              fi
+            fi
+          done
+          
           sudo nginx -t
 
       - name: Configure external PostgreSQL (optional)
@@ -173,6 +189,39 @@ jobs:
           REF="${{ steps.pickref.outputs.ref }}"
           echo "Starting upgrade-zulip-from-git $REF"
           sudo ${ZULIP_DEPLOY_DIR}/scripts/upgrade-zulip-from-git "$REF" | sudo tee /tmp/zulip_upgrade.log
+
+      - name: Post-deploy nginx fix (if needed)
+        if: always()
+        run: |
+          set -euo pipefail
+          # Check if nginx is running, if not try to fix config issues
+          if ! sudo systemctl is-active --quiet nginx; then
+            echo "nginx is not running, checking for config issues..."
+            
+            # Fix duplicate resolver directives again (in case they were recreated)
+            for include_file in /etc/nginx/zulip-include/*; do
+              if [[ -f "$include_file" ]]; then
+                resolver_count=$(grep -c "^[[:space:]]*resolver" "$include_file" 2>/dev/null || true)
+                if (( resolver_count > 1 )); then
+                  echo "Found $resolver_count resolver directives in $(basename "$include_file"), fixing..."
+                  sudo awk '/^[[:space:]]*resolver/ && !seen {seen=1; print; next} !/^[[:space:]]*resolver/ {print}' \
+                    "$include_file" > "/tmp/$(basename "$include_file")-fixed"
+                  sudo mv "/tmp/$(basename "$include_file")-fixed" "$include_file"
+                  echo "Fixed duplicate resolver directives in $(basename "$include_file")"
+                fi
+              fi
+            done
+            
+            # Test nginx config and restart if valid
+            if sudo nginx -t; then
+              echo "nginx config is now valid, restarting..."
+              sudo systemctl restart nginx
+            else
+              echo "nginx config still has issues, will be handled by next step"
+            fi
+          else
+            echo "nginx is running properly"
+          fi
 
       - name: Process health (supervisor)
         run: |
