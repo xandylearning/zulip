@@ -35,7 +35,8 @@ class ZerverConfig(AppConfig):
         # running that code too early in Django's setup process, but
         # in any case, this is an intentionally unused import.
         # We also import zerver.logging_handlers here for the side effect of
-        # registering the logging handlers.
+        # registering the logging handlers. 
+
         import zerver.signals  # noqa: F401
 
         if settings.POST_MIGRATION_CACHE_FLUSHING:

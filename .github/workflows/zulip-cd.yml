@@ -105,12 +105,14 @@ jobs:
           DB_NAME: ${{ secrets.DB_NAME }}
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_SSL_MODE: ${{ secrets.DB_SSL_MODE }}
         run: |
           # This step configures external PostgreSQL by:
           # 1. Setting postgres_password in zulip-secrets.conf if provided
           # 2. Setting database_name and database_user in zulip.conf 
-          # 3. Setting REMOTE_POSTGRES_HOST and REMOTE_POSTGRES_PORT in settings.py
+          # 3. Setting REMOTE_POSTGRES_HOST, REMOTE_POSTGRES_PORT, and REMOTE_POSTGRES_SSLMODE in settings.py
           # The DATABASES dict is automatically configured by computed_settings.py
+          # SSL mode defaults to 'disable' - use 'require' or 'verify-full' for secure connections
           set -euo pipefail
           # Skip if no DB_HOST is configured
           if [[ -z "${DB_HOST:-}" ]]; then
@@ -120,12 +122,13 @@ jobs:
           port="${DB_PORT:-5432}"
           name="${DB_NAME:-zulip}"
           user="${DB_USER:-zulip}"
+          ssl_mode="${DB_SSL_MODE:-disable}"
           if [[ -n "${DB_PASSWORD:-}" ]]; then
             sudo sed -i '/^postgres_password/d' /etc/zulip/zulip-secrets.conf
             echo "postgres_password = ${DB_PASSWORD}" | sudo tee -a /etc/zulip/zulip-secrets.conf
           fi
           # Configure external PostgreSQL via zulip.conf and settings.py
-          sudo python3 - "$DB_HOST" "$port" "$name" "$user" <<'PY'
+          sudo python3 - "$DB_HOST" "$port" "$name" "$user" "$ssl_mode" <<'PY'
           import configparser, pathlib, sys
           
           # Update zulip.conf with database settings
@@ -150,6 +153,7 @@ jobs:
           # External PostgreSQL configuration
           REMOTE_POSTGRES_HOST = "{sys.argv[1]}"
           REMOTE_POSTGRES_PORT = {sys.argv[2]}
+          REMOTE_POSTGRES_SSLMODE = "{sys.argv[5]}"
           {END}
           """
           if BEGIN in s and END in s:
