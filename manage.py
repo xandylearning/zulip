@@ -18,10 +18,14 @@ from scripts.lib.zulip_tools import assert_not_running_as_root
 
 
 def get_filtered_commands() -> dict[str, str]:
+
     """Because Zulip uses management commands in production, `manage.py
     help` is a form of documentation for users. Here we exclude from
     that documentation built-in commands that are not constructive for
     end users or even Zulip developers to run.
+
+    This is a modified version of the original get_filtered_commands function.
+    The original function is located in zulip/scripts/lib/management.py.
 
     Ideally, we'd do further customization to display management
     commands with more organization in the help text, and also hide
