@@ -106,6 +106,11 @@ jobs:
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
+          # This step configures external PostgreSQL by:
+          # 1. Setting postgres_password in zulip-secrets.conf if provided
+          # 2. Setting database_name and database_user in zulip.conf 
+          # 3. Setting REMOTE_POSTGRES_HOST and REMOTE_POSTGRES_PORT in settings.py
+          # The DATABASES dict is automatically configured by computed_settings.py
           set -euo pipefail
           # Skip if no DB_HOST is configured
           if [[ -z "${DB_HOST:-}" ]]; then
@@ -119,25 +124,39 @@ jobs:
             sudo sed -i '/^postgres_password/d' /etc/zulip/zulip-secrets.conf
             echo "postgres_password = ${DB_PASSWORD}" | sudo tee -a /etc/zulip/zulip-secrets.conf
           fi
+          # Configure external PostgreSQL via zulip.conf and settings.py
           sudo python3 - "$DB_HOST" "$port" "$name" "$user" <<'PY'
-          import pathlib, sys
-          p = pathlib.Path('/etc/zulip/settings.py')
-          s = p.read_text()
+          import configparser, pathlib, sys
+          
+          # Update zulip.conf with database settings
+          conf_path = pathlib.Path('/etc/zulip/zulip.conf')
+          config = configparser.RawConfigParser()
+          config.read(str(conf_path))
+          
+          if not config.has_section('postgresql'):
+              config.add_section('postgresql')
+          
+          config.set('postgresql', 'database_name', sys.argv[3])
+          config.set('postgresql', 'database_user', sys.argv[4])
+          
+          with open(str(conf_path), 'w') as f:
+              config.write(f)
+          
+          # Update settings.py with remote host configuration
+          settings_path = pathlib.Path('/etc/zulip/settings.py')
+          s = settings_path.read_text()
           BEGIN, END = '# --- BEGIN CI MANAGED DB ---', '# --- END CI MANAGED DB ---'
           block = f"""{BEGIN}
-          DATABASES["default"]["HOST"] = "{sys.argv[1]}"
-          DATABASES["default"]["PORT"] = {sys.argv[2]}
-          DATABASES["default"]["NAME"] = "{sys.argv[3]}"
-          DATABASES["default"]["USER"] = "{sys.argv[4]}"
-          from zproject.config import get_secret
-          DATABASES["default"]["PASSWORD"] = get_secret("postgres_password")
+          # External PostgreSQL configuration
+          REMOTE_POSTGRES_HOST = "{sys.argv[1]}"
+          REMOTE_POSTGRES_PORT = {sys.argv[2]}
           {END}
           """
           if BEGIN in s and END in s:
               s = s.split(BEGIN)[0] + block + s.split(END,1)[1]
           else:
               s += "\n" + block
-          p.write_text(s)
+          settings_path.write_text(s)
           PY
 
       - uses: actions/checkout@v4
@@ -185,7 +204,11 @@ jobs:
         if: failure()
         run: |
           set -euo pipefail
-          prev=$(ls -1dt /home/zulip/deployments/* | sed -n '2p' || true)
-          if [[ -z "$prev" ]]; then exit 1; fi
+          prev=$(sudo ls -1dt /home/zulip/deployments/* 2>/dev/null | sed -n '2p' || true)
+          if [[ -z "$prev" ]]; then 
+            echo "No previous deployment found for rollback"
+            exit 1
+          fi
+          echo "Rolling back to: $prev"
           sudo ln -sfn "$prev" /home/zulip/deployments/current
           sudo ${prev}/scripts/restart-server
