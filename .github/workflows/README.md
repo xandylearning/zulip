@@ -29,7 +29,13 @@ The `zulip-cd.yml` workflow builds a Docker image and deploys it to Google Cloud
      --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
      --role="roles/artifactregistry.admin"
    
-   gcloud projects add-iam-policy-binding $PROJECT_ID \
+   # Create a dedicated service account for Cloud Run (more secure)
+   gcloud iam service-accounts create cloud-run-zulip \
+     --display-name="Cloud Run Zulip Service Account"
+   
+   # Grant permission to act as the Cloud Run service account
+   gcloud iam service-accounts add-iam-policy-binding \
+     cloud-run-zulip@$PROJECT_ID.iam.gserviceaccount.com \
      --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
      --role="roles/iam.serviceAccountUser"
    
@@ -64,8 +70,10 @@ Add the following secrets to your GitHub repository:
 
 #### **Core Secrets**
 - `GCP_PROJECT_ID`: Your Google Cloud project ID
-- `GCP_SA_KEY`: The JSON key file content of your service account
+- `GCP_SA_KEY`: The JSON key file content of your GitHub Actions service account
 - `ZULIP_SECRETS_KEY`: Zulip secrets key for the application
+
+**Note**: The workflow now uses a dedicated `cloud-run-zulip` service account for Cloud Run deployments, which is more secure than using the default compute service account.
 
 #### **PostgreSQL Database Secrets (Required)**
 
@@ -164,6 +172,32 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 - Vulnerability scanning on staging deployments
 - Docker layer caching for faster builds
 - Secure credential handling
+
+### Troubleshooting
+
+#### Common Permission Errors
+
+**Error: "does not have permission to access namespaces instance"**
+```bash
+# This error occurs when the GitHub Actions service account can't act as the Cloud Run service account
+# Fix: Grant the GitHub Actions service account permission to act as the default compute service account
+
+gcloud iam service-accounts add-iam-policy-binding \
+  $PROJECT_ID-compute@developer.gserviceaccount.com \
+  --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/iam.serviceAccountUser"
+```
+
+**Error: "Permission 'iam.serviceAccounts.actAs' denied"**
+```bash
+# This error occurs when the GitHub Actions service account can't act as the Cloud Run service account
+# Fix: Grant the GitHub Actions service account permission to act as the Cloud Run service account
+
+gcloud iam service-accounts add-iam-policy-binding \
+  cloud-run-zulip@$PROJECT_ID.iam.gserviceaccount.com \
+  --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/iam.serviceAccountUser"
+```
 
 ### Usage
 

@@ -126,6 +126,7 @@ jobs:
             --min-instances=1
             --concurrency=100
             --timeout=300
+            --service-account=cloud-run-zulip@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
             --add-cloudsql-instances=${{ secrets.CLOUDSQL_INSTANCE }}
 
       - name: Show service URLs
