@@ -10,7 +10,19 @@ echo "Starting Zulip Cloud Run container..."
 # Configure Zulip secrets from environment variables FIRST
 # This must happen before any Django operations
 echo "Configuring Zulip secrets..."
-/root/zulip/scripts/setup/configure-cloudrun-secrets
+
+# Check if we have base64-encoded secrets
+if [[ -n "${ZULIP_SECRETS_B64:-}" ]]; then
+    echo "Using base64-encoded secrets from environment variable..."
+    mkdir -p /etc/zulip
+    echo "$ZULIP_SECRETS_B64" | base64 -d > /etc/zulip/zulip-secrets.conf
+    chown zulip:zulip /etc/zulip/zulip-secrets.conf
+    chmod 640 /etc/zulip/zulip-secrets.conf
+    echo "Secrets file created from base64-encoded data"
+else
+    echo "No base64-encoded secrets found, using legacy configuration..."
+    /root/zulip/scripts/setup/configure-cloudrun-secrets
+fi
 
 # Configure Zulip settings for Cloud Run
 echo "Configuring Zulip settings..."

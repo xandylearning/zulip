@@ -110,15 +110,12 @@ jobs:
           region: ${{ env.REGION }}
           env_vars: |
             ZULIP_ENVIRONMENT=production
+            EXTERNAL_HOST=${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app
             POSTGRES_HOST=${{ secrets.POSTGRES_HOST }}
             POSTGRES_PORT=${{ secrets.POSTGRES_PORT }}
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
             POSTGRES_SSLMODE=${{ secrets.POSTGRES_SSLMODE }}
-            # Django secret key - can use ZULIP_SECRETS_KEY or ZULIP_SECRET_KEY
-            ZULIP_SECRETS_KEY=${{ secrets.ZULIP_SECRETS_KEY || secrets.ZULIP_SECRET_KEY }}
-            # Shared secret for internal communication - can use SHARED_SECRET, ZULIP_SECRETS_KEY, or ZULIP_SECRET_KEY
-            SHARED_SECRET=${{ secrets.SHARED_SECRET || secrets.ZULIP_SECRETS_KEY || secrets.ZULIP_SECRET_KEY }}
-            EXTERNAL_HOST=${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app
+            ZULIP_SECRETS_B64=${{ secrets.ZULIP_SECRETS_B64 }}
           flags: |
             --allow-unauthenticated
             --port=80
