@@ -7,13 +7,14 @@ set -euo pipefail
 
 echo "Starting Zulip Cloud Run container..."
 
+# Configure Zulip secrets from environment variables FIRST
+# This must happen before any Django operations
+echo "Configuring Zulip secrets..."
+/root/zulip/scripts/setup/configure-cloudrun-secrets
+
 # Configure Zulip settings for Cloud Run
 echo "Configuring Zulip settings..."
 /root/zulip/scripts/setup/configure-cloudrun-settings
-
-# Configure Zulip secrets from environment variables
-echo "Configuring Zulip secrets..."
-/root/zulip/scripts/setup/configure-cloudrun-secrets
 
 # Initialize the database if needed
 echo "Checking database initialization..."
