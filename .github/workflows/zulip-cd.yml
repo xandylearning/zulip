@@ -59,7 +59,20 @@ jobs:
             echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Check for changes
+        id: changes
+        run: |
+          # Check if there are changes in specific directories that affect the build
+          if git diff --quiet ${{ github.event.before }}..${{ github.sha }} -- Dockerfile scripts/setup/ entrypoint.sh; then
+            echo "no-changes=true" >> $GITHUB_OUTPUT
+            echo "No changes detected in build-related files"
+          else
+            echo "no-changes=false" >> $GITHUB_OUTPUT
+            echo "Changes detected in build-related files"
+          fi
+
       - name: Build and push Docker image
+        if: steps.changes.outputs.no-changes != 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -73,14 +86,18 @@ jobs:
           build-args: |
             ZULIP_GIT_REF=${{ github.sha }}
 
-
+      - name: Skip build (no changes)
+        if: steps.changes.outputs.no-changes == 'true'
+        run: |
+          echo "Skipping Docker build - no changes detected in build-related files"
+          echo "Using existing image for deployment"
 
       - name: Deploy to Cloud Run (Production)
         if: github.event_name == 'push' && github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/') || github.event.inputs.environment == 'production'
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ env.SERVICE_NAME }}
-          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:${{ steps.image-tag.outputs.tag }}
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:${{ steps.changes.outputs.no-changes == 'true' && 'latest' || steps.image-tag.outputs.tag }}
           region: ${{ env.REGION }}
           env_vars: |
             ZULIP_ENVIRONMENT=production
@@ -89,7 +106,7 @@ jobs:
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
             POSTGRES_SSLMODE=${{ secrets.POSTGRES_SSLMODE }}
           secrets: |
-            ZULIP_SECRETS_KEY=${{ secrets.ZULIP_SECRETS_KEY }}
+            ZULIP_SECRETS_KEY=${{ secrets.ZULIP_SECRET_KEY }}
           flags: |
             --allow-unauthenticated
             --port=80
