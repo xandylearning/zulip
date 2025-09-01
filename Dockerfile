@@ -50,7 +50,6 @@ ENV DATA_DIR="/data"
 
 # Then, with a second image, we install the production release tarball.
 COPY --from=build /tmp/zulip-server-docker.tar.gz /root/
-COPY custom_zulip_files/ /root/custom_zulip
 
 ARG CUSTOM_CA_CERTIFICATES
 
@@ -63,8 +62,6 @@ RUN \
     tar -xf zulip-server-docker.tar.gz && \
     rm -f zulip-server-docker.tar.gz && \
     mv zulip-server-docker zulip && \
-    cp -rf /root/custom_zulip/* /root/zulip && \
-    rm -rf /root/custom_zulip && \
     /root/zulip/scripts/setup/install --hostname="$(hostname)" --email="docker-zulip" \
       --puppet-classes="zulip::profile::docker" --postgresql-version=14 && \
     rm -f /etc/zulip/zulip-secrets.conf /etc/zulip/settings.py && \
@@ -73,12 +70,11 @@ RUN \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 COPY entrypoint.sh /sbin/entrypoint.sh
-COPY certbot-deploy-hook /sbin/certbot-deploy-hook
 COPY scripts/setup/configure-cloudrun-settings /root/zulip/scripts/setup/configure-cloudrun-settings
 COPY scripts/setup/configure-cloudrun-secrets /root/zulip/scripts/setup/configure-cloudrun-secrets
 
 # Make scripts executable
-RUN chmod +x /sbin/entrypoint.sh /sbin/certbot-deploy-hook \
+RUN chmod +x /sbin/entrypoint.sh \
     /root/zulip/scripts/setup/configure-cloudrun-settings \
     /root/zulip/scripts/setup/configure-cloudrun-secrets
 

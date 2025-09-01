@@ -133,7 +133,7 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 ### Workflow Features
 
 #### Triggers
-- **Push to main/master**: Builds and deploys to staging
+- **Push to dev branch**: Builds and deploys to staging
 - **Tags**: Builds and deploys to production
 - **Pull Requests**: Builds image for testing (no deployment)
 - **Manual**: Allows manual deployment to staging or production
@@ -161,7 +161,7 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 ### Usage
 
 #### Automatic Deployment
-1. Push to the main branch to deploy to staging
+1. Push to the dev branch to deploy to staging
 2. Create a tag to deploy to production
 
 #### Manual Deployment
