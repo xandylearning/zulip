@@ -29,6 +29,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -59,20 +61,18 @@ jobs:
             echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Check for changes
+      - name: Detect build-impacting changes
         id: changes
-        run: |
-          # Check if there are changes in specific directories that affect the build
-          if git diff --quiet ${{ github.event.before }}..${{ github.sha }} -- Dockerfile scripts/setup/ entrypoint.sh; then
-            echo "no-changes=true" >> $GITHUB_OUTPUT
-            echo "No changes detected in build-related files"
-          else
-            echo "no-changes=false" >> $GITHUB_OUTPUT
-            echo "Changes detected in build-related files"
-          fi
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            docker:
+              - 'Dockerfile'
+              - 'entrypoint.sh'
+              - 'scripts/setup/**'
 
       - name: Build and push Docker image
-        if: steps.changes.outputs.no-changes != 'true'
+        if: github.event_name == 'push' && steps.changes.outputs.docker == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -87,17 +87,17 @@ jobs:
             ZULIP_GIT_REF=${{ github.sha }}
 
       - name: Skip build (no changes)
-        if: steps.changes.outputs.no-changes == 'true'
+        if: steps.changes.outputs.docker != 'true'
         run: |
-          echo "Skipping Docker build - no changes detected in build-related files"
-          echo "Using existing image for deployment"
+          echo "Skipping Docker build - no changes detected in Dockerfile, scripts/setup/, or entrypoint.sh"
+          echo "Using existing image: latest"
 
       - name: Deploy to Cloud Run (Production)
         if: github.event_name == 'push' && github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/') || github.event.inputs.environment == 'production'
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ env.SERVICE_NAME }}
-          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:${{ steps.changes.outputs.no-changes == 'true' && 'latest' || steps.image-tag.outputs.tag }}
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:${{ steps.changes.outputs.docker != 'true' && 'latest' || steps.image-tag.outputs.tag }}
           region: ${{ env.REGION }}
           env_vars: |
             ZULIP_ENVIRONMENT=production
@@ -105,8 +105,7 @@ jobs:
             POSTGRES_PORT=${{ secrets.POSTGRES_PORT }}
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
             POSTGRES_SSLMODE=${{ secrets.POSTGRES_SSLMODE }}
-          secrets: |
-            ZULIP_SECRETS_KEY=${{ secrets.ZULIP_SECRET_KEY }}
+            ZULIP_SECRETS_KEY=${{ secrets.ZULIP_SECRETS_KEY || secrets.ZULIP_SECRET_KEY }}
           flags: |
             --allow-unauthenticated
             --port=80
