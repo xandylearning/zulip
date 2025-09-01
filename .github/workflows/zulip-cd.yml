@@ -11,10 +11,9 @@ on:
       environment:
         description: 'Environment to deploy to'
         required: true
-        default: 'staging'
+        default: 'production'
         type: choice
         options:
-          - staging
           - production
 
 env:
@@ -74,44 +73,21 @@ jobs:
           build-args: |
             ZULIP_GIT_REF=${{ github.sha }}
 
-      - name: Deploy to Cloud Run (Staging)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' || github.event.inputs.environment == 'staging'
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: ${{ env.SERVICE_NAME }}-staging
-          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:${{ steps.image-tag.outputs.tag }}
-          region: ${{ env.REGION }}
-          env_vars: |
-            ZULIP_ENVIRONMENT=staging
-            POSTGRES_HOST=${{ secrets.STAGING_POSTGRES_HOST }}
-            POSTGRES_PORT=${{ secrets.STAGING_POSTGRES_PORT }}
-            POSTGRES_PASSWORD=${{ secrets.STAGING_POSTGRES_PASSWORD }}
-            POSTGRES_SSLMODE=${{ secrets.STAGING_POSTGRES_SSLMODE }}
-          secrets: |
-            ZULIP_SECRETS_KEY=${{ secrets.ZULIP_SECRETS_KEY }}
-          flags: |
-            --allow-unauthenticated
-            --port=80
-            --memory=2Gi
-            --cpu=2
-            --max-instances=10
-            --min-instances=0
-            --concurrency=80
-            --timeout=300
+
 
       - name: Deploy to Cloud Run (Production)
-        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.environment == 'production'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/') || github.event.inputs.environment == 'production'
         uses: google-github-actions/deploy-cloudrun@v2
         with:
-          service: ${{ env.SERVICE_NAME }}-prod
+          service: ${{ env.SERVICE_NAME }}
           image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:${{ steps.image-tag.outputs.tag }}
           region: ${{ env.REGION }}
           env_vars: |
             ZULIP_ENVIRONMENT=production
-            POSTGRES_HOST=${{ secrets.PROD_POSTGRES_HOST }}
-            POSTGRES_PORT=${{ secrets.PROD_POSTGRES_PORT }}
-            POSTGRES_PASSWORD=${{ secrets.PROD_POSTGRES_PASSWORD }}
-            POSTGRES_SSLMODE=${{ secrets.PROD_POSTGRES_SSLMODE }}
+            POSTGRES_HOST=${{ secrets.POSTGRES_HOST }}
+            POSTGRES_PORT=${{ secrets.POSTGRES_PORT }}
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+            POSTGRES_SSLMODE=${{ secrets.POSTGRES_SSLMODE }}
           secrets: |
             ZULIP_SECRETS_KEY=${{ secrets.ZULIP_SECRETS_KEY }}
           flags: |
@@ -123,11 +99,11 @@ jobs:
             --min-instances=1
             --concurrency=100
             --timeout=300
+            --add-cloudsql-instances=${{ secrets.CLOUDSQL_INSTANCE }}
 
       - name: Show service URLs
         run: |
-          echo "Staging URL: https://${{ env.SERVICE_NAME }}-staging-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app"
-          echo "Production URL: https://${{ env.SERVICE_NAME }}-prod-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app"
+          echo "Service URL: https://${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app"
 
   security-scan:
     runs-on: ubuntu-latest
@@ -163,8 +139,7 @@ jobs:
         run: |
           if [ "${{ needs.build-and-deploy.result }}" == "success" ]; then
             echo "✅ Deployment successful!"
-            echo "Staging: https://${{ env.SERVICE_NAME }}-staging-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app"
-            echo "Production: https://${{ env.SERVICE_NAME }}-prod-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app"
+            echo "Service URL: https://${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app"
           else
             echo "❌ Deployment failed!"
             exit 1

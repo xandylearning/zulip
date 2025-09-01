@@ -32,6 +32,11 @@ The `zulip-cd.yml` workflow builds a Docker image and deploys it to Google Cloud
    gcloud projects add-iam-policy-binding $PROJECT_ID \
      --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
      --role="roles/iam.serviceAccountUser"
+   
+   # Cloud SQL connection permissions (if using Cloud SQL)
+   gcloud projects add-iam-policy-binding $PROJECT_ID \
+     --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/cloudsql.client"
    ```
 
    **Option B: Broad Permissions (Less Secure)**
@@ -69,12 +74,14 @@ Add the following secrets to your GitHub repository:
 - `STAGING_POSTGRES_PORT`: PostgreSQL port (optional, default: 5432)
 - `STAGING_POSTGRES_PASSWORD`: PostgreSQL password for staging (required)
 - `STAGING_POSTGRES_SSLMODE`: SSL mode (optional, default: require)
+- `STAGING_CLOUDSQL_INSTANCE`: Cloud SQL instance connection name (required for Cloud SQL)
 
 **Production Environment:**
 - `PROD_POSTGRES_HOST`: PostgreSQL host for production environment (required)
 - `PROD_POSTGRES_PORT`: PostgreSQL port (optional, default: 5432)
 - `PROD_POSTGRES_PASSWORD`: PostgreSQL password for production (required)
 - `PROD_POSTGRES_SSLMODE`: SSL mode (optional, default: require)
+- `PROD_CLOUDSQL_INSTANCE`: Cloud SQL instance connection name (required for Cloud SQL)
 
 #### **Optional Service Secrets (for advanced configurations)**
 - `REDIS_PASSWORD`: Redis password if using external Redis
@@ -200,6 +207,39 @@ gcloud sql instances describe zulip-postgres \
 ```
 
 **Note**: Cloud SQL instances don't include PostgreSQL dictionary files by default, which affects full-text search functionality. The workflow automatically configures `missing_dictionaries = true` in zulip.conf to handle this limitation.
+
+#### **Cloud SQL Connection Setup**
+
+When using Google Cloud SQL, you need to configure the connection name in the format:
+```
+PROJECT_ID:REGION:INSTANCE_NAME
+```
+
+For example: `my-project:us-central1:zulip-postgres`
+
+This connection name is automatically used by Cloud Run to establish a secure connection to your Cloud SQL instance.
+
+#### **Cloud SQL Connection Requirements**
+
+To connect Cloud Run to Cloud SQL, you need:
+
+1. **Service Account with Cloud SQL Client Role**:
+   ```bash
+   # Grant Cloud SQL client permissions to your service account
+   gcloud projects add-iam-policy-binding $PROJECT_ID \
+     --member="serviceAccount:github-actions@$PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/cloudsql.client"
+   ```
+
+2. **Cloud SQL Instance Connection Name**:
+   - Format: `PROJECT_ID:REGION:INSTANCE_NAME`
+   - Example: `my-project:us-central1:zulip-postgres`
+   - This is automatically configured in Cloud Run deployment
+
+3. **Network Configuration**:
+   - Cloud Run automatically connects to Cloud SQL using the Cloud SQL Proxy
+   - No need to configure public IP or firewall rules
+   - Connection is secure and encrypted
 
 #### **Option 2: External PostgreSQL**
 You can use any PostgreSQL server accessible from Cloud Run:
