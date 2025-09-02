@@ -94,12 +94,9 @@ jobs:
           region: ${{ env.REGION }}
           env_vars: |
             ZULIP_ENVIRONMENT=production
-            EXTERNAL_HOST=${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app
+            EXTERNAL_HOST=${{ env.SERVICE_NAME }}-${{ secrets.GCP_PROJECT_ID }}-${{ env.REGION }}.a.run.app
             CLOUDSQL_INSTANCE=${{ secrets.CLOUDSQL_INSTANCE }}
-            POSTGRES_HOST=${{ secrets.POSTGRES_HOST }}
-            POSTGRES_PORT=${{ secrets.POSTGRES_PORT }}
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-            POSTGRES_SSLMODE=${{ secrets.POSTGRES_SSLMODE }}
             ZULIP_SECRETS_B64=${{ secrets.ZULIP_SECRETS_B64 }}
             ZULIP_SECRETS_KEY=${{ secrets.ZULIP_SECRETS_KEY }}
             SHARED_SECRET=${{ secrets.SHARED_SECRET }}

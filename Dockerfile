@@ -104,11 +104,13 @@ RUN rm -f /etc/zulip/zulip-secrets.conf /etc/zulip/settings.py && \
 COPY entrypoint.sh /sbin/entrypoint.sh
 COPY scripts/setup/configure-cloudrun-settings /root/zulip/scripts/setup/configure-cloudrun-settings
 COPY scripts/setup/configure-cloudrun-secrets /root/zulip/scripts/setup/configure-cloudrun-secrets
+COPY scripts/setup/debug-cloudrun-db /root/zulip/scripts/setup/debug-cloudrun-db
 
 # Make scripts executable
 RUN chmod +x /sbin/entrypoint.sh \
     /root/zulip/scripts/setup/configure-cloudrun-settings \
-    /root/zulip/scripts/setup/configure-cloudrun-secrets
+    /root/zulip/scripts/setup/configure-cloudrun-secrets \
+    /root/zulip/scripts/setup/debug-cloudrun-db
 
 VOLUME ["$DATA_DIR"]
 EXPOSE 25 80 443

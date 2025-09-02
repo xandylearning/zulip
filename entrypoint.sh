@@ -20,6 +20,15 @@ echo "Running secrets configuration script..."
 echo "Configuring Zulip settings..."
 /root/zulip/scripts/setup/configure-cloudrun-settings
 
+# Source the environment file created by configure-cloudrun-settings
+ENV_FILE="/etc/zulip/cloudrun.env"
+if [ -f "$ENV_FILE" ]; then
+    echo "Sourcing Cloud Run environment variables from $ENV_FILE..."
+    source "$ENV_FILE"
+else
+    echo "Warning: Environment file $ENV_FILE not found"
+fi
+
 # Initialize the database if needed
 echo "Checking database initialization..."
 if [ "${SKIP_DB_INIT:-false}" != "true" ]; then
