@@ -2,9 +2,9 @@
 # Exclude unnecessary files from Docker context
 
 # Version control
-.git
 .gitignore
 .gitmodules
+# Note: Don't exclude .git as build process may need it
 
 # Documentation
 *.md

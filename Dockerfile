@@ -24,35 +24,43 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         openssl \
         xxd \
         curl \
-        build-essential && \
+        build-essential \
+        gnupg2 \
+        lsb-release \
+        apt-transport-https && \
     touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu && \
     useradd -d /home/zulip -m zulip -u 1000
 
 FROM base AS build
+
+# Set environment variables to help with APT and provisioning
+ENV DEBIAN_FRONTEND=noninteractive
+ENV APT_KEY_DONT_WARN_ON_DANGEROUS_USAGE=1
 
 RUN echo 'zulip ALL=(ALL:ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 USER zulip
 WORKDIR /home/zulip
 
-# Copy source code instead of cloning to improve build speed and caching
-COPY --chown=zulip:zulip . ./zulip/
+# You can specify these in docker-compose.yml or with
+#   docker build --build-arg "ZULIP_GIT_REF=git_branch_name" .
+ARG ZULIP_GIT_URL=https://github.com/xandylearning/zulip.git
+ARG ZULIP_GIT_REF=11.0
+
+# Clone with shallow clone to reduce download time
+RUN git clone --depth 1 --branch "$ZULIP_GIT_REF" "$ZULIP_GIT_URL" zulip || \
+    (git clone "$ZULIP_GIT_URL" zulip && \
+     cd zulip && \
+     git checkout -b current "$ZULIP_GIT_REF")
 
 WORKDIR /home/zulip/zulip
 
 ARG CUSTOM_CA_CERTIFICATES
-ARG ZULIP_GIT_REF=11.0
-
-# Set git ref for build process
-RUN git config --global user.email "docker@zulip.com" && \
-    git config --global user.name "Docker Build" && \
-    git init . && \
-    git add . && \
-    git commit -m "Docker build snapshot" || true
 
 # Optimize build process with caching and parallel operations
+# Note: Don't cache /tmp as it conflicts with APT's temporary files
 RUN --mount=type=cache,target=/home/zulip/.cache,uid=1000,gid=1000 \
-    --mount=type=cache,target=/tmp,uid=1000,gid=1000 \
+    --mount=type=cache,target=/home/zulip/.local,uid=1000,gid=1000 \
     SKIP_VENV_SHELL_WARNING=1 ./tools/provision --build-release-tarball-only && \
     uv run --no-sync ./tools/build-release-tarball docker && \
     mv /tmp/tmp.*/zulip-server-docker.tar.gz /tmp/zulip-server-docker.tar.gz
