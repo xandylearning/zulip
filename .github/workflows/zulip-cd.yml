@@ -72,10 +72,16 @@ jobs:
           tags: |
             ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:${{ steps.image-tag.outputs.tag }}
             ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:buildcache
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:buildcache,mode=max
           build-args: |
             ZULIP_GIT_REF=${{ github.sha }}
+            BUILDKIT_INLINE_CACHE=1
+          platforms: linux/amd64
 
 
 

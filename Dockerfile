@@ -1,7 +1,5 @@
-# This is a 2-stage Docker build.  In the first stage, we build a
-# Zulip development environment image and use
-# tools/build-release-tarball to generate a production release tarball
-# from the provided Git ref.
+# Optimized 2-stage Docker build for Zulip
+# Stage 1: Build environment with caching optimizations
 FROM ubuntu:24.04 AS base
 
 # Set up working locales and upgrade the base image
@@ -9,11 +7,24 @@ ENV LANG="C.UTF-8"
 
 ARG UBUNTU_MIRROR
 
-RUN { [ ! "$UBUNTU_MIRROR" ] || sed -i "s|http://\(\w*\.\)*archive\.ubuntu\.com/ubuntu/\? |$UBUNTU_MIRROR |" /etc/apt/sources.list; } && \
+# Optimize package installation with better caching
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    { [ ! "$UBUNTU_MIRROR" ] || sed -i "s|http://\(\w*\.\)*archive\.ubuntu\.com/ubuntu/\? |$UBUNTU_MIRROR |" /etc/apt/sources.list; } && \
     apt-get -q update && \
     apt-get -q dist-upgrade -y && \
     DEBIAN_FRONTEND=noninteractive \
-    apt-get -q install --no-install-recommends -y ca-certificates git locales python3 sudo tzdata openssl xxd && \
+    apt-get -q install --no-install-recommends -y \
+        ca-certificates \
+        git \
+        locales \
+        python3 \
+        sudo \
+        tzdata \
+        openssl \
+        xxd \
+        curl \
+        build-essential && \
     touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu && \
     useradd -d /home/zulip -m zulip -u 1000
 
@@ -24,47 +35,60 @@ RUN echo 'zulip ALL=(ALL:ALL) NOPASSWD:ALL' >> /etc/sudoers
 USER zulip
 WORKDIR /home/zulip
 
-# You can specify these in docker-compose.yml or with
-#   docker build --build-arg "ZULIP_GIT_REF=git_branch_name" .
-ARG ZULIP_GIT_URL=https://github.com/xandylearning/zulip.git
-ARG ZULIP_GIT_REF=11.0
-
-RUN git clone "$ZULIP_GIT_URL" && \
-    cd zulip && \
-    git checkout -b current "$ZULIP_GIT_REF"
+# Copy source code instead of cloning to improve build speed and caching
+COPY --chown=zulip:zulip . ./zulip/
 
 WORKDIR /home/zulip/zulip
 
 ARG CUSTOM_CA_CERTIFICATES
+ARG ZULIP_GIT_REF=11.0
 
-# Finally, we provision the development environment and build a release tarball
-RUN SKIP_VENV_SHELL_WARNING=1 ./tools/provision --build-release-tarball-only && \
+# Set git ref for build process
+RUN git config --global user.email "docker@zulip.com" && \
+    git config --global user.name "Docker Build" && \
+    git init . && \
+    git add . && \
+    git commit -m "Docker build snapshot" || true
+
+# Optimize build process with caching and parallel operations
+RUN --mount=type=cache,target=/home/zulip/.cache,uid=1000,gid=1000 \
+    --mount=type=cache,target=/tmp,uid=1000,gid=1000 \
+    SKIP_VENV_SHELL_WARNING=1 ./tools/provision --build-release-tarball-only && \
     uv run --no-sync ./tools/build-release-tarball docker && \
     mv /tmp/tmp.*/zulip-server-docker.tar.gz /tmp/zulip-server-docker.tar.gz
 
-
-# In the second stage, we build the production image from the release tarball
+# Stage 2: Production image with optimized installation
 FROM base
 
 ENV DATA_DIR="/data"
 
-# Then, with a second image, we install the production release tarball.
+# Copy the release tarball from build stage
 COPY --from=build /tmp/zulip-server-docker.tar.gz /root/
 
 ARG CUSTOM_CA_CERTIFICATES
 
-RUN \
-    # Make sure Nginx is started by Supervisor.
-    dpkg-divert --add --rename /etc/init.d/nginx && \
-    ln -s /bin/true /etc/init.d/nginx && \
-    mkdir -p "$DATA_DIR" && \
-    cd /root && \
+# Optimize installation process with better layer caching
+RUN dpkg-divert --add --rename /etc/init.d/nginx && \
+    ln -s /bin/true /etc/init.d/nginx
+
+RUN mkdir -p "$DATA_DIR"
+
+RUN cd /root && \
     tar -xf zulip-server-docker.tar.gz && \
     rm -f zulip-server-docker.tar.gz && \
-    mv zulip-server-docker zulip && \
-    /root/zulip/scripts/setup/install --hostname="$(hostname)" --email="docker-zulip" \
-      --puppet-classes="zulip::profile::docker" --postgresql-version=14 && \
-    rm -f /etc/zulip/zulip-secrets.conf /etc/zulip/settings.py && \
+    mv zulip-server-docker zulip
+
+# Install Zulip with caching
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    /root/zulip/scripts/setup/install \
+      --hostname="$(hostname)" \
+      --email="docker-zulip" \
+      --puppet-classes="zulip::profile::docker" \
+      --postgresql-version=14
+
+# Clean up in separate layer for better caching
+RUN rm -f /etc/zulip/zulip-secrets.conf /etc/zulip/settings.py && \
     apt-get -qq autoremove --purge -y && \
     apt-get -qq clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
