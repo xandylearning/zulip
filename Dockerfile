@@ -13,7 +13,7 @@ RUN { [ ! "$UBUNTU_MIRROR" ] || sed -i "s|http://\(\w*\.\)*archive\.ubuntu\.com/
     apt-get -q update && \
     apt-get -q dist-upgrade -y && \
     DEBIAN_FRONTEND=noninteractive \
-    apt-get -q install --no-install-recommends -y ca-certificates git locales python3 sudo tzdata && \
+    apt-get -q install --no-install-recommends -y ca-certificates git locales python3 sudo tzdata openssl xxd && \
     touch /var/mail/ubuntu && chown ubuntu /var/mail/ubuntu && userdel -r ubuntu && \
     useradd -d /home/zulip -m zulip -u 1000
 
