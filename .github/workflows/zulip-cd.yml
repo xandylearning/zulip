@@ -95,6 +95,7 @@ jobs:
           env_vars: |
             ZULIP_ENVIRONMENT=production
             EXTERNAL_HOST=${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app
+            CLOUDSQL_INSTANCE=${{ secrets.CLOUDSQL_INSTANCE }}
             POSTGRES_HOST=${{ secrets.POSTGRES_HOST }}
             POSTGRES_PORT=${{ secrets.POSTGRES_PORT }}
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}

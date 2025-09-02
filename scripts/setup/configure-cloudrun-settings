@@ -37,11 +37,61 @@ import os
 # Configure external hostname from Cloud Run environment
 EXTERNAL_HOST = os.environ.get('EXTERNAL_HOST', 'localhost')
 
-# Configure PostgreSQL database connection
-if os.environ.get('POSTGRES_HOST'):
+# Configure PostgreSQL database connection for Cloud Run
+# Support both Unix socket (Cloud SQL) and TCP connection approaches
+
+if os.environ.get('CLOUDSQL_INSTANCE'):
+    # Unix socket approach (more secure) - Cloud SQL via Unix socket
+    import logging
+    logging.info("Using Unix socket connection to Cloud SQL")
+    
+    # Cloud SQL Unix socket path
+    CLOUDSQL_SOCKET = f"/cloudsql/{os.environ['CLOUDSQL_INSTANCE']}"
+    
+    # Configure database for Unix socket connection
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': 'zulip',
+            'USER': 'zulip',
+            'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
+            'HOST': CLOUDSQL_SOCKET,  # Unix socket path
+            'PORT': '',  # No port for Unix socket
+            'OPTIONS': {
+                'sslmode': 'disable',  # SSL not needed for Unix socket
+            },
+        }
+    }
+    
+    logging.info(f"Unix socket database configuration: {DATABASES['default']}")
+    
+elif os.environ.get('POSTGRES_HOST'):
+    # Direct TCP connection approach (fallback)
+    logging.info("Using direct TCP connection to PostgreSQL")
+    
     REMOTE_POSTGRES_HOST = os.environ['POSTGRES_HOST']
     REMOTE_POSTGRES_PORT = os.environ.get('POSTGRES_PORT', '5432')
     REMOTE_POSTGRES_SSLMODE = os.environ.get('POSTGRES_SSLMODE', 'require')
+    
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': 'zulip',
+            'USER': 'zulip',
+            'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
+            'HOST': REMOTE_POSTGRES_HOST,
+            'PORT': REMOTE_POSTGRES_PORT,
+            'OPTIONS': {
+                'sslmode': REMOTE_POSTGRES_SSLMODE,
+            },
+        }
+    }
+    
+    logging.info(f"TCP database configuration: {DATABASES['default']}")
+else:
+    # Debug: Log when no database configuration is found
+    import logging
+    logging.warning("No database configuration found (CLOUDSQL_INSTANCE or POSTGRES_HOST)")
 
 # Configure email settings for Cloud Run
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
