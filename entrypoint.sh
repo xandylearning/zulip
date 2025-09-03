@@ -71,10 +71,17 @@ mkdir -p static/generated/emoji
 mkdir -p static/generated/integrations
 mkdir -p static/generated/bots
 
-# Create minimal emoji_codes.json to prevent startup failure
+# Create proper emoji_codes.json with required structure to prevent startup failure
 if [ ! -f "static/generated/emoji/emoji_codes.json" ]; then
-    echo '{"emoji": {}}' > static/generated/emoji/emoji_codes.json
-    echo "Created minimal emoji_codes.json file"
+    cat > static/generated/emoji/emoji_codes.json << 'EOF'
+{
+    "emoji": {},
+    "name_to_codepoint": {},
+    "codepoint_to_name": {},
+    "EMOTICON_RE": ""
+}
+EOF
+    echo "Created proper emoji_codes.json file with required structure"
 fi
 
 # Create minimal integration files
@@ -89,7 +96,26 @@ if [ ! -f "static/generated/bots/index.json" ]; then
     echo "Created minimal bots index"
 fi
 
+# Create additional required static files that Zulip might need
+mkdir -p static/generated/webpack-bundles
+if [ ! -f "static/generated/webpack-bundles/webpack-bundles.json" ]; then
+    echo '{}' > static/generated/webpack-bundles/webpack-bundles.json
+    echo "Created minimal webpack-bundles.json"
+fi
+
+# Create webpack stats file that Zulip might expect
+if [ ! -f "webpack-stats-production.json" ]; then
+    echo '{"status": "success", "chunks": {}, "assets": {}}' > webpack-stats-production.json
+    echo "Created minimal webpack-stats-production.json"
+fi
+
 echo "✅ Minimal static files created successfully"
+
+# Debug: Show what static files we created
+echo "Debug: Static files created:"
+ls -la static/generated/emoji/ || echo "emoji directory not accessible"
+ls -la static/generated/integrations/ || echo "integrations directory not accessible"
+ls -la static/generated/bots/ || echo "bots directory not accessible"
 
 # Now try to collect any additional static files
 echo "Collecting additional static files..."
