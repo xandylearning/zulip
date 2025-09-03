@@ -20,6 +20,10 @@ echo "Running secrets configuration script..."
 echo "Configuring Zulip settings..."
 /root/zulip/scripts/setup/configure-cloudrun-settings
 
+# Set additional environment variables for Cloud Run
+export DJANGO_SETTINGS_MODULE=zproject.settings
+export PYTHONPATH=/root/zulip
+
 # Initialize the database if needed
 echo "Checking database initialization..."
 if [ "${SKIP_DB_INIT:-false}" != "true" ]; then
@@ -47,16 +51,36 @@ echo "Collecting static files..."
 cd /root/zulip
 su zulip -c './manage.py collectstatic --noinput --clear'
 
-# Configure supervisor based on the command
+# Test database connection before starting the server
+echo "Testing database connection..."
+if ! su zulip -c './manage.py check --database default'; then
+    echo "ERROR: Database connection test failed!"
+    echo "Please check your database configuration and try again."
+    exit 1
+fi
+echo "Database connection test passed!"
+
+# Configure application startup based on the command
 case "${1:-app:run}" in
     "app:run")
-        echo "Starting Zulip application server..."
-        exec /usr/bin/supervisord -n -c /etc/supervisor/conf.d/zulip.conf
+        echo "Starting Zulip application server for Cloud Run..."
+        cd /root/zulip
+        
+        # For Cloud Run, we need to run the Django application directly
+        # Use Django's built-in server for simplicity in Cloud Run
+        echo "Starting Django development server..."
+        # Set the port environment variable for Django
+        export PORT=80
+        # Use 0.0.0.0 to bind to all interfaces for Cloud Run
+        # Disable debug mode for production
+        export DJANGO_DEBUG=False
+        exec su zulip -c 'python3 manage.py runserver 0.0.0.0:80 --noreload'
         ;;
     "app:worker")
         echo "Starting Zulip worker processes only..."
         # Start only worker processes, not the web server
-        exec su zulip -c '/root/zulip/manage.py process_queue --all'
+        cd /root/zulip
+        exec su zulip -c './manage.py process_queue --all'
         ;;
     "app:migrate")
         echo "Running database migrations only..."
