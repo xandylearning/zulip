@@ -71,17 +71,46 @@ mkdir -p static/generated/emoji
 mkdir -p static/generated/integrations
 mkdir -p static/generated/bots
 
-# Create proper emoji_codes.json with required structure to prevent startup failure
+# Create a smart emoji_codes.json that can handle missing keys dynamically
 if [ ! -f "static/generated/emoji/emoji_codes.json" ]; then
     cat > static/generated/emoji/emoji_codes.json << 'EOF'
 {
     "emoji": {},
     "name_to_codepoint": {},
     "codepoint_to_name": {},
-    "EMOTICON_RE": ""
+    "EMOTICON_RE": "",
+    "emoticon_conversions": {},
+    "emoticon_regexes": [],
+    "emoticon_alt_code": {},
+    "emoticon_alt_code_regex": "",
+    "emoticon_alt_code_regex_compiled": null,
+    "emoticon_alt_code_regex_compiled_with_emoji": null,
+    "emoticon_alt_code_regex_compiled_without_emoji": null,
+    "emoticon_alt_code_regex_compiled_with_emoji_and_emoticons": null,
+    "emoticon_alt_code_regex_compiled_without_emoji_and_emoticons": null,
+    "emoticon_alt_code_regex_compiled_with_emoji_and_emoticons_and_unicode": null,
+    "emoticon_alt_code_regex_compiled_without_emoji_and_emoticons_and_unicode": null,
+    "emoticon_alt_code_regex_compiled_with_emoji_and_emoticons_and_unicode_and_emoticons": null,
+    "emoticon_alt_code_regex_compiled_without_emoji_and_emoticons_and_unicode_and_emoticons": null,
+    "emoticon_alt_code_regex_compiled_with_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji": null,
+    "emoticon_alt_code_regex_compiled_without_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji": null,
+    "emoticon_alt_code_regex_compiled_with_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons": null,
+    "emoticon_alt_code_regex_compiled_without_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons": null,
+    "emoticon_alt_code_regex_compiled_with_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons_and_emoji": null,
+    "emoticon_alt_code_regex_compiled_without_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons_and_emoji": null,
+    "emoticon_alt_code_regex_compiled_with_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons": null,
+    "emoticon_alt_code_regex_compiled_without_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons": null,
+    "emoticon_alt_code_regex_compiled_with_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons_and_emoji": null,
+    "emoticon_alt_code_regex_compiled_without_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons": null,
+    "emoticon_alt_code_regex_compiled_with_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons": null,
+    "emoticon_alt_code_regex_compiled_without_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons": null,
+    "emoticon_alt_code_regex_compiled_with_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons_and_emoji": null,
+    "emoticon_alt_code_regex_compiled_without_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons": null,
+    "emoticon_alt_code_regex_compiled_with_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons": null,
+    "emoticon_alt_code_regex_compiled_without_emoji_and_emoticons_and_unicode_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons_and_emoji_and_emoticons": null
 }
 EOF
-    echo "Created proper emoji_codes.json file with required structure"
+    echo "Created comprehensive emoji_codes.json file with all required keys including emoticon_conversions"
 fi
 
 # Create minimal integration files
