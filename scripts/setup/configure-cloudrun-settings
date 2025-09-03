@@ -14,12 +14,7 @@ echo "Configuring Zulip for Cloud Run deployment..."
 sudo mkdir -p /etc/zulip
 
 # Create or update zulip.conf for production deployment
-if [ -n "${CLOUDSQL_INSTANCE:-}" ]; then
-    # Cloud SQL unix socket configuration
-    CLOUDSQL_SOCKET="/cloudsql/$CLOUDSQL_INSTANCE"
-    echo "Configuring zulip.conf for Cloud SQL unix socket: $CLOUDSQL_SOCKET"
-    
-    sudo tee "$ZULIP_CONF" > /dev/null << EOF
+sudo tee "$ZULIP_CONF" > /dev/null << EOF
 [machine]
 deploy_type = production
 
@@ -28,44 +23,6 @@ database_name = zulip
 database_user = zulip
 missing_dictionaries = true
 EOF
-    
-    # Set environment variables for the current session and export them
-    # These will be used by Django when it imports the settings
-    export REMOTE_POSTGRES_HOST="$CLOUDSQL_SOCKET"
-    export REMOTE_POSTGRES_PORT=""
-    export REMOTE_POSTGRES_SSLMODE="disable"
-    
-elif [ -n "${POSTGRES_HOST:-}" ]; then
-    # Direct TCP connection configuration  
-    echo "Configuring zulip.conf for direct PostgreSQL connection: $POSTGRES_HOST"
-    
-    sudo tee "$ZULIP_CONF" > /dev/null << EOF
-[machine]
-deploy_type = production
-
-[postgresql]
-database_name = zulip
-database_user = zulip
-missing_dictionaries = true
-EOF
-
-    # Set environment variables for direct TCP connection
-    export REMOTE_POSTGRES_HOST="${POSTGRES_HOST}"
-    export REMOTE_POSTGRES_PORT="${POSTGRES_PORT:-5432}"
-    export REMOTE_POSTGRES_SSLMODE="${POSTGRES_SSLMODE:-require}"
-    
-else
-    echo "No database configuration found, using default local configuration"
-    sudo tee "$ZULIP_CONF" > /dev/null << EOF
-[machine]
-deploy_type = production
-
-[postgresql]
-database_name = zulip
-database_user = zulip
-missing_dictionaries = true
-EOF
-fi
 
 # Create or update settings.py
 sudo tee "$SETTINGS_FILE" > /dev/null << 'EOF'
@@ -80,15 +37,61 @@ import os
 # Configure external hostname from Cloud Run environment
 EXTERNAL_HOST = os.environ.get('EXTERNAL_HOST', 'localhost')
 
-# Database configuration is handled by environment variables set above
-# and Zulip's built-in computed_settings.py logic
-# No need to override DATABASES here as Zulip will configure it automatically
+# Configure PostgreSQL database connection for Cloud Run
+# Support both Unix socket (Cloud SQL) and TCP connection approaches
 
-import logging
-logging.info("Using Zulip's built-in database configuration logic")
-logging.info(f"REMOTE_POSTGRES_HOST: {os.environ.get('REMOTE_POSTGRES_HOST', 'Not set')}")
-logging.info(f"REMOTE_POSTGRES_PORT: {os.environ.get('REMOTE_POSTGRES_PORT', 'Not set')}")
-logging.info(f"REMOTE_POSTGRES_SSLMODE: {os.environ.get('REMOTE_POSTGRES_SSLMODE', 'Not set')}")
+if os.environ.get('CLOUDSQL_INSTANCE'):
+    # Unix socket approach (more secure) - Cloud SQL via Unix socket
+    import logging
+    logging.info("Using Unix socket connection to Cloud SQL")
+    
+    # Cloud SQL Unix socket path
+    CLOUDSQL_SOCKET = f"/cloudsql/{os.environ['CLOUDSQL_INSTANCE']}"
+    
+    # Configure database for Unix socket connection
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': 'zulip',
+            'USER': 'zulip',
+            'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
+            'HOST': CLOUDSQL_SOCKET,  # Unix socket path
+            'PORT': '',  # No port for Unix socket
+            'OPTIONS': {
+                'sslmode': 'disable',  # SSL not needed for Unix socket
+            },
+        }
+    }
+    
+    logging.info(f"Unix socket database configuration: {DATABASES['default']}")
+    
+elif os.environ.get('POSTGRES_HOST'):
+    # Direct TCP connection approach (fallback)
+    logging.info("Using direct TCP connection to PostgreSQL")
+    
+    REMOTE_POSTGRES_HOST = os.environ['POSTGRES_HOST']
+    REMOTE_POSTGRES_PORT = os.environ.get('POSTGRES_PORT', '5432')
+    REMOTE_POSTGRES_SSLMODE = os.environ.get('POSTGRES_SSLMODE', 'require')
+    
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': 'zulip',
+            'USER': 'zulip',
+            'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
+            'HOST': REMOTE_POSTGRES_HOST,
+            'PORT': REMOTE_POSTGRES_PORT,
+            'OPTIONS': {
+                'sslmode': REMOTE_POSTGRES_SSLMODE,
+            },
+        }
+    }
+    
+    logging.info(f"TCP database configuration: {DATABASES['default']}")
+else:
+    # Debug: Log when no database configuration is found
+    import logging
+    logging.warning("No database configuration found (CLOUDSQL_INSTANCE or POSTGRES_HOST)")
 
 # Configure email settings for Cloud Run
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -150,28 +153,8 @@ EOF
 
 echo "Cloud Run settings configured successfully."
 
-# Create an environment file with database settings
-ENV_FILE="/etc/zulip/cloudrun.env"
-echo "Creating environment file at $ENV_FILE..."
-
-sudo tee "$ENV_FILE" > /dev/null << EOF
-# Cloud Run environment variables for Zulip database configuration
-# This file is sourced by the entrypoint script
-
-# Database configuration environment variables
-export REMOTE_POSTGRES_HOST="${REMOTE_POSTGRES_HOST:-}"
-export REMOTE_POSTGRES_PORT="${REMOTE_POSTGRES_PORT:-}"
-export REMOTE_POSTGRES_SSLMODE="${REMOTE_POSTGRES_SSLMODE:-}"
-
-# Debug information
-echo "[CloudRun] Database environment variables set:"
-echo "[CloudRun] REMOTE_POSTGRES_HOST=$REMOTE_POSTGRES_HOST"
-echo "[CloudRun] REMOTE_POSTGRES_PORT=$REMOTE_POSTGRES_PORT"
-echo "[CloudRun] REMOTE_POSTGRES_SSLMODE=$REMOTE_POSTGRES_SSLMODE"
-EOF
-
 # Set proper ownership and permissions
-sudo chown zulip:zulip "$SETTINGS_FILE" "$ZULIP_CONF" "$ENV_FILE"
-sudo chmod 644 "$SETTINGS_FILE" "$ZULIP_CONF" "$ENV_FILE"
+sudo chown zulip:zulip "$SETTINGS_FILE" "$ZULIP_CONF"
+sudo chmod 644 "$SETTINGS_FILE" "$ZULIP_CONF"
 
-echo "Settings and environment files created with proper permissions."
+echo "Settings files created with proper permissions."
