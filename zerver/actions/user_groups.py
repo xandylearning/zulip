@@ -173,6 +173,54 @@ def update_users_in_faculty_system_group(
         )
 
 
+def update_users_in_full_members_system_group(
+    realm: Realm, affected_user_ids: Sequence[int] = [], *, acting_user: UserProfile | None
+) -> None:
+    """Update users in the full members system group based on their role."""
+    try:
+        full_members_system_group = NamedUserGroup.objects.get(
+            realm=realm, name=SystemGroups.FULL_MEMBERS, is_system_group=True
+        )
+    except NamedUserGroup.DoesNotExist:
+        # If the system group doesn't exist, create it
+        full_members_system_group = create_user_group_in_database(
+            name=SystemGroups.FULL_MEMBERS,
+            members=[],
+            realm=realm,
+            acting_user=acting_user,
+            description="All full members of the organization",
+        )
+    
+    # Get current members
+    current_member_ids = set(full_members_system_group.direct_members.values_list("id", flat=True))
+    
+    # Get users who should be in the full members group (mentors and faculty)
+    eligible_users = UserProfile.objects.filter(
+        realm=realm,
+        is_active=True,
+        role__in=[UserProfile.ROLE_MENTOR, UserProfile.ROLE_FACULTY]
+    )
+    
+    if affected_user_ids:
+        eligible_users = eligible_users.filter(id__in=affected_user_ids)
+    
+    eligible_user_ids = set(eligible_users.values_list("id", flat=True))
+    
+    # Add users who should be members but aren't
+    users_to_add = eligible_user_ids - current_member_ids
+    if users_to_add:
+        bulk_add_members_to_user_groups(
+            [full_members_system_group], list(users_to_add), acting_user=acting_user
+        )
+    
+    # Remove users who shouldn't be members but are
+    users_to_remove = current_member_ids - eligible_user_ids
+    if users_to_remove:
+        bulk_remove_members_from_user_groups(
+            [full_members_system_group], list(users_to_remove), acting_user=acting_user
+        )
+
+
 def promote_new_faculty_members() -> None:
     for realm in Realm.objects.filter(deactivated=False).exclude(waiting_period_threshold=0):
         update_users_in_faculty_system_group(realm, acting_user=None)
