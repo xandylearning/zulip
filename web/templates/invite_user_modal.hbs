@@ -48,10 +48,11 @@
             {{> help_link_widget link="/help/user-roles" }}
         </label>
         <select id="invite_as" name="invite_as" class="invite-user-select modal_select bootstrap-focus-style">
-            <option value="{{ invite_as_options.guest.code }}">{{t "Guests" }}</option>
-            <option selected="selected" value="{{ invite_as_options.member.code }}">{{t "Members" }}</option>
+            <option value="{{ invite_as_options.student.code }}">{{t "Students" }}</option>
+            <option selected="selected" value="{{ invite_as_options.faculty.code }}">{{t "Faculty" }}</option>
+            <option value="{{ invite_as_options.parent.code }}">{{t "Parents" }}</option>
+            <option value="{{ invite_as_options.mentor.code }}">{{t "Mentors" }}</option>
             {{#if is_admin}}
-            <option value="{{ invite_as_options.moderator.code }}">{{t "Moderators" }}</option>
             <option value="{{ invite_as_options.admin.code }}">{{t "Administrators" }}</option>
             {{/if}}
             {{#if is_owner}}

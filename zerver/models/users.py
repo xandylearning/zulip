@@ -302,18 +302,16 @@ class UserBaseSettings(models.Model):
     # the same as UserProfile.delivery_email, or is instead a fake
     # generated value encoding the user ID and realm hostname.
     EMAIL_ADDRESS_VISIBILITY_EVERYONE = 1
-    EMAIL_ADDRESS_VISIBILITY_MEMBERS = 2
+    EMAIL_ADDRESS_VISIBILITY_FACULTY = 2
     EMAIL_ADDRESS_VISIBILITY_ADMINS = 3
     EMAIL_ADDRESS_VISIBILITY_NOBODY = 4
-    EMAIL_ADDRESS_VISIBILITY_MODERATORS = 5
     email_address_visibility = models.PositiveSmallIntegerField(
         default=EMAIL_ADDRESS_VISIBILITY_EVERYONE,
     )
 
     EMAIL_ADDRESS_VISIBILITY_ID_TO_NAME_MAP = {
-        EMAIL_ADDRESS_VISIBILITY_EVERYONE: gettext_lazy("Admins, moderators, members and guests"),
-        EMAIL_ADDRESS_VISIBILITY_MEMBERS: gettext_lazy("Admins, moderators and members"),
-        EMAIL_ADDRESS_VISIBILITY_MODERATORS: gettext_lazy("Admins and moderators"),
+        EMAIL_ADDRESS_VISIBILITY_EVERYONE: gettext_lazy("Admins, faculty, students, parents and mentors"),
+        EMAIL_ADDRESS_VISIBILITY_FACULTY: gettext_lazy("Admins and faculty"),
         EMAIL_ADDRESS_VISIBILITY_ADMINS: gettext_lazy("Admins only"),
         EMAIL_ADDRESS_VISIBILITY_NOBODY: gettext_lazy("Nobody"),
     }
@@ -583,30 +581,30 @@ class UserProfile(AbstractBaseUser, PermissionsMixin, UserBaseSettings):
     ROLE_TO_ACCESSIBLE_EMAIL_ADDRESS_VISIBILITY_IDS = {
         ROLE_REALM_OWNER: [
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_ADMINS,
-            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MODERATORS,
-            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
+            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_FACULTY,
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_EVERYONE,
         ],
         ROLE_REALM_ADMINISTRATOR: [
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_ADMINS,
-            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MODERATORS,
-            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
+            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_FACULTY,
+            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_EVERYONE,
+        ],
+        # Legacy role 400 (MEMBER) maps to faculty permissions
+        400: [
+            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_FACULTY,
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_EVERYONE,
         ],
         ROLE_FACULTY: [
-            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
+            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_FACULTY,
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_EVERYONE,
         ],
         ROLE_STUDENT: [
-            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_EVERYONE,
         ],
         ROLE_PARENT: [
-            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_EVERYONE,
         ],
         ROLE_MENTOR: [
-            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_EVERYONE,
         ],
     }
@@ -690,6 +688,8 @@ class UserProfile(AbstractBaseUser, PermissionsMixin, UserBaseSettings):
     ROLE_ID_TO_NAME_MAP = {
         ROLE_REALM_OWNER: gettext_lazy("Organization owner"),
         ROLE_REALM_ADMINISTRATOR: gettext_lazy("Organization administrator"),
+        # Legacy role 400 (MEMBER) maps to faculty
+        400: gettext_lazy("Faculty"),
         ROLE_FACULTY: gettext_lazy("Faculty"),
         ROLE_STUDENT: gettext_lazy("Student"),
         ROLE_PARENT: gettext_lazy("Parent"),
@@ -701,6 +701,8 @@ class UserProfile(AbstractBaseUser, PermissionsMixin, UserBaseSettings):
     ROLE_ID_TO_API_NAME = {
         ROLE_REALM_OWNER: "owner",
         ROLE_REALM_ADMINISTRATOR: "administrator",
+        # Legacy role 400 (MEMBER) maps to faculty
+        400: "faculty",
         ROLE_FACULTY: "faculty",
         ROLE_STUDENT: "student",
         ROLE_PARENT: "parent",

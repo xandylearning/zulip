@@ -258,7 +258,7 @@ def maybe_send_to_registration(
 
         invited_as = multiuse_obj.invited_as
     else:
-        invited_as = PreregistrationUser.INVITE_AS["MEMBER"]
+        invited_as = PreregistrationUser.INVITE_AS["FACULTY"]
 
     form = HomepageForm(
         {"email": email},

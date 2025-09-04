@@ -604,18 +604,18 @@ def do_create_user(
     )
 
     if user_profile.role == UserProfile.ROLE_FACULTY and not user_profile.is_provisional_member:
-        full_members_system_group = NamedUserGroup.objects.get(
-            name=SystemGroups.FULL_MEMBERS,
+        faculty_system_group = NamedUserGroup.objects.get(
+            name=SystemGroups.FACULTY,
             realm=user_profile.realm,
             is_system_group=True,
         )
         UserGroupMembership.objects.create(
-            user_profile=user_profile, user_group=full_members_system_group
+            user_profile=user_profile, user_group=faculty_system_group
         )
         RealmAuditLog.objects.create(
             realm=user_profile.realm,
             modified_user=user_profile,
-            modified_user_group=full_members_system_group,
+            modified_user_group=faculty_system_group,
             event_type=AuditLogEventType.USER_GROUP_DIRECT_USER_MEMBERSHIP_ADDED,
             event_time=event_time,
             acting_user=acting_user,

@@ -10,135 +10,193 @@
 <!-- The following empty tag has unique data-page-id so that this
 page can be easily identified in it's respective JavaScript file -->
 <div data-page-id="dev-login"></div>
-<div class="app login-page flex full-page">
-    <div class="app-main login-page-container dev-login white-box">
-        {% if current_realm %}
-        <h4 class="login-page-header">Click on a user to log in to {{ current_realm.name }}!</h4>
-        {% else %}
-        <h4 class="login-page-header">Click on a user to log in!</h4>
-        {% endif %}
-        <p class="devlogin_subheader">(Browse the <a href="/devtools">developer tools</a> or visit the <a href="/login/">normal login page</a>.)</p>
-        <form name="direct_login_form" id="direct_login_form" method="post" class="login-form">
-            <input type="hidden" name="next" value="{{ next }}" />
-            <div class="controls">
-                <div class="group">
-                    {% if realm_web_public_access_enabled %}
-                    <h2>{{_('Anonymous user') }}</h2>
-                    <p>
-                        <input type="submit" formaction="{{ current_realm.url }}{{ url('login-local') }}"
-                          name="prefers_web_public_view" class="dev-button dev-login-button" value="Anonymous login" />
-                    </p>
-                    {% endif %}
-                    <h2>{{_('Owners') }}</h2>
-                    {% if direct_owners %}
-                        {% for direct_owner in direct_owners %}
-                        <p>
-                            <button type="submit" formaction="{{ direct_owner.realm.url }}{{ url('login-local') }}"
-                              name="direct_email" class="dev-button dev-login-button" value="{{ direct_owner.delivery_email }}">
-                                {% if direct_owner.realm.demo_organization_scheduled_deletion_date %}
-                                    {{ direct_owner.full_name }}
+<div class="app login-page split-view new-style flex full-page">
+    <div class="inline-block">
+        <div class="lead">
+            <h1 class="get-started">Zulip Development Environment</h1>
+        </div>
+
+        <div class="app-main login-page-container dev-login white-box inline-block">
+            {% if current_realm %}
+            <div class="dev-login-header">
+                <h2 class="login-page-header">Click on a user to log in to {{ current_realm.name }}!</h2>
+            </div>
+            {% else %}
+            <div class="dev-login-header">
+                <h2 class="login-page-header">Click on a user to log in!</h2>
+            </div>
+            {% endif %}
+            <p class="devlogin_subheader">Browse the <a href="/devtools">developer tools</a> or visit the <a href="/login/">normal login page</a>.</p>
+            <form name="direct_login_form" id="direct_login_form" method="post" class="login-form">
+                <input type="hidden" name="next" value="{{ next }}" />
+                <div class="dev-login-controls">
+                    <div class="dev-user-groups">
+                        {% if realm_web_public_access_enabled %}
+                        <div class="dev-user-group">
+                            <h3 class="dev-group-title">{{_('Anonymous user') }}</h3>
+                            <div class="dev-user-buttons">
+                                <button type="submit" formaction="{{ current_realm.url }}{{ url('login-local') }}"
+                                  name="prefers_web_public_view" class="action-button action-button-primary-brand dev-login-button">
+                                    Anonymous login
+                                </button>
+                            </div>
+                        </div>
+                        {% endif %}
+                        
+                        <div class="dev-user-group">
+                            <h3 class="dev-group-title">{{_('Owners') }}</h3>
+                            <div class="dev-user-buttons">
+                                {% if direct_owners %}
+                                    {% for direct_owner in direct_owners %}
+                                    <button type="submit" formaction="{{ direct_owner.realm.url }}{{ url('login-local') }}"
+                                      name="direct_email" class="action-button action-button-primary-brand dev-login-button" value="{{ direct_owner.delivery_email }}">
+                                        {% if direct_owner.realm.demo_organization_scheduled_deletion_date %}
+                                            {{ direct_owner.full_name }}
+                                        {% else %}
+                                            {{ direct_owner.delivery_email }}
+                                        {% endif %}
+                                    </button>
+                                    {% endfor %}
                                 {% else %}
-                                    {{ direct_owner.delivery_email }}
+                                    <p class="dev-no-users">No owners found in this realm</p>
                                 {% endif %}
-                            </button>
-                        </p>
-                        {% endfor %}
-                    {% else %}
-                        <p>No owners found in this realm</p>
-                    {% endif %}
-                    <h2>{{ _('Administrators') }}</h2>
-                    {% if direct_admins %}
-                        {% for direct_admin in direct_admins %}
-                        <p>
-                            <input type="submit" formaction="{{ direct_admin.realm.url }}{{ url('login-local') }}"
-                              name="direct_email" class="dev-button dev-login-button" value="{{ direct_admin.delivery_email }}" />
-                        </p>
-                        {% endfor %}
-                    {% else %}
-                        <p>No administrators found in this realm</p>
-                    {% endif %}
-                    <h2>{{ _('Faculty') }}</h2>
-                    {% if faculty_users %}
-                        {% for faculty_user in faculty_users %}
-                        <p>
-                            <input type="submit" formaction="{{ faculty_user.realm.url }}{{ url('login-local') }}"
-                              name="direct_email" class="dev-button dev-login-button" value="{{ faculty_user.delivery_email }}" />
-                        </p>
-                        {% endfor %}
-                    {% else %}
-                        <p>No faculty found in this realm</p>
-                    {% endif %}
-                    <h2>{{ _('Students') }}</h2>
-                    {% if student_users %}
-                        {% for student_user in student_users %}
-                        <p>
-                            <input type="submit" formaction="{{ student_user.realm.url }}{{ url('login-local') }}"
-                              name="direct_email" class="dev-button dev-login-button" value="{{ student_user.delivery_email }}" />
-                        </p>
-                        {% endfor %}
-                    {% else %}
-                        <p>No students found in this realm</p>
-                    {% endif %}
-                    <h2>{{ _('Parents') }}</h2>
-                    {% if parent_users %}
-                        {% for parent_user in parent_users %}
-                        <p>
-                            <input type="submit" formaction="{{ parent_user.realm.url }}{{ url('login-local') }}"
-                              name="direct_email" class="dev-button dev-login-button" value="{{ parent_user.delivery_email }}" />
-                        </p>
-                        {% endfor %}
-                    {% else %}
-                        <p>No parents found in this realm</p>
-                    {% endif %}
-                    <h2>{{ _('Mentors') }}</h2>
-                    {% if mentor_users %}
-                        {% for mentor_user in mentor_users %}
-                        <p>
-                            <input type="submit" formaction="{{ mentor_user.realm.url }}{{ url('login-local') }}"
-                              name="direct_email" class="dev-button dev-login-button" value="{{ mentor_user.delivery_email }}" />
-                        </p>
-                        {% endfor %}
-                    {% else %}
-                        <p>No mentors found in this realm</p>
-                    {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="dev-user-group">
+                            <h3 class="dev-group-title">{{ _('Administrators') }}</h3>
+                            <div class="dev-user-buttons">
+                                {% if direct_admins %}
+                                    {% for direct_admin in direct_admins %}
+                                    <button type="submit" formaction="{{ direct_admin.realm.url }}{{ url('login-local') }}"
+                                      name="direct_email" class="action-button action-button-primary-neutral dev-login-button" value="{{ direct_admin.delivery_email }}">
+                                        {{ direct_admin.delivery_email }}
+                                    </button>
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="dev-no-users">No administrators found in this realm</p>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="dev-user-group">
+                            <h3 class="dev-group-title">{{ _('Faculty') }}</h3>
+                            <div class="dev-user-buttons">
+                                {% if faculty_users %}
+                                    {% for faculty_user in faculty_users %}
+                                    <button type="submit" formaction="{{ faculty_user.realm.url }}{{ url('login-local') }}"
+                                      name="direct_email" class="action-button action-button-primary-info dev-login-button" value="{{ faculty_user.delivery_email }}">
+                                        {{ faculty_user.delivery_email }}
+                                    </button>
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="dev-no-users">No faculty found in this realm</p>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="dev-user-group">
+                            <h3 class="dev-group-title">{{ _('Students') }}</h3>
+                            <div class="dev-user-buttons">
+                                {% if student_users %}
+                                    {% for student_user in student_users %}
+                                    <button type="submit" formaction="{{ student_user.realm.url }}{{ url('login-local') }}"
+                                      name="direct_email" class="action-button action-button-quiet-brand dev-login-button" value="{{ student_user.delivery_email }}">
+                                        {{ student_user.delivery_email }}
+                                    </button>
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="dev-no-users">No students found in this realm</p>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="dev-user-group">
+                            <h3 class="dev-group-title">{{ _('Parents') }}</h3>
+                            <div class="dev-user-buttons">
+                                {% if parent_users %}
+                                    {% for parent_user in parent_users %}
+                                    <button type="submit" formaction="{{ parent_user.realm.url }}{{ url('login-local') }}"
+                                      name="direct_email" class="action-button action-button-quiet-neutral dev-login-button" value="{{ parent_user.delivery_email }}">
+                                        {{ parent_user.delivery_email }}
+                                    </button>
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="dev-no-users">No parents found in this realm</p>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="dev-user-group">
+                            <h3 class="dev-group-title">{{ _('Mentors') }}</h3>
+                            <div class="dev-user-buttons">
+                                {% if mentor_users %}
+                                    {% for mentor_user in mentor_users %}
+                                    <button type="submit" formaction="{{ mentor_user.realm.url }}{{ url('login-local') }}"
+                                      name="direct_email" class="action-button action-button-quiet-info dev-login-button" value="{{ mentor_user.delivery_email }}">
+                                        {{ mentor_user.delivery_email }}
+                                    </button>
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="dev-no-users">No mentors found in this realm</p>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="dev-user-group">
+                            <h3 class="dev-group-title">{{ _('Normal users') }}</h3>
+                            <div class="dev-user-buttons">
+                                {% if direct_users %}
+                                    {% for direct_user in direct_users %}
+                                    <button type="submit" formaction="{{ direct_user.realm.url }}{{ url('login-local') }}"
+                                      name="direct_email" class="action-button action-button-borderless-neutral dev-login-button" value="{{ direct_user.delivery_email }}">
+                                        {{ direct_user.delivery_email }}
+                                    </button>
+                                    {% endfor %}
+                                {% else %}
+                                    <p class="dev-no-users">No normal users found in this realm</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </form>
+            <div class="dev-tools-section">
+                <div class="dev-realm-selector">
+                    <form name="change_realm" action="{{ url('login_page') }}" method="post">
+                        {{ csrf_input }}
+                        <h3 class="dev-section-title">Realm Selection</h3>
+                        <div class="input-box">
+                            <select class="bootstrap-focus-style" name="new_realm" onchange="this.form.submit()">
+                                <option value="all_realms" {% if not current_realm %}selected="selected"{% endif %}>All realms</option>
+                                {% for realm in all_realms %}
+                                <option value="{{realm.string_id}}" {% if current_realm == realm %}selected="selected"{% endif %}>{{realm.name}}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </form>
                 </div>
 
-                <div class="group">
-                    <h2>{{ _('Normal users') }}</h2>
-                    {% if direct_users %}
-                        {% for direct_user in direct_users %}
-                        <p>
-                            <input type="submit" formaction="{{ direct_user.realm.url }}{{ url('login-local') }}"
-                              name="direct_email" class="dev-button dev-login-button" value="{{ direct_user.delivery_email }}" />
-                        </p>
-                        {% endfor %}
-                    {% else %}
-                        <p>No normal users found in this realm</p>
-                    {% endif %}
+                <div class="dev-tools-actions">
+                    <h3 class="dev-section-title">Development Tools</h3>
+                    <div class="dev-tools-buttons">
+                        <form name="register_dev_user" action="{{ url('register_dev_user') }}" method="POST">
+                            <button type="submit" class="action-button action-button-quiet-brand dev-create-button">
+                                Create new user
+                            </button>
+                        </form>
+                        <form name="register_dev_realm" action="{{ url('register_dev_realm') }}" method="POST">
+                            <button type="submit" class="action-button action-button-quiet-neutral dev-create-button">
+                                Create new realm
+                            </button>
+                        </form>
+                        <form name="register_demo_dev_realm" action="{{ url('register_demo_dev_realm') }}" method="POST">
+                            <button type="submit" class="action-button action-button-quiet-info dev-create-button">
+                                Create demo organization
+                            </button>
+                        </form>
+                    </div>
                 </div>
-            </div>
-        </form>
-        <form name="change_realm" action="{{ url('login_page') }}" method="post">
-            {{ csrf_input }}
-            <h2>Realm</h2>
-            <select class="bootstrap-focus-style" name="new_realm" onchange="this.form.submit()">
-                <option value="all_realms" {% if not current_realm %}selected="selected"{% endif %}>All realms</option>
-                {% for realm in all_realms %}
-                <option value="{{realm.string_id}}" {% if current_realm == realm %}selected="selected"{% endif %}>{{realm.name}}</option>
-                {% endfor %}
-            </select>
-        </form>
-        <div id="devtools-wrapper">
-            <div id="devtools-registration">
-                <form name="register_dev_user" action="{{ url('register_dev_user') }}" method="POST">
-                    <input type="submit" class="dev-button dev-create-button" value="Create new user" />
-                </form>
-                <form name="register_dev_realm" action="{{ url('register_dev_realm') }}" method="POST">
-                    <input type="submit" class="dev-button dev-create-button" value="Create new realm" />
-                </form>
-                <form name="register_demo_dev_realm" action="{{ url('register_demo_dev_realm') }}" method="POST">
-                    <input type="submit" class="dev-button dev-create-button" value="Create demo organization" />
-                </form>
             </div>
         </div>
     </div>

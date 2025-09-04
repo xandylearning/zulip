@@ -102,11 +102,15 @@ class PreregistrationUser(models.Model):
     INVITE_AS = dict(
         REALM_OWNER=100,
         REALM_ADMIN=200,
-        MODERATOR=300,
-        MEMBER=400,
-        GUEST_USER=600,
+        FACULTY=450,
+        STUDENT=500,
+        PARENT=550,
+        MENTOR=580,
+        # Legacy roles for backward compatibility
+        MEMBER=400,  # Maps to faculty
+        GUEST_USER=600,  # Maps to student
     )
-    invited_as = models.PositiveSmallIntegerField(default=INVITE_AS["MEMBER"])
+    invited_as = models.PositiveSmallIntegerField(default=INVITE_AS["FACULTY"])
 
     multiuse_invite = models.ForeignKey("MultiuseInvite", null=True, on_delete=models.SET_NULL)
 
@@ -145,7 +149,7 @@ class MultiuseInvite(models.Model):
     streams = models.ManyToManyField("zerver.Stream")
     groups = models.ManyToManyField("zerver.NamedUserGroup")
     realm = models.ForeignKey(Realm, on_delete=CASCADE)
-    invited_as = models.PositiveSmallIntegerField(default=PreregistrationUser.INVITE_AS["MEMBER"])
+    invited_as = models.PositiveSmallIntegerField(default=PreregistrationUser.INVITE_AS["FACULTY"])
     include_realm_default_subscriptions = models.BooleanField(default=True)
 
     # Custom text to be sent to created users in a welcome bot message.

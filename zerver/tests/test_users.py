@@ -738,12 +738,12 @@ class PermissionTest(ZulipTestCase):
             # the "Full members" group as well.
             num_events += 1
 
-        if new_role == UserProfile.ROLE_GUEST:
+        if new_role == UserProfile.ROLE_STUDENT:
             # There is one additional event deleting the unsubscribed public
             # streams that the user will not able to access after becoming guest.
             num_events += 1
 
-        if old_role == UserProfile.ROLE_GUEST:
+        if old_role == UserProfile.ROLE_STUDENT:
             # User will receive one event for creation of unsubscribed public
             # (and private, if the new role is owner or admin) streams that
             # they did not have access to previously and 3 more peer_add
@@ -781,13 +781,13 @@ class PermissionTest(ZulipTestCase):
         self.assertTrue(person["role"], new_role)
 
     def test_change_regular_member_to_guest(self) -> None:
-        self.check_user_role_change("hamlet", UserProfile.ROLE_GUEST)
+        self.check_user_role_change("hamlet", UserProfile.ROLE_STUDENT)
 
     def test_change_guest_to_regular_member(self) -> None:
         self.check_user_role_change("polonius", UserProfile.ROLE_MEMBER)
 
     def test_change_admin_to_guest(self) -> None:
-        self.check_user_role_change("iago", UserProfile.ROLE_GUEST)
+        self.check_user_role_change("iago", UserProfile.ROLE_STUDENT)
 
     def test_change_guest_to_admin(self) -> None:
         self.check_user_role_change("polonius", UserProfile.ROLE_REALM_ADMINISTRATOR)
@@ -796,7 +796,7 @@ class PermissionTest(ZulipTestCase):
         self.login("desdemona")
         iago = self.example_user("iago")
         do_change_user_role(iago, UserProfile.ROLE_REALM_OWNER, acting_user=None)
-        self.check_user_role_change("iago", UserProfile.ROLE_GUEST)
+        self.check_user_role_change("iago", UserProfile.ROLE_STUDENT)
 
     def test_change_guest_to_owner(self) -> None:
         self.check_user_role_change("polonius", UserProfile.ROLE_REALM_OWNER)
@@ -828,7 +828,7 @@ class PermissionTest(ZulipTestCase):
         self.check_user_role_change("polonius", UserProfile.ROLE_MODERATOR)
 
     def test_change_moderator_to_guest(self) -> None:
-        self.check_user_role_change("shiva", UserProfile.ROLE_GUEST)
+        self.check_user_role_change("shiva", UserProfile.ROLE_STUDENT)
 
     def test_admin_user_can_change_profile_data(self) -> None:
         realm = get_realm("zulip")

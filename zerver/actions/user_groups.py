@@ -106,22 +106,22 @@ def create_user_group_in_database(
 
 
 @transaction.atomic(savepoint=False)
-def update_users_in_full_members_system_group(
+def update_users_in_faculty_system_group(
     realm: Realm, affected_user_ids: Sequence[int] = [], *, acting_user: UserProfile | None
 ) -> None:
-    full_members_system_group = NamedUserGroup.objects.get(
-        realm=realm, name=SystemGroups.FULL_MEMBERS, is_system_group=True
+    faculty_system_group = NamedUserGroup.objects.get(
+        realm=realm, name=SystemGroups.FACULTY, is_system_group=True
     )
     members_system_group = NamedUserGroup.objects.get(
         realm=realm, name=SystemGroups.EVERYONE, is_system_group=True
     )
 
-    full_member_group_users: list[MemberGroupUserDict] = list()
+    faculty_group_users: list[MemberGroupUserDict] = list()
     member_group_users: list[MemberGroupUserDict] = list()
 
     if affected_user_ids:
-        full_member_group_users = list(
-            full_members_system_group.direct_members.filter(id__in=affected_user_ids).values(
+        faculty_group_users = list(
+            faculty_system_group.direct_members.filter(id__in=affected_user_ids).values(
                 "id", "role", "date_joined"
             )
         )
@@ -131,8 +131,8 @@ def update_users_in_full_members_system_group(
             )
         )
     else:
-        full_member_group_users = list(
-            full_members_system_group.direct_members.all().values("id", "role", "date_joined")
+        faculty_group_users = list(
+            faculty_system_group.direct_members.all().values("id", "role", "date_joined")
         )
         member_group_users = list(
             members_system_group.direct_members.all().values("id", "role", "date_joined")
@@ -144,38 +144,38 @@ def update_users_in_full_members_system_group(
             return True
         return False
 
-    old_full_members = [
+    old_faculty_members = [
         user
-        for user in full_member_group_users
+        for user in faculty_group_users
         if is_provisional_member(user) or user["role"] != UserProfile.ROLE_FACULTY
     ]
 
-    full_member_group_user_ids = [user["id"] for user in full_member_group_users]
-    members_excluding_full_members = [
-        user for user in member_group_users if user["id"] not in full_member_group_user_ids
+    faculty_group_user_ids = [user["id"] for user in faculty_group_users]
+    members_excluding_faculty = [
+        user for user in member_group_users if user["id"] not in faculty_group_user_ids
     ]
 
-    new_full_members = [
-        user for user in members_excluding_full_members if not is_provisional_member(user)
+    new_faculty_members = [
+        user for user in members_excluding_faculty if not is_provisional_member(user)
     ]
 
-    old_full_member_ids = [user["id"] for user in old_full_members]
-    new_full_member_ids = [user["id"] for user in new_full_members]
+    old_faculty_member_ids = [user["id"] for user in old_faculty_members]
+    new_faculty_member_ids = [user["id"] for user in new_faculty_members]
 
-    if len(old_full_members) > 0:
+    if len(old_faculty_members) > 0:
         bulk_remove_members_from_user_groups(
-            [full_members_system_group], old_full_member_ids, acting_user=acting_user
+            [faculty_system_group], old_faculty_member_ids, acting_user=acting_user
         )
 
-    if len(new_full_members) > 0:
+    if len(new_faculty_members) > 0:
         bulk_add_members_to_user_groups(
-            [full_members_system_group], new_full_member_ids, acting_user=acting_user
+            [faculty_system_group], new_faculty_member_ids, acting_user=acting_user
         )
 
 
-def promote_new_full_members() -> None:
+def promote_new_faculty_members() -> None:
     for realm in Realm.objects.filter(deactivated=False).exclude(waiting_period_threshold=0):
-        update_users_in_full_members_system_group(realm, acting_user=None)
+        update_users_in_faculty_system_group(realm, acting_user=None)
 
 
 def do_send_create_user_group_event(

@@ -9,7 +9,6 @@ from zerver.models.users import UserProfile
 
 
 class SystemGroups:
-    FULL_MEMBERS = "role:fullmembers"
     EVERYONE_ON_INTERNET = "role:internet"
     OWNERS = "role:owners"
     ADMINISTRATORS = "role:administrators"
@@ -24,7 +23,6 @@ class SystemGroups:
         NOBODY: gettext_lazy("Nobody"),
         OWNERS: gettext_lazy("Owners"),
         ADMINISTRATORS: gettext_lazy("Administrators"),
-        FULL_MEMBERS: gettext_lazy("Full members"),
         FACULTY: gettext_lazy("Faculty"),
         STUDENTS: gettext_lazy("Students"),
         PARENTS: gettext_lazy("Parents"),
@@ -101,6 +99,11 @@ class NamedUserGroup(UserGroup):
         UserProfile.ROLE_REALM_ADMINISTRATOR: {
             "name": SystemGroups.ADMINISTRATORS,
             "description": "Administrators of this organization, including owners",
+        },
+        # Legacy role 400 (MEMBER) maps to faculty group
+        400: {
+            "name": SystemGroups.FACULTY,
+            "description": "Faculty members of this organization (converted from members)",
         },
         UserProfile.ROLE_FACULTY: {
             "name": SystemGroups.FACULTY,

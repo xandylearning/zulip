@@ -139,7 +139,7 @@ def invite_users_backend(
     invite_as: Annotated[
         Json[int],
         check_int_in_validator(list(PreregistrationUser.INVITE_AS.values())),
-    ] = PreregistrationUser.INVITE_AS["MEMBER"],
+    ] = PreregistrationUser.INVITE_AS["FACULTY"],
     invite_expires_in_minutes: Json[int | None] = INVITATION_LINK_VALIDITY_MINUTES,
     invitee_emails_raw: Annotated[str, ApiParamConfig("invitee_emails")],
     notify_referrer_on_join: Json[bool] = True,
@@ -161,7 +161,6 @@ def invite_users_backend(
         # logic in check_role_based_permissions.
         PreregistrationUser.INVITE_AS["REALM_OWNER"],
         PreregistrationUser.INVITE_AS["REALM_ADMIN"],
-        PreregistrationUser.INVITE_AS["MODERATOR"],
     ]
     check_role_based_permissions(invite_as, user_profile, require_admin=require_admin)
 
@@ -260,7 +259,7 @@ def generate_multiuse_invite_backend(
     invite_as: Annotated[
         Json[int],
         check_int_in_validator(list(PreregistrationUser.INVITE_AS.values())),
-    ] = PreregistrationUser.INVITE_AS["MEMBER"],
+    ] = PreregistrationUser.INVITE_AS["FACULTY"],
     invite_expires_in_minutes: Json[int | None] = INVITATION_LINK_VALIDITY_MINUTES,
     stream_ids: Json[list[int]] | None = None,
     welcome_message_custom_text: Annotated[
@@ -282,7 +281,6 @@ def generate_multiuse_invite_backend(
         # logic in check_role_based_permissions.
         PreregistrationUser.INVITE_AS["REALM_OWNER"],
         PreregistrationUser.INVITE_AS["REALM_ADMIN"],
-        PreregistrationUser.INVITE_AS["MODERATOR"],
     ]
     check_role_based_permissions(invite_as, user_profile, require_admin=require_admin)
 
