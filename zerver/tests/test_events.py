@@ -4954,7 +4954,7 @@ class UserDisplayActionTest(BaseAction):
         do_change_user_setting(
             cordelia,
             "email_address_visibility",
-            UserProfile.EMAIL_ADDRESS_VISIBILITY_MODERATORS,
+            UserProfile.EMAIL_ADDRESS_VISIBILITY_FACULTY,
             acting_user=None,
         )
 
@@ -4972,7 +4972,7 @@ class UserDisplayActionTest(BaseAction):
             do_change_user_setting(
                 cordelia,
                 "email_address_visibility",
-                UserProfile.EMAIL_ADDRESS_VISIBILITY_MODERATORS,
+                UserProfile.EMAIL_ADDRESS_VISIBILITY_FACULTY,
                 acting_user=self.user_profile,
             )
         check_realm_user_update("events[0]", events[0], "delivery_email")

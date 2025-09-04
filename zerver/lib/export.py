@@ -3092,8 +3092,7 @@ def check_public_export_is_usable(realm: Realm) -> bool:
         role=UserProfile.ROLE_REALM_OWNER,
         email_address_visibility__in=[
             UserProfile.EMAIL_ADDRESS_VISIBILITY_EVERYONE,
-            UserProfile.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
-            UserProfile.EMAIL_ADDRESS_VISIBILITY_MODERATORS,
+            UserProfile.EMAIL_ADDRESS_VISIBILITY_FACULTY,
             UserProfile.EMAIL_ADDRESS_VISIBILITY_ADMINS,
         ],
         realm=realm,

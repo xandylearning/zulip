@@ -1219,7 +1219,7 @@ class UpdateUserByEmailEndpointTest(ZulipTestCase):
         do_change_user_setting(
             hamlet,
             "email_address_visibility",
-            UserProfile.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
+            UserProfile.EMAIL_ADDRESS_VISIBILITY_FACULTY,
             acting_user=None,
         )
         result = self.client_patch(
@@ -2932,7 +2932,7 @@ class GetProfileTest(ZulipTestCase):
         do_change_user_setting(
             iago,
             "email_address_visibility",
-            UserProfile.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
+            UserProfile.EMAIL_ADDRESS_VISIBILITY_FACULTY,
             acting_user=None,
         )
         result = self.client_get(f"/json/users/{iago.delivery_email}")
@@ -3014,18 +3014,18 @@ class GetProfileTest(ZulipTestCase):
         do_change_user_setting(
             hamlet,
             "email_address_visibility",
-            UserProfile.EMAIL_ADDRESS_VISIBILITY_MODERATORS,
+            UserProfile.EMAIL_ADDRESS_VISIBILITY_FACULTY,
             acting_user=None,
         )
 
         # Check that moderator can access email when setting is set to
-        # EMAIL_ADDRESS_VISIBILITY_MODERATORS.
+        # EMAIL_ADDRESS_VISIBILITY_FACULTY.
         result = orjson.loads(self.client_get(f"/json/users/{hamlet.id}").content)
         self.assertEqual(result["user"].get("delivery_email"), hamlet.delivery_email)
         self.assertEqual(result["user"].get("email"), f"user{hamlet.id}@zulip.testserver")
 
         # Check that normal user cannot access email when setting is set to
-        # EMAIL_ADDRESS_VISIBILITY_MODERATORS.
+        # EMAIL_ADDRESS_VISIBILITY_FACULTY.
         self.login("cordelia")
         result = orjson.loads(self.client_get(f"/json/users/{hamlet.id}").content)
         self.assertEqual(result["user"].get("delivery_email"), None)
@@ -3034,18 +3034,18 @@ class GetProfileTest(ZulipTestCase):
         do_change_user_setting(
             hamlet,
             "email_address_visibility",
-            UserProfile.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
+            UserProfile.EMAIL_ADDRESS_VISIBILITY_FACULTY,
             acting_user=None,
         )
 
         # Check that normal user can access email when setting is set to
-        # EMAIL_ADDRESS_VISIBILITY_MEMBERS.
+        # EMAIL_ADDRESS_VISIBILITY_FACULTY.
         result = orjson.loads(self.client_get(f"/json/users/{hamlet.id}").content)
         self.assertEqual(result["user"].get("delivery_email"), hamlet.delivery_email)
         self.assertEqual(result["user"].get("email"), f"user{hamlet.id}@zulip.testserver")
 
         # Check that guest cannot access email when setting is set to
-        # EMAIL_ADDRESS_VISIBILITY_MEMBERS.
+        # EMAIL_ADDRESS_VISIBILITY_FACULTY.
         self.login("polonius")
         result = orjson.loads(self.client_get(f"/json/users/{hamlet.id}").content)
         self.assertEqual(result["user"].get("delivery_email"), None)

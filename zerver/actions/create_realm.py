@@ -246,9 +246,9 @@ def do_create_realm(
             Realm.ORG_TYPES["education_nonprofit"]["id"],
             Realm.ORG_TYPES["education"]["id"],
         ):
-            # Email address of users should be initially visible to moderators and admins.
+            # Email address of users should be initially visible to faculty and admins.
             realm_default_email_address_visibility = (
-                RealmUserDefault.EMAIL_ADDRESS_VISIBILITY_MODERATORS
+                RealmUserDefault.EMAIL_ADDRESS_VISIBILITY_FACULTY
             )
         if realm.org_type == Realm.ORG_TYPES["business"]["id"]:
             # Email address of users can be visible to all users for business organizations.

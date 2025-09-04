@@ -92,7 +92,6 @@ def accounts_accept_terms(request: HttpRequest) -> HttpResponse:
         "default_email_address_visibility": default_email_address_visibility,
         "email_address_visibility_options_dict": UserProfile.EMAIL_ADDRESS_VISIBILITY_ID_TO_NAME_MAP,
         "email_address_visibility_admins_only": UserProfile.EMAIL_ADDRESS_VISIBILITY_ADMINS,
-        "email_address_visibility_moderators": UserProfile.EMAIL_ADDRESS_VISIBILITY_MODERATORS,
         "email_address_visibility_nobody": UserProfile.EMAIL_ADDRESS_VISIBILITY_NOBODY,
     }
 

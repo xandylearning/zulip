@@ -736,7 +736,7 @@ class HomeTest(ZulipTestCase):
             "/accounts/accept_terms/",
             {
                 "terms": True,
-                "email_address_visibility": UserProfile.EMAIL_ADDRESS_VISIBILITY_MODERATORS,
+                "email_address_visibility": UserProfile.EMAIL_ADDRESS_VISIBILITY_FACULTY,
             },
         )
         self.assertEqual(result.status_code, 302)
@@ -744,7 +744,7 @@ class HomeTest(ZulipTestCase):
 
         user = self.example_user("hamlet")
         self.assertEqual(
-            user.email_address_visibility, UserProfile.EMAIL_ADDRESS_VISIBILITY_MODERATORS
+            user.email_address_visibility, UserProfile.EMAIL_ADDRESS_VISIBILITY_FACULTY
         )
 
     def test_set_email_address_visibility_without_terms_of_service(self) -> None:
@@ -764,7 +764,7 @@ class HomeTest(ZulipTestCase):
             result = self.client_post(
                 "/accounts/accept_terms/",
                 {
-                    "email_address_visibility": UserProfile.EMAIL_ADDRESS_VISIBILITY_MODERATORS,
+                    "email_address_visibility": UserProfile.EMAIL_ADDRESS_VISIBILITY_FACULTY,
                 },
             )
             self.assertEqual(result.status_code, 302)
@@ -772,7 +772,7 @@ class HomeTest(ZulipTestCase):
 
             user = self.example_user("hamlet")
             self.assertEqual(
-                user.email_address_visibility, UserProfile.EMAIL_ADDRESS_VISIBILITY_MODERATORS
+                user.email_address_visibility, UserProfile.EMAIL_ADDRESS_VISIBILITY_FACULTY
             )
 
     def test_bad_narrow(self) -> None:
