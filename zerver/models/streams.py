@@ -113,7 +113,6 @@ class Stream(models.Model):
         SystemGroups.EVERYONE: STREAM_POST_POLICY_EVERYONE,
         SystemGroups.ADMINISTRATORS: STREAM_POST_POLICY_ADMINS,
         SystemGroups.FULL_MEMBERS: STREAM_POST_POLICY_RESTRICT_NEW_MEMBERS,
-        SystemGroups.MODERATORS: STREAM_POST_POLICY_MODERATORS,
     }
 
     # The unique thing about Zephyr public streams is that we never list their

@@ -272,7 +272,7 @@ def fix_stream_permission_group_settings(
                 # set to STREAM_POST_POLICY_MODERATORS and so we need to
                 # set the can_send_message_group setting accordingly.
                 if stream["stream_post_policy"] == Stream.STREAM_POST_POLICY_MODERATORS:
-                    stream[setting_name] = system_groups_name_dict[SystemGroups.MODERATORS]
+                    stream[setting_name] = system_groups_name_dict[SystemGroups.ADMINISTRATORS]
                 else:
                     stream[setting_name] = get_stream_permission_default_group(
                         setting_name, system_groups_name_dict
@@ -2275,7 +2275,7 @@ def add_users_to_system_user_groups(
         usergroup_memberships.append(
             UserGroupMembership(user_profile=user_profile, user_group=user_group)
         )
-        if user_profile.role == UserProfile.ROLE_MEMBER and not user_profile.is_provisional_member:
+        if user_profile.role == UserProfile.ROLE_FACULTY and not user_profile.is_provisional_member:
             usergroup_memberships.append(
                 UserGroupMembership(user_profile=user_profile, user_group=full_members_system_group)
             )

@@ -307,13 +307,13 @@ def users_to_zerver_userprofile(
         avatar_source, avatar_url = build_avatar_url(slack_user_id, user)
         if avatar_source == UserProfile.AVATAR_FROM_USER:
             build_avatar(user_id, realm_id, email, avatar_url, timestamp, avatar_list)
-        role = UserProfile.ROLE_MEMBER
+        role = UserProfile.ROLE_FACULTY
         if get_owner(user):
             role = UserProfile.ROLE_REALM_OWNER
         elif get_admin(user):
             role = UserProfile.ROLE_REALM_ADMINISTRATOR
         if get_guest(user):
-            role = UserProfile.ROLE_GUEST
+            role = UserProfile.ROLE_STUDENT
         timezone = get_user_timezone(user)
 
         if slack_user_id in slack_user_id_to_custom_profile_fields:

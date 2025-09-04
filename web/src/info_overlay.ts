@@ -282,7 +282,7 @@ export function set_up_toggler(): void {
 
     const $search_operators = $(
         render_search_operator({
-            can_access_all_public_channels: !page_params.is_spectator && !current_user.is_guest,
+            can_access_all_public_channels: !page_params.is_spectator && !(current_user.is_student || current_user.is_parent),
         }),
     );
     $(".informational-overlays .overlay-body").append($search_operators);

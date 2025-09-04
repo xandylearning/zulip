@@ -60,9 +60,10 @@ ONLY perform this on customer request from an authorized person.
         user_role_map = {
             "owner": UserProfile.ROLE_REALM_OWNER,
             "admin": UserProfile.ROLE_REALM_ADMINISTRATOR,
-            "moderator": UserProfile.ROLE_MODERATOR,
-            "member": UserProfile.ROLE_MEMBER,
-            "guest": UserProfile.ROLE_GUEST,
+            "faculty": UserProfile.ROLE_FACULTY,
+            "student": UserProfile.ROLE_STUDENT,
+            "parent": UserProfile.ROLE_PARENT,
+            "mentor": UserProfile.ROLE_MENTOR,
         }
 
         if options["new_role"] not in [
@@ -77,7 +78,7 @@ ONLY perform this on customer request from an authorized person.
                 )
             if new_role == user.role:
                 raise CommandError("User already has this role.")
-            if settings.BILLING_ENABLED and user.is_guest:
+            if settings.BILLING_ENABLED and user.role == UserProfile.ROLE_STUDENT:
                 from corporate.lib.registration import (
                     check_spare_license_available_for_changing_guest_user_role,
                 )

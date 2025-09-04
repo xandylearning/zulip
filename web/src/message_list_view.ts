@@ -66,9 +66,9 @@ export type MessageContainer = {
     moved: boolean;
     msg: Message;
     sender_is_bot: boolean;
-    sender_is_guest: boolean;
+    sender_is_limited_access: boolean;
     sender_is_deactivated: boolean;
-    should_add_guest_indicator_for_sender: boolean;
+    should_add_limited_access_indicator_for_sender: boolean;
     small_avatar_url: string;
     status_message: string | false;
     stream_url?: string;
@@ -249,7 +249,7 @@ function get_topic_edit_properties(message: Message): {
 
 type RecipientRowUser = {
     full_name: string;
-    should_add_guest_user_indicator: boolean;
+    should_add_limited_access_user_indicator: boolean;
 };
 function get_users_for_recipient_row(message: Message): RecipientRowUser[] {
     const user_ids = people.pm_with_user_ids(message);
@@ -264,7 +264,7 @@ function get_users_for_recipient_row(message: Message): RecipientRowUser[] {
         }
         return {
             full_name,
-            should_add_guest_user_indicator: people.should_add_guest_user_indicator(user_id),
+            should_add_limited_access_user_indicator: people.should_add_limited_access_user_indicator(user_id),
             is_bot,
         };
     });
@@ -576,9 +576,9 @@ export class MessageListView {
         background_color?: string;
         small_avatar_url: string;
         sender_is_bot: boolean;
-        sender_is_guest: boolean;
+        sender_is_limited_access: boolean;
         sender_is_deactivated: boolean;
-        should_add_guest_indicator_for_sender: boolean;
+        should_add_limited_access_indicator_for_sender: boolean;
         is_hidden: boolean;
         mention_classname: string | undefined;
         include_sender: boolean;
@@ -660,9 +660,9 @@ export class MessageListView {
         }
 
         const sender_is_bot = people.sender_is_bot(message);
-        const sender_is_guest = people.sender_is_guest(message);
+        const sender_is_limited_access = people.sender_is_limited_access(message);
         const sender_is_deactivated = people.sender_is_deactivated(message);
-        const should_add_guest_indicator_for_sender = people.should_add_guest_user_indicator(
+        const should_add_limited_access_indicator_for_sender = people.should_add_limited_access_user_indicator(
             message.sender_id,
         );
 
@@ -678,9 +678,9 @@ export class MessageListView {
             ...(background_color && {background_color}),
             small_avatar_url,
             sender_is_bot,
-            sender_is_guest,
+            sender_is_limited_access,
             sender_is_deactivated,
-            should_add_guest_indicator_for_sender,
+            should_add_limited_access_indicator_for_sender,
             is_hidden,
             mention_classname,
             include_sender,

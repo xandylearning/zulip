@@ -35,7 +35,7 @@ data_list = [
                     UserProfile.ROLE_REALM_OWNER: 10,
                     UserProfile.ROLE_MODERATOR: 10,
                     UserProfile.ROLE_MEMBER: 10,
-                    UserProfile.ROLE_GUEST: 10,
+                    UserProfile.ROLE_STUDENT: 10,
                 }
             }
         },
@@ -52,7 +52,7 @@ data_list = [
                     UserProfile.ROLE_REALM_OWNER: 0,
                     UserProfile.ROLE_MODERATOR: 0,
                     UserProfile.ROLE_MEMBER: 20,
-                    UserProfile.ROLE_GUEST: 10,
+                    UserProfile.ROLE_STUDENT: 10,
                 }
             }
         },
@@ -69,7 +69,7 @@ data_list = [
                     UserProfile.ROLE_REALM_OWNER: 10,
                     UserProfile.ROLE_MODERATOR: 0,
                     UserProfile.ROLE_MEMBER: 10,
-                    UserProfile.ROLE_GUEST: 5,
+                    UserProfile.ROLE_STUDENT: 5,
                 }
             }
         },
@@ -93,7 +93,7 @@ data_list = [
                     UserProfile.ROLE_REALM_OWNER: 1,
                     UserProfile.ROLE_MODERATOR: 1,
                     UserProfile.ROLE_MEMBER: 1,
-                    UserProfile.ROLE_GUEST: 1,
+                    UserProfile.ROLE_STUDENT: 1,
                 }
             }
         },
@@ -110,7 +110,7 @@ data_list = [
                     UserProfile.ROLE_REALM_OWNER: 1,
                     UserProfile.ROLE_MODERATOR: 1,
                     UserProfile.ROLE_MEMBER: 0,
-                    UserProfile.ROLE_GUEST: 1,
+                    UserProfile.ROLE_STUDENT: 1,
                 }
             }
         },
@@ -183,7 +183,7 @@ class ActivityTest(ZulipTestCase):
                     UserProfile.ROLE_REALM_OWNER: 1,
                     UserProfile.ROLE_MODERATOR: 1,
                     UserProfile.ROLE_MEMBER: 1,
-                    UserProfile.ROLE_GUEST: 1,
+                    UserProfile.ROLE_STUDENT: 1,
                 }
             }
         }
@@ -282,7 +282,7 @@ class ActivityTest(ZulipTestCase):
                         UserProfile.ROLE_REALM_OWNER: 1,
                         UserProfile.ROLE_MODERATOR: 0,
                         UserProfile.ROLE_MEMBER: 0,
-                        UserProfile.ROLE_GUEST: 1,
+                        UserProfile.ROLE_STUDENT: 1,
                     }
                 }
             }

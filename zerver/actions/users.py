@@ -663,7 +663,7 @@ def do_change_user_role(
         },
     )
     maybe_enqueue_audit_log_upload(user_profile.realm)
-    if settings.BILLING_ENABLED and UserProfile.ROLE_GUEST in [old_value, value]:
+    if settings.BILLING_ENABLED and UserProfile.ROLE_STUDENT in [old_value, value]:
         from corporate.lib.stripe import RealmBillingSession
 
         billing_session = RealmBillingSession(user=user_profile, realm=user_profile.realm)
@@ -706,7 +706,7 @@ def do_change_user_role(
 
     do_send_user_group_members_update_event("add_members", system_group, [user_profile.id])
 
-    if UserProfile.ROLE_MEMBER in [old_value, value]:
+    if UserProfile.ROLE_FACULTY in [old_value, value]:
         update_users_in_full_members_system_group(
             user_profile.realm, [user_profile.id], acting_user=acting_user
         )

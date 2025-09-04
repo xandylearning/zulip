@@ -281,7 +281,7 @@ function do_hashchange_overlay(old_hash: string | undefined): void {
     const old_base = hash_parser.get_hash_category(old_hash);
     let section = hash_parser.get_current_hash_section();
 
-    if (base === "groups" && current_user.is_guest) {
+    if (base === "groups" && (current_user.is_student || current_user.is_parent)) {
         // The #groups settings page is unfinished, and disabled in production.
         show_home_view();
         return;

@@ -416,7 +416,7 @@ def notify_created_user(user_profile: UserProfile, notify_user_ids: list[int]) -
 
         if user_access_restricted_in_realm(user_profile):
             for user in active_realm_users:
-                if user.is_guest:
+                if user.role == UserProfile.ROLE_STUDENT:
                     # This logic assumes that can_access_all_users_group
                     # setting can only be set to EVERYONE or MEMBERS.
                     user_ids_without_access_to_created_user.append(user.id)
@@ -603,7 +603,7 @@ def do_create_user(
         acting_user=acting_user,
     )
 
-    if user_profile.role == UserProfile.ROLE_MEMBER and not user_profile.is_provisional_member:
+    if user_profile.role == UserProfile.ROLE_FACULTY and not user_profile.is_provisional_member:
         full_members_system_group = NamedUserGroup.objects.get(
             name=SystemGroups.FULL_MEMBERS,
             realm=user_profile.realm,
@@ -626,7 +626,7 @@ def do_create_user(
     notify_created_user(user_profile, [])
 
     do_send_user_group_members_update_event("add_members", system_user_group, [user_profile.id])
-    if user_profile.role == UserProfile.ROLE_MEMBER and not user_profile.is_provisional_member:
+    if user_profile.role == UserProfile.ROLE_FACULTY and not user_profile.is_provisional_member:
         do_send_user_group_members_update_event(
             "add_members", full_members_system_group, [user_profile.id]
         )

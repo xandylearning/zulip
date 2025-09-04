@@ -578,10 +578,10 @@ class Command(ZulipBaseCommand):
             do_change_user_role(desdemona, UserProfile.ROLE_REALM_OWNER, acting_user=None)
 
             shiva = get_user_by_delivery_email("shiva@zulip.com", zulip_realm)
-            do_change_user_role(shiva, UserProfile.ROLE_MODERATOR, acting_user=None)
+            do_change_user_role(shiva, UserProfile.ROLE_REALM_ADMINISTRATOR, acting_user=None)
 
             polonius = get_user_by_delivery_email("polonius@zulip.com", zulip_realm)
-            do_change_user_role(polonius, UserProfile.ROLE_GUEST, acting_user=None)
+            do_change_user_role(polonius, UserProfile.ROLE_STUDENT, acting_user=None)
 
             # These bots are directly referenced from code and thus
             # are needed for the test suite.

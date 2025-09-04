@@ -514,7 +514,7 @@ def has_channel_content_access_helper(
     if is_user_subscribed:
         return True
 
-    if user_profile.is_guest:
+    if user_profile.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
         # All existing groups granting content access have allow_everyone_group=False.
         #
         # TODO: is_user_in_groups_granting_content_access needs to
@@ -656,7 +656,7 @@ def event_recipient_ids_for_action_on_messages(
         # Excluding guests here implements can_access_public_channels,
         # since we already know realm.is_zephyr_mirror_realm is false,
         # based on the value of is_history_public_to_subscribers.
-        user_profile__role=UserProfile.ROLE_GUEST
+        user_profile__role__in=[UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]
     )
     if exclude_long_term_idle_users:
         usermessage_rows = usermessage_rows.exclude(user_profile__long_term_idle=True)

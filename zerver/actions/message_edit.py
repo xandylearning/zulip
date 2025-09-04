@@ -793,7 +793,7 @@ def do_update_message(
         if new_stream.is_public():
             # Only guest users are losing access, if it's moving to a public stream
             users_losing_access = old_stream_all_users.filter(
-                role=UserProfile.ROLE_GUEST
+                role=UserProfile.ROLE_STUDENT
             ).difference(new_stream_current_users)
         else:
             # If it's moving to a private stream, all non-subscribed users are losing access
@@ -1019,7 +1019,7 @@ def do_update_message(
             ).only("id")
             subscriptions = subscriptions.exclude(
                 user_profile__in=new_stream_current_users.filter(
-                    role=UserProfile.ROLE_GUEST
+                    role=UserProfile.ROLE_STUDENT
                 ).difference(old_stream_current_users)
             )
 
@@ -1598,7 +1598,7 @@ def check_update_message(
             # and the time limit for editing topics is passed, raise an error.
             if (
                 user_profile.realm.move_messages_within_stream_limit_seconds is not None
-                and not user_profile.is_moderator
+                and not user_profile.is_realm_admin
             ):
                 deadline_seconds = (
                     user_profile.realm.move_messages_within_stream_limit_seconds + edit_limit_buffer
@@ -1663,7 +1663,7 @@ def check_update_message(
 
             if (
                 user_profile.realm.move_messages_between_streams_limit_seconds is not None
-                and not user_profile.is_moderator
+                and not user_profile.is_realm_admin
             ):
                 deadline_seconds = (
                     user_profile.realm.move_messages_between_streams_limit_seconds

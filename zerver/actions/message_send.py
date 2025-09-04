@@ -1592,6 +1592,15 @@ def check_can_send_direct_message(
     if all(user_profile.is_bot or user_profile.id == sender.id for user_profile in recipient_users):
         return
 
+    # Check custom role-based communication restrictions
+    for recipient_user in recipient_users:
+        if not recipient_user.is_bot and recipient_user.id != sender.id:
+            if not sender.can_communicate_with(recipient_user):
+                from zerver.lib.exceptions import JsonableError
+                raise JsonableError(
+                    f"You are not allowed to send direct messages to {recipient_user.full_name} based on your role restrictions."
+                )
+
     system_groups_name_dict = get_realm_system_groups_name_dict(realm.id)
     if realm.direct_message_permission_group_id in system_groups_name_dict:
         users = set(recipient_users) | {sender}
@@ -1669,8 +1678,8 @@ def get_recipients_for_user_creation_events(
     # guests, then there is no possible can_access_all_users_group
     # policy that would mean sending this message changes any user's
     # user access to other users.
-    guest_recipients = [user for user in user_profiles if user.is_guest]
-    if len(guest_recipients) == 0:
+    limited_access_recipients = [user for user in user_profiles if user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]]
+    if len(limited_access_recipients) == 0:
         return recipients_for_user_creation_events
 
     if not user_access_restricted_in_realm(sender):

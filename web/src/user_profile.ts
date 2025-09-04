@@ -181,7 +181,7 @@ export function update_profile_modal_ui(
     if (new_data.full_name !== undefined || new_data.role !== undefined) {
         const user_type = {
             name: user.full_name,
-            should_add_guest_user_indicator: people.should_add_guest_user_indicator(user.user_id),
+            should_add_limited_access_user_indicator: people.should_add_limited_access_user_indicator(user.user_id),
         };
         $("#name .user-profile-name").html(render_user_full_name(user_type));
     }
@@ -320,7 +320,7 @@ function format_user_group_list_item_html(group: UserGroup, user: User): string 
         group_id: group.id,
         name: user_groups.get_display_group_name(group.name),
         group_edit_url: hash_util.group_edit_url(group, "general"),
-        is_guest: current_user.is_guest,
+        is_limited_access: current_user.is_student || current_user.is_parent,
         is_direct_member,
         subgroups_name: subgroups_name.join(", "),
         is_me,
@@ -655,13 +655,13 @@ export function show_user_profile(user: User, default_tab_key = "profile-tab"): 
         is_me: people.is_my_user_id(user.user_id),
         last_seen: buddy_data.user_last_seen_time_status(user.user_id),
         profile_data,
-        should_add_guest_user_indicator: people.should_add_guest_user_indicator(user.user_id),
+        should_add_limited_access_user_indicator: people.should_add_limited_access_user_indicator(user.user_id),
         show_user_subscribe_widget,
         show_user_group_container,
         user_avatar: people.medium_avatar_url_for_person(user),
         user_circle_class: buddy_data.get_user_circle_class(user.user_id),
         user_id: user.user_id,
-        user_is_guest: user.is_guest,
+        user_is_limited_access: user.is_student || user.is_parent,
         user_time: people.get_user_time(user.user_id),
         user_type: people.get_user_type(user.user_id),
     };

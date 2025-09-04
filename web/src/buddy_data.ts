@@ -210,7 +210,7 @@ export type BuddyUserInfo = {
         WITH_STATUS: boolean;
         WITH_AVATAR: boolean;
     };
-    should_add_guest_user_indicator: boolean;
+    should_add_limited_access_user_indicator: boolean;
     faded?: boolean;
 };
 
@@ -242,7 +242,7 @@ export function info_for(user_id: number, direct_message_recipients: Set<number>
         status_text,
         has_status_text: Boolean(status_text),
         user_list_style,
-        should_add_guest_user_indicator: people.should_add_guest_user_indicator(user_id),
+        should_add_limited_access_user_indicator: people.should_add_limited_access_user_indicator(user_id),
     };
 }
 

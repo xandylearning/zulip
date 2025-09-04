@@ -1,136 +1,136 @@
-name: Zulip CD - Docker Build and Cloud Run Deploy
+# name: Zulip CD - Docker Build and Cloud Run Deploy
 
-on:
-  push:
-    branches: [dev, master]
-    tags: ["*"]
-  pull_request:
-    branches: [dev, master]
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy to'
-        required: true
-        default: 'production'
-        type: choice
-        options:
-          - production
+# on:
+#   push:
+#     branches: [dev, master]
+#     tags: ["*"]
+#   pull_request:
+#     branches: [dev, master]
+#   workflow_dispatch:
+#     inputs:
+#       environment:
+#         description: 'Environment to deploy to'
+#         required: true
+#         default: 'production'
+#         type: choice
+#         options:
+#           - production
 
-env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  REGION: asia-south1
-  REPOSITORY: zulip
-  SERVICE_NAME: zulip-server
+# env:
+#   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+#   REGION: asia-south1
+#   REPOSITORY: zulip
+#   SERVICE_NAME: zulip-server
 
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+# jobs:
+#   build-and-deploy:
+#     runs-on: ubuntu-latest
     
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+#         with:
+#           fetch-depth: 0
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+#       - name: Set up Docker Buildx
+#         uses: docker/setup-buildx-action@v3
 
-      - name: Configure Google Cloud credentials
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
+#       - name: Configure Google Cloud credentials
+#         uses: google-github-actions/auth@v2
+#         with:
+#           credentials_json: ${{ secrets.GCP_SA_KEY }}
+#           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
+#       - name: Set up Cloud SDK
+#         uses: google-github-actions/setup-gcloud@v2
+#         with:
+#           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      - name: Configure Docker for Artifact Registry
-        run: |
-          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+#       - name: Configure Docker for Artifact Registry
+#         run: |
+#           gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-      - name: Generate image tag
-        id: image-tag
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "tag=pr-${{ github.event.number }}-${{ github.sha }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
-          fi
-
-
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: |
-            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:${{ steps.image-tag.outputs.tag }}
-            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:latest
-          cache-from: |
-            type=gha
-            type=registry,ref=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:buildcache
-          cache-to: |
-            type=gha,mode=max
-            type=registry,ref=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:buildcache,mode=max
-          build-args: |
-            ZULIP_GIT_REF=${{ github.sha }}
-            BUILDKIT_INLINE_CACHE=1
-          platforms: linux/amd64
+#       - name: Generate image tag
+#         id: image-tag
+#         run: |
+#           if [ "${{ github.event_name }}" = "pull_request" ]; then
+#             echo "tag=pr-${{ github.event.number }}-${{ github.sha }}" >> $GITHUB_OUTPUT
+#           elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+#             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+#           else
+#             echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+#           fi
 
 
 
-      - name: Deploy to Cloud Run (Production)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/') || github.event.inputs.environment == 'production'
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: ${{ env.SERVICE_NAME }}
-          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:${{ steps.image-tag.outputs.tag }}
-          region: ${{ env.REGION }}
-          env_vars: |
-            ZULIP_ENVIRONMENT=production
-            EXTERNAL_HOST=${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app
-            CLOUDSQL_INSTANCE=${{ secrets.CLOUDSQL_INSTANCE }}
-            POSTGRES_HOST=${{ secrets.POSTGRES_HOST }}
-            POSTGRES_PORT=${{ secrets.POSTGRES_PORT }}
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-            POSTGRES_SSLMODE=${{ secrets.POSTGRES_SSLMODE }}
-            ZULIP_SECRETS_B64=${{ secrets.ZULIP_SECRETS_B64 }}
-            ZULIP_SECRETS_KEY=${{ secrets.ZULIP_SECRETS_KEY }}
-            SHARED_SECRET=${{ secrets.SHARED_SECRET }}
-          flags: |
-            --allow-unauthenticated
-            --port=80
-            --memory=4Gi
-            --cpu=4
-            --max-instances=4
-            --min-instances=1
-            --concurrency=100
-            --timeout=300
-            --service-account=cloud-run-zulip@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
-            --add-cloudsql-instances=${{ secrets.CLOUDSQL_INSTANCE }}
+#       - name: Build and push Docker image
+#         uses: docker/build-push-action@v5
+#         with:
+#           context: .
+#           file: ./Dockerfile
+#           push: true
+#           tags: |
+#             ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:${{ steps.image-tag.outputs.tag }}
+#             ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:latest
+#           cache-from: |
+#             type=gha
+#             type=registry,ref=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:buildcache
+#           cache-to: |
+#             type=gha,mode=max
+#             type=registry,ref=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:buildcache,mode=max
+#           build-args: |
+#             ZULIP_GIT_REF=${{ github.sha }}
+#             BUILDKIT_INLINE_CACHE=1
+#           platforms: linux/amd64
 
-      - name: Show service URLs
-        run: |
-          echo "Service URL: https://${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app"
 
-  notify:
-    runs-on: ubuntu-latest
-    needs: [build-and-deploy]
-    if: always()
+
+#       - name: Deploy to Cloud Run (Production)
+#         if: github.event_name == 'push' && github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/') || github.event.inputs.environment == 'production'
+#         uses: google-github-actions/deploy-cloudrun@v2
+#         with:
+#           service: ${{ env.SERVICE_NAME }}
+#           image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:${{ steps.image-tag.outputs.tag }}
+#           region: ${{ env.REGION }}
+#           env_vars: |
+#             ZULIP_ENVIRONMENT=production
+#             EXTERNAL_HOST=${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app
+#             CLOUDSQL_INSTANCE=${{ secrets.CLOUDSQL_INSTANCE }}
+#             POSTGRES_HOST=${{ secrets.POSTGRES_HOST }}
+#             POSTGRES_PORT=${{ secrets.POSTGRES_PORT }}
+#             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+#             POSTGRES_SSLMODE=${{ secrets.POSTGRES_SSLMODE }}
+#             ZULIP_SECRETS_B64=${{ secrets.ZULIP_SECRETS_B64 }}
+#             ZULIP_SECRETS_KEY=${{ secrets.ZULIP_SECRETS_KEY }}
+#             SHARED_SECRET=${{ secrets.SHARED_SECRET }}
+#           flags: |
+#             --allow-unauthenticated
+#             --port=80
+#             --memory=4Gi
+#             --cpu=4
+#             --max-instances=4
+#             --min-instances=1
+#             --concurrency=100
+#             --timeout=300
+#             --service-account=cloud-run-zulip@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
+#             --add-cloudsql-instances=${{ secrets.CLOUDSQL_INSTANCE }}
+
+#       - name: Show service URLs
+#         run: |
+#           echo "Service URL: https://${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app"
+
+#   notify:
+#     runs-on: ubuntu-latest
+#     needs: [build-and-deploy]
+#     if: always()
     
-    steps:
-      - name: Notify deployment status
-        run: |
-          if [ "${{ needs.build-and-deploy.result }}" == "success" ]; then
-            echo "✅ Deployment successful!"
-            echo "Service URL: https://${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app"
-          else
-            echo "❌ Deployment failed!"
-            exit 1
-          fi
+#     steps:
+#       - name: Notify deployment status
+#         run: |
+#           if [ "${{ needs.build-and-deploy.result }}" == "success" ]; then
+#             echo "✅ Deployment successful!"
+#             echo "Service URL: https://${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app"
+#           else
+#             echo "❌ Deployment failed!"
+#             exit 1
+#           fi

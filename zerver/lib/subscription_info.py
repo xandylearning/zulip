@@ -523,7 +523,7 @@ def validate_user_access_to_subscribers_helper(
     # With the exception of web-public streams, a guest must
     # be subscribed to a stream (even a public one) in order
     # to see subscribers.
-    if user_profile.is_guest and check_user_subscribed(user_profile):
+    if user_profile.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT] and check_user_subscribed(user_profile):
         return
         # We could explicitly handle the case where guests aren't
         # subscribed here in an `else` statement or we can fall

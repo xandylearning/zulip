@@ -109,9 +109,11 @@ export const update_person = function update(event: UserUpdate): void {
         user.role = event.role;
         user.is_owner = event.role === settings_config.user_role_values.owner.code;
         user.is_admin = event.role === settings_config.user_role_values.admin.code || user.is_owner;
-        user.is_guest = event.role === settings_config.user_role_values.guest.code;
-        user.is_moderator =
-            user.is_admin || event.role === settings_config.user_role_values.moderator.code;
+        // Add custom role flags
+        user.is_faculty = event.role === settings_config.user_role_values.faculty.code;
+        user.is_student = event.role === settings_config.user_role_values.student.code;
+        user.is_parent = event.role === settings_config.user_role_values.parent.code;
+        user.is_mentor = event.role === settings_config.user_role_values.mentor.code;
         settings_users.update_user_data(event.user_id, event);
         user_profile.update_profile_modal_ui(user, event);
 
@@ -134,11 +136,20 @@ export const update_person = function update(event: UserUpdate): void {
             settings.update_lock_icon_in_sidebar();
         }
 
-        if (
-            people.is_my_user_id(event.user_id) &&
-            current_user.is_moderator !== user.is_moderator
-        ) {
-            current_user.is_moderator = user.is_moderator;
+        if (people.is_my_user_id(event.user_id) && current_user.is_faculty !== user.is_faculty) {
+            current_user.is_faculty = user.is_faculty;
+        }
+
+        if (people.is_my_user_id(event.user_id) && current_user.is_student !== user.is_student) {
+            current_user.is_student = user.is_student;
+        }
+
+        if (people.is_my_user_id(event.user_id) && current_user.is_parent !== user.is_parent) {
+            current_user.is_parent = user.is_parent;
+        }
+
+        if (people.is_my_user_id(event.user_id) && current_user.is_mentor !== user.is_mentor) {
+            current_user.is_mentor = user.is_mentor;
         }
     }
 

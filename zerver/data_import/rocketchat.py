@@ -100,12 +100,12 @@ def process_users(
         date_joined = float(user_dict["createdAt"].timestamp())
         timezone = "UTC"
 
-        role = UserProfile.ROLE_MEMBER
+        role = UserProfile.ROLE_FACULTY
         if "admin" in user_dict["roles"]:
             role = UserProfile.ROLE_REALM_OWNER
             realm_owners.append(id)
         elif "guest" in user_dict["roles"]:
-            role = UserProfile.ROLE_GUEST
+            role = UserProfile.ROLE_STUDENT
         elif "bot" in user_dict["roles"]:
             is_bot = True
 

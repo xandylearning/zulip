@@ -850,7 +850,7 @@ def user_has_permission_for_group_setting(
     *,
     direct_member_only: bool = False,
 ) -> bool:
-    if not setting_config.allow_everyone_group and user.is_guest:
+    if not setting_config.allow_everyone_group and user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
         return False
 
     return is_user_in_group(user_group_id, user, direct_member_only=direct_member_only)
@@ -985,8 +985,6 @@ def bulk_create_system_user_groups(groups: list[dict[str, str]], realm: Realm) -
     # This value will be used to set the temporary initial value for different
     # settings since we can only set them to the correct values after the groups
     # are created.
-    initial_group_setting_value = -1
-
     rows = [SQL("({})").format(Literal(realm.id))] * len(groups)
     query = SQL(
         """
@@ -999,6 +997,10 @@ def bulk_create_system_user_groups(groups: list[dict[str, str]], realm: Realm) -
         cursor.execute(query)
         user_group_ids = [id for (id,) in cursor.fetchall()]
 
+    # Use the first group's ID as a temporary value for all group settings
+    # This will be updated later with the correct values
+    temp_group_id = user_group_ids[0]
+
     rows = [
         SQL("({},{},{},{},{},{},{},{},{},{},{},{})").format(
             Literal(user_group_ids[idx]),
@@ -1006,12 +1008,12 @@ def bulk_create_system_user_groups(groups: list[dict[str, str]], realm: Realm) -
             Literal(group["name"]),
             Literal(group["description"]),
             Literal(True),
-            Literal(initial_group_setting_value),
-            Literal(initial_group_setting_value),
-            Literal(initial_group_setting_value),
-            Literal(initial_group_setting_value),
-            Literal(initial_group_setting_value),
-            Literal(initial_group_setting_value),
+            Literal(temp_group_id),
+            Literal(temp_group_id),
+            Literal(temp_group_id),
+            Literal(temp_group_id),
+            Literal(temp_group_id),
+            Literal(temp_group_id),
             Literal(False),
         )
         for idx, group in enumerate(groups)
@@ -1050,14 +1052,21 @@ def create_system_user_groups_for_realm(realm: Realm) -> dict[str, NamedUserGrou
         "description": "Everyone on the Internet",
     }
 
+    everyone_group_info = {
+        "name": SystemGroups.EVERYONE,
+        "description": "Everyone in this organization",
+    }
+
     system_groups_info_list = [
         nobody_group_info,
         NamedUserGroup.SYSTEM_USER_GROUP_ROLE_MAP[UserProfile.ROLE_REALM_OWNER],
         NamedUserGroup.SYSTEM_USER_GROUP_ROLE_MAP[UserProfile.ROLE_REALM_ADMINISTRATOR],
-        NamedUserGroup.SYSTEM_USER_GROUP_ROLE_MAP[UserProfile.ROLE_MODERATOR],
+        NamedUserGroup.SYSTEM_USER_GROUP_ROLE_MAP[UserProfile.ROLE_FACULTY],
         full_members_group_info,
-        NamedUserGroup.SYSTEM_USER_GROUP_ROLE_MAP[UserProfile.ROLE_MEMBER],
-        NamedUserGroup.SYSTEM_USER_GROUP_ROLE_MAP[UserProfile.ROLE_GUEST],
+        NamedUserGroup.SYSTEM_USER_GROUP_ROLE_MAP[UserProfile.ROLE_STUDENT],
+        NamedUserGroup.SYSTEM_USER_GROUP_ROLE_MAP[UserProfile.ROLE_PARENT],
+        NamedUserGroup.SYSTEM_USER_GROUP_ROLE_MAP[UserProfile.ROLE_MENTOR],
+        everyone_group_info,
         everyone_on_internet_group_info,
     ]
 
@@ -1072,9 +1081,10 @@ def create_system_user_groups_for_realm(realm: Realm) -> dict[str, NamedUserGrou
         system_groups_name_dict[SystemGroups.NOBODY],
         system_groups_name_dict[SystemGroups.OWNERS],
         system_groups_name_dict[SystemGroups.ADMINISTRATORS],
-        system_groups_name_dict[SystemGroups.MODERATORS],
-        system_groups_name_dict[SystemGroups.FULL_MEMBERS],
-        system_groups_name_dict[SystemGroups.MEMBERS],
+        system_groups_name_dict[SystemGroups.FACULTY],
+        system_groups_name_dict[SystemGroups.STUDENTS],
+        system_groups_name_dict[SystemGroups.PARENTS],
+        system_groups_name_dict[SystemGroups.MENTORS],
         system_groups_name_dict[SystemGroups.EVERYONE],
         system_groups_name_dict[SystemGroups.EVERYONE_ON_INTERNET],
     ]
@@ -1230,10 +1240,10 @@ def check_user_has_permission_by_role(
     if system_group_name == SystemGroups.EVERYONE:
         return True
 
-    if user.is_guest:
+    if user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
         return False
 
-    if system_group_name == SystemGroups.MEMBERS:
+    if system_group_name == SystemGroups.EVERYONE:
         return True
 
     if system_group_name == SystemGroups.OWNERS:
@@ -1242,11 +1252,8 @@ def check_user_has_permission_by_role(
     if system_group_name == SystemGroups.ADMINISTRATORS:
         return user.is_realm_admin
 
-    if system_group_name == SystemGroups.MODERATORS:
-        return user.is_moderator
-
     # Handle full members case.
-    return user.role != UserProfile.ROLE_MEMBER or not user.is_provisional_member
+    return user.role != UserProfile.ROLE_STUDENT or not user.is_provisional_member
 
 
 def check_any_user_has_permission_by_role(

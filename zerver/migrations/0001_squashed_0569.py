@@ -996,7 +996,7 @@ class Migration(migrations.Migration):
                 ("is_billing_admin", models.BooleanField(db_index=True, default=False)),
                 ("is_bot", models.BooleanField(db_index=True, default=False)),
                 ("bot_type", models.PositiveSmallIntegerField(db_index=True, null=True)),
-                ("role", models.PositiveSmallIntegerField(db_index=True, default=400)),
+                ("role", models.PositiveSmallIntegerField(db_index=True, default=450)),
                 ("long_term_idle", models.BooleanField(db_index=True, default=False)),
                 ("last_active_message_id", models.IntegerField(null=True)),
                 ("is_mirror_dummy", models.BooleanField(default=False)),

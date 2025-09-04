@@ -196,7 +196,7 @@ def require_organization_member(
         *args: ParamT.args,
         **kwargs: ParamT.kwargs,
     ) -> HttpResponse:
-        if user_profile.role > UserProfile.ROLE_MEMBER:
+        if user_profile.role > UserProfile.ROLE_FACULTY:
             raise OrganizationMemberRequiredError
         return func(request, user_profile, *args, **kwargs)
 
@@ -678,7 +678,7 @@ def require_non_guest_user(
         *args: ParamT.args,
         **kwargs: ParamT.kwargs,
     ) -> HttpResponse:
-        if user_profile.is_guest:
+        if user_profile.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
             raise JsonableError(_("Not allowed for guest users"))
         return view_func(request, user_profile, *args, **kwargs)
 
@@ -696,7 +696,7 @@ def require_member_or_admin(
         *args: ParamT.args,
         **kwargs: ParamT.kwargs,
     ) -> HttpResponse:
-        if user_profile.is_guest:
+        if user_profile.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
             raise JsonableError(_("Not allowed for guest users"))
         # Check bot_type here, rather than is_bot, because  the
         # narrow user cache only has that (nullable) type

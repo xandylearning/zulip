@@ -99,7 +99,7 @@ export function set_name_in_mention_element(
     user_id?: number,
 ): void {
     const user_is_bot = user_id !== undefined && people.is_valid_bot_user(user_id);
-    if (user_id !== undefined && people.should_add_guest_user_indicator(user_id)) {
+    if (user_id !== undefined && people.should_add_limited_access_user_indicator(user_id)) {
         let display_text;
         if (!$(element).hasClass("silent")) {
             display_text = $t({defaultMessage: "@{name} (guest)"}, {name});

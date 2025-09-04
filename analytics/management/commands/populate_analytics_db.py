@@ -110,7 +110,7 @@ class Command(ZulipBaseCommand):
             "Bassanio",
             realm,
             full_name="Bassanio",
-            role=UserProfile.ROLE_GUEST,
+            role=UserProfile.ROLE_MENTOR,
             force_date_joined=installation_time,
         )
         UserGroupMembership.objects.create(user_profile=bassanio, user_group=guests_system_group)

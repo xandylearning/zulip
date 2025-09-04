@@ -219,7 +219,7 @@ def is_administrator_role(role: int) -> bool:
 
 
 def is_moderator_role(role: int) -> bool:
-    return is_administrator_role(role) or role == UserProfile.ROLE_MODERATOR
+    return is_administrator_role(role)
 
 
 def bulk_get_cross_realm_bots() -> dict[str, UserProfile]:
@@ -569,7 +569,7 @@ class APIUserDict(TypedDict):
     avatar_version: int
     is_admin: bool
     is_owner: bool
-    is_guest: bool
+    # is_guest removed - no longer used
     role: int
     is_bot: bool
     full_name: str
@@ -577,6 +577,11 @@ class APIUserDict(TypedDict):
     is_active: bool
     date_joined: str
     avatar_url: NotRequired[str | None]
+    # New custom role properties
+    is_faculty: bool
+    is_student: bool
+    is_parent: bool
+    is_mentor: bool
     delivery_email: str | None
     bot_type: NotRequired[int | None]
     bot_owner_id: NotRequired[int | None]
@@ -601,8 +606,14 @@ def format_user_row(
 
     is_admin = is_administrator_role(row["role"])
     is_owner = row["role"] == UserProfile.ROLE_REALM_OWNER
-    is_guest = row["role"] == UserProfile.ROLE_GUEST
+    # is_guest removed - no longer used
     is_bot = row["is_bot"]
+    
+    # New custom role properties
+    is_faculty = row["role"] == UserProfile.ROLE_FACULTY
+    is_student = row["role"] == UserProfile.ROLE_STUDENT
+    is_parent = row["role"] == UserProfile.ROLE_PARENT
+    is_mentor = row["role"] == UserProfile.ROLE_MENTOR
 
     delivery_email = None
     if acting_user is not None and can_access_delivery_email(
@@ -616,7 +627,7 @@ def format_user_row(
         avatar_version=row["avatar_version"],
         is_admin=is_admin,
         is_owner=is_owner,
-        is_guest=is_guest,
+        # is_guest removed
         role=row["role"],
         is_bot=is_bot,
         full_name=row["full_name"],
@@ -627,6 +638,11 @@ def format_user_row(
         if acting_user is None
         else row["date_joined"].isoformat(timespec="minutes"),
         delivery_email=delivery_email,
+        # New custom role properties
+        is_faculty=is_faculty,
+        is_student=is_student,
+        is_parent=is_parent,
+        is_mentor=is_mentor,
     )
 
     if acting_user is None:
@@ -700,8 +716,9 @@ def check_user_can_access_all_users(acting_user: UserProfile | None) -> bool:
         # have very limited access to the user already.
         return True
 
-    if not acting_user.is_guest:
-        return True
+    # Since we removed the guest role, all users can access all users
+    # (except for specific restrictions based on other roles)
+    return True
 
     realm = acting_user.realm
     if user_has_permission_for_group_setting(
@@ -1019,8 +1036,8 @@ def get_data_for_inaccessible_user(realm: Realm, user_id: int) -> APIUserDict:
         avatar_version=1,
         is_admin=False,
         is_owner=False,
-        is_guest=False,
-        role=UserProfile.ROLE_MEMBER,
+        # is_guest removed
+        role=UserProfile.ROLE_FACULTY,
         is_bot=False,
         full_name=str(UserProfile.INACCESSIBLE_USER_NAME),
         timezone="",
@@ -1028,6 +1045,11 @@ def get_data_for_inaccessible_user(realm: Realm, user_id: int) -> APIUserDict:
         date_joined=user_date_joined.isoformat(),
         delivery_email=None,
         avatar_url=get_avatar_for_inaccessible_user(),
+        # New custom role properties
+        is_faculty=True,
+        is_student=False,
+        is_parent=False,
+        is_mentor=False,
         profile_data={},
     )
     return user_dict

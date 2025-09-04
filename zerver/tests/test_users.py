@@ -108,33 +108,33 @@ class PermissionTest(ZulipTestCase):
         self.assertEqual(user_profile.is_realm_admin, True)
         self.assertEqual(user_profile.role, UserProfile.ROLE_REALM_ADMINISTRATOR)
 
-        user_profile.is_guest = False
-        self.assertEqual(user_profile.is_guest, False)
-        self.assertEqual(user_profile.role, UserProfile.ROLE_REALM_ADMINISTRATOR)
+        user_profile.role = UserProfile.ROLE_FACULTY
+        self.assertEqual(user_profile.role, UserProfile.ROLE_FACULTY)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_FACULTY)
 
         user_profile.is_realm_owner = False
         self.assertEqual(user_profile.is_realm_owner, False)
         self.assertEqual(user_profile.role, UserProfile.ROLE_REALM_ADMINISTRATOR)
 
-        user_profile.is_moderator = False
-        self.assertEqual(user_profile.is_moderator, True)
+        user_profile.role = UserProfile.ROLE_FACULTY
+        self.assertEqual(user_profile.is_realm_admin, False)
         self.assertEqual(user_profile.role, UserProfile.ROLE_REALM_ADMINISTRATOR)
 
         user_profile.is_realm_admin = False
         self.assertEqual(user_profile.is_realm_admin, False)
-        self.assertEqual(user_profile.role, UserProfile.ROLE_MEMBER)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_FACULTY)
 
-        user_profile.is_guest = True
-        self.assertEqual(user_profile.is_guest, True)
-        self.assertEqual(user_profile.role, UserProfile.ROLE_GUEST)
+        user_profile.role = UserProfile.ROLE_STUDENT
+        self.assertEqual(user_profile.role, UserProfile.ROLE_STUDENT)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_STUDENT)
 
         user_profile.is_realm_admin = False
-        self.assertEqual(user_profile.is_guest, True)
-        self.assertEqual(user_profile.role, UserProfile.ROLE_GUEST)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_STUDENT)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_STUDENT)
 
-        user_profile.is_guest = False
-        self.assertEqual(user_profile.is_guest, False)
-        self.assertEqual(user_profile.role, UserProfile.ROLE_MEMBER)
+        user_profile.role = UserProfile.ROLE_FACULTY
+        self.assertEqual(user_profile.role, UserProfile.ROLE_FACULTY)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_FACULTY)
 
         user_profile.is_realm_owner = True
         self.assertEqual(user_profile.is_realm_owner, True)
@@ -142,15 +142,102 @@ class PermissionTest(ZulipTestCase):
 
         user_profile.is_realm_owner = False
         self.assertEqual(user_profile.is_realm_owner, False)
-        self.assertEqual(user_profile.role, UserProfile.ROLE_MEMBER)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_FACULTY)
 
-        user_profile.is_moderator = True
-        self.assertEqual(user_profile.is_moderator, True)
-        self.assertEqual(user_profile.role, UserProfile.ROLE_MODERATOR)
+        user_profile.role = UserProfile.ROLE_REALM_ADMINISTRATOR
+        self.assertEqual(user_profile.is_realm_admin, True)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_REALM_ADMINISTRATOR)
 
-        user_profile.is_moderator = False
-        self.assertEqual(user_profile.is_moderator, False)
-        self.assertEqual(user_profile.role, UserProfile.ROLE_MEMBER)
+        user_profile.role = UserProfile.ROLE_FACULTY
+        self.assertEqual(user_profile.is_realm_admin, False)
+        self.assertEqual(user_profile.role, UserProfile.ROLE_FACULTY)
+
+    def test_custom_role_setters(self) -> None:
+        """Test the new custom roles (faculty, student, parent, mentor)."""
+        user_profile = self.example_user("hamlet")
+        
+        # Test faculty role
+        user_profile.role = UserProfile.ROLE_FACULTY
+        self.assertEqual(user_profile.role, UserProfile.ROLE_FACULTY)
+        self.assertEqual(user_profile.role, 450)
+        
+        # Test student role
+        user_profile.role = UserProfile.ROLE_STUDENT
+        self.assertEqual(user_profile.role, UserProfile.ROLE_STUDENT)
+        self.assertEqual(user_profile.role, 500)
+        
+        # Test parent role
+        user_profile.role = UserProfile.ROLE_PARENT
+        self.assertEqual(user_profile.role, UserProfile.ROLE_PARENT)
+        self.assertEqual(user_profile.role, 550)
+        
+        # Test mentor role
+        user_profile.role = UserProfile.ROLE_MENTOR
+        self.assertEqual(user_profile.role, UserProfile.ROLE_MENTOR)
+        self.assertEqual(user_profile.role, 580)
+        
+        # Test that custom roles are in ROLE_TYPES
+        self.assertIn(UserProfile.ROLE_FACULTY, UserProfile.ROLE_TYPES)
+        self.assertIn(UserProfile.ROLE_STUDENT, UserProfile.ROLE_TYPES)
+        self.assertIn(UserProfile.ROLE_PARENT, UserProfile.ROLE_TYPES)
+        self.assertIn(UserProfile.ROLE_MENTOR, UserProfile.ROLE_TYPES)
+
+    def test_communication_restrictions(self) -> None:
+        """Test the communication restrictions between different roles."""
+        # Create test users
+        student1 = self.example_user("hamlet")
+        student1.role = UserProfile.ROLE_STUDENT
+        
+        student2 = self.example_user("othello")
+        student2.role = UserProfile.ROLE_STUDENT
+        
+        parent1 = self.example_user("iago")
+        parent1.role = UserProfile.ROLE_PARENT
+        
+        parent2 = self.example_user("cordelia")
+        parent2.role = UserProfile.ROLE_PARENT
+        
+        mentor = self.example_user("prospero")
+        mentor.role = UserProfile.ROLE_MENTOR
+        
+        faculty = self.example_user("polonius")
+        faculty.role = UserProfile.ROLE_FACULTY
+        
+        admin = self.example_user("desdemona")
+        admin.role = UserProfile.ROLE_REALM_ADMINISTRATOR
+        
+        # Test student-student restriction
+        self.assertFalse(student1.can_communicate_with(student2))
+        self.assertFalse(student2.can_communicate_with(student1))
+        
+        # Test parent-parent restriction
+        self.assertFalse(parent1.can_communicate_with(parent2))
+        self.assertFalse(parent2.can_communicate_with(parent1))
+        
+        # Test student can communicate with mentor
+        self.assertTrue(student1.can_communicate_with(mentor))
+        self.assertTrue(mentor.can_communicate_with(student1))
+        
+        # Test parent can communicate with mentor, faculty, and students
+        self.assertTrue(parent1.can_communicate_with(mentor))
+        self.assertTrue(parent1.can_communicate_with(faculty))
+        self.assertTrue(parent1.can_communicate_with(student1))
+        
+        # Test mentor can communicate with parents, faculty, and students
+        self.assertTrue(mentor.can_communicate_with(parent1))
+        self.assertTrue(mentor.can_communicate_with(faculty))
+        self.assertTrue(mentor.can_communicate_with(student1))
+        
+        # Test faculty can communicate with everyone
+        self.assertTrue(faculty.can_communicate_with(student1))
+        self.assertTrue(faculty.can_communicate_with(parent1))
+        self.assertTrue(faculty.can_communicate_with(mentor))
+        
+        # Test admin can communicate with everyone
+        self.assertTrue(admin.can_communicate_with(student1))
+        self.assertTrue(admin.can_communicate_with(parent1))
+        self.assertTrue(admin.can_communicate_with(mentor))
+        self.assertTrue(admin.can_communicate_with(faculty))
 
     def test_get_admin_users(self) -> None:
         user_profile = self.example_user("hamlet")
@@ -213,7 +300,7 @@ class PermissionTest(ZulipTestCase):
         _, ledger = self.subscribe_realm_to_monthly_plan_on_manual_license_management(
             desdemona.realm, 5, 5
         )
-        assert polonius.is_guest
+        assert polonius.role == UserProfile.ROLE_STUDENT
         req = dict(role=UserProfile.ROLE_MEMBER)
 
         with self.settings(BILLING_ENABLED=True):
@@ -592,32 +679,31 @@ class PermissionTest(ZulipTestCase):
         if role == UserProfile.ROLE_REALM_ADMINISTRATOR:
             return (
                 user_profile.is_realm_admin
-                and not user_profile.is_guest
+                and user_profile.role != UserProfile.ROLE_STUDENT
                 and not user_profile.is_realm_owner
             )
         elif role == UserProfile.ROLE_REALM_OWNER:
             return (
                 user_profile.is_realm_owner
                 and user_profile.is_realm_admin
-                and not user_profile.is_guest
+                and user_profile.role != UserProfile.ROLE_STUDENT
             )
-        elif role == UserProfile.ROLE_MODERATOR:
-            return user_profile.is_moderator or (
-                user_profile.is_realm_admin and not user_profile.is_guest
+        elif role == UserProfile.ROLE_REALM_ADMINISTRATOR:
+            return user_profile.is_realm_admin or (
+                user_profile.is_realm_admin and user_profile.role != UserProfile.ROLE_STUDENT
             )
 
-        if role == UserProfile.ROLE_MEMBER:
+        if role == UserProfile.ROLE_FACULTY:
             return (
-                not user_profile.is_guest
-                and not user_profile.is_moderator
+                user_profile.role != UserProfile.ROLE_STUDENT
+                and not user_profile.is_realm_admin
                 and not user_profile.is_realm_admin
                 and not user_profile.is_realm_owner
             )
 
-        assert role == UserProfile.ROLE_GUEST
+        assert role == UserProfile.ROLE_STUDENT
         return (
-            user_profile.is_guest
-            and not user_profile.is_moderator
+            user_profile.role == UserProfile.ROLE_STUDENT
             and not user_profile.is_realm_admin
             and not user_profile.is_realm_owner
         )
@@ -1676,7 +1762,7 @@ class UserProfileTest(ZulipTestCase):
                 is_active=True,
                 is_admin=False,
                 is_bot=True,
-                is_guest=False,
+                # is_guest removed
                 is_owner=False,
                 is_system_bot=True,
                 role=400,
@@ -1743,7 +1829,7 @@ class UserProfileTest(ZulipTestCase):
         # Logging in with a Guest user.
         polonius = self.example_user("polonius")
         self.login("polonius")
-        self.assertTrue(polonius.is_guest)
+        self.assertTrue(polonius.role == UserProfile.ROLE_STUDENT)
         self.assertTrue(stream.is_web_public)
 
         result = orjson.loads(
@@ -2739,8 +2825,8 @@ class GetProfileTest(ZulipTestCase):
         self.assertFalse(result["is_bot"])
         self.assertFalse(result["is_admin"])
         self.assertFalse(result["is_owner"])
-        self.assertFalse(result["is_guest"])
-        self.assertEqual(result["role"], UserProfile.ROLE_MEMBER)
+        # is_guest removed
+        self.assertEqual(result["role"], UserProfile.ROLE_FACULTY)
         self.assertEqual(result["delivery_email"], hamlet.delivery_email)
         self.login("iago")
         result = orjson.loads(self.client_get("/json/users/me").content)
@@ -2749,7 +2835,7 @@ class GetProfileTest(ZulipTestCase):
         self.assertFalse(result["is_bot"])
         self.assertTrue(result["is_admin"])
         self.assertFalse(result["is_owner"])
-        self.assertFalse(result["is_guest"])
+        # is_guest removed
         self.assertEqual(result["role"], UserProfile.ROLE_REALM_ADMINISTRATOR)
         self.login("desdemona")
         result = orjson.loads(self.client_get("/json/users/me").content)
@@ -2757,7 +2843,7 @@ class GetProfileTest(ZulipTestCase):
         self.assertFalse(result["is_bot"])
         self.assertTrue(result["is_admin"])
         self.assertTrue(result["is_owner"])
-        self.assertFalse(result["is_guest"])
+        # is_guest removed
         self.assertEqual(result["role"], UserProfile.ROLE_REALM_OWNER)
         self.login("shiva")
         result = orjson.loads(self.client_get("/json/users/me").content)
@@ -2765,7 +2851,7 @@ class GetProfileTest(ZulipTestCase):
         self.assertFalse(result["is_bot"])
         self.assertFalse(result["is_admin"])
         self.assertFalse(result["is_owner"])
-        self.assertFalse(result["is_guest"])
+        # is_guest removed
         self.assertEqual(result["role"], UserProfile.ROLE_MODERATOR)
 
         # Tests the GET ../users/{id} API endpoint.

@@ -96,7 +96,7 @@ def check_spare_licenses_available_for_registering_new_user(
         return
 
     try:
-        if role == UserProfile.ROLE_GUEST:
+        if role == UserProfile.ROLE_STUDENT:
             check_spare_licenses_available(realm, plan, extra_guests_count=1)
         else:
             check_spare_licenses_available(realm, plan, extra_non_guests_count=1)

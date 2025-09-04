@@ -78,6 +78,14 @@ export function get_recipient_guest_ids_for_dm_warning(): number[] {
     return recipient_guest_ids_for_dm_warning;
 }
 
+export function set_recipient_limited_access_ids_for_dm_warning(limited_access_ids: number[]): void {
+    recipient_guest_ids_for_dm_warning = limited_access_ids;
+}
+
+export function get_recipient_limited_access_ids_for_dm_warning(): number[] {
+    return recipient_guest_ids_for_dm_warning;
+}
+
 export function get_preview_render_count(): number {
     return preview_render_count;
 }

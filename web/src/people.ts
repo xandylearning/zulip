@@ -458,15 +458,15 @@ export function get_display_full_name(user_id: number): string {
     const person = get_user_by_id_assert_valid(user_id);
 
     if (muted_users.is_user_muted(user_id)) {
-        if (should_add_guest_user_indicator(user_id)) {
-            return $t({defaultMessage: "Muted user (guest)"});
+        if (should_add_limited_access_user_indicator(user_id)) {
+            return $t({defaultMessage: "Muted user (limited access)"});
         }
 
         return $t({defaultMessage: "Muted user"});
     }
 
-    if (should_add_guest_user_indicator(user_id)) {
-        return $t({defaultMessage: "{name} (guest)"}, {name: person.full_name});
+    if (should_add_limited_access_user_indicator(user_id)) {
+        return $t({defaultMessage: "{name} (limited access)"}, {name: person.full_name});
     }
 
     return person.full_name;
@@ -738,9 +738,9 @@ export function pm_with_operand_ids(operand: string): number[] | undefined {
     return user_ids;
 }
 
-export function filter_other_guest_ids(user_ids: number[]): number[] {
+export function filter_other_limited_access_ids(user_ids: number[]): number[] {
     return util.sorted_ids(
-        user_ids.filter((id) => id !== current_user.user_id && get_by_user_id(id)?.is_guest),
+        user_ids.filter((id) => id !== current_user.user_id && (get_by_user_id(id)?.is_student || get_by_user_id(id)?.is_parent)),
     );
 }
 
@@ -833,10 +833,10 @@ export function sender_is_bot(message: Message): boolean {
     return false;
 }
 
-export function sender_is_guest(message: Message): boolean {
+export function sender_is_limited_access(message: Message): boolean {
     if (message.sender_id) {
         const person = get_by_user_id(message.sender_id);
-        return person.is_guest;
+        return person.is_student || person.is_parent || person.is_mentor || false;
     }
     return false;
 }
@@ -854,13 +854,13 @@ export function is_valid_bot_user(user_id: number): boolean {
     return user?.is_bot ?? false;
 }
 
-export function should_add_guest_user_indicator(user_id: number): boolean {
+export function should_add_limited_access_user_indicator(user_id: number): boolean {
     if (!realm.realm_enable_guest_user_indicator) {
         return false;
     }
 
     const user = get_by_user_id(user_id);
-    return user.is_guest;
+    return user.is_student || user.is_parent || user.is_mentor || false;
 }
 
 export function user_can_initiate_direct_message_thread(recipient_ids_string: string): boolean {
@@ -1548,16 +1548,8 @@ export function _add_user(person: User): void {
         users who may be deactivated or outside
         our realm (like cross-realm bots).
     */
-    person.is_moderator = false;
-    if (
-        [
-            settings_config.user_role_values.moderator.code,
-            settings_config.user_role_values.admin.code,
-            settings_config.user_role_values.owner.code,
-        ].includes(person.role)
-    ) {
-        person.is_moderator = true;
-    }
+    // is_moderator removed - use is_admin instead
+    // person.is_moderator = person.is_admin;
     if (person.user_id) {
         people_by_user_id_dict.set(person.user_id, person);
     } else {
@@ -1672,13 +1664,17 @@ export function make_user(user_id: number, email: string, full_name: string): Us
         user_id,
         email,
         full_name,
-        role: settings_config.user_role_values.member.code,
+        role: settings_config.user_role_values.faculty.code,
         is_active: true,
         is_admin: false,
         is_owner: false,
-        is_guest: false,
         is_bot: false,
-        is_moderator: false,
+     
+        // New custom role properties
+        is_faculty: true,
+        is_student: false,
+        is_parent: false,
+        is_mentor: false,
         // We explicitly don't set `avatar_url` for fake person objects so that fallback code
         // will ask the server or compute a gravatar URL only once we need the avatar URL,
         // it's important for performance that we not hash every user's email to get gravatar URLs.

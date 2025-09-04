@@ -21,7 +21,7 @@ export type UserPillItem = {
     display_value: string;
     has_image: boolean;
     img_src: string;
-    should_add_guest_user_indicator: boolean;
+    should_add_limited_access_user_indicator: boolean;
 };
 
 type TermPattern = Omit<NarrowTerm, "operand"> & Partial<Pick<NarrowTerm, "operand">>;

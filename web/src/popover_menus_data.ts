@@ -329,7 +329,7 @@ export function get_personal_menu_content_context(): PersonalMenuContext {
     return {
         user_id: my_user_id,
         invisible_mode,
-        user_is_guest: current_user.is_guest,
+        user_is_limited_access: current_user.is_student || current_user.is_parent,
         spectator_view: page_params.is_spectator,
 
         // user information
@@ -410,7 +410,7 @@ export function get_gear_menu_content_context(): GearMenuContext {
         apps_page_url: page_params.apps_page_url,
         can_create_multiuse_invite: settings_data.user_can_create_multiuse_invite(),
         can_invite_users_by_email: settings_data.user_can_invite_users_by_email(),
-        is_guest: current_user.is_guest,
+        is_limited_access: current_user.is_student || current_user.is_parent,
         login_link: page_params.development_environment ? "/devlogin/" : "/login/",
         promote_sponsoring_zulip: page_params.promote_sponsoring_zulip,
         show_billing: billing_info.show_billing,

@@ -420,17 +420,21 @@ export const waiting_period_threshold_dropdown_values = [
 export const retain_message_forever = -1;
 
 export const user_role_values = {
-    guest: {
-        code: 600,
-        description: $t({defaultMessage: "Guest"}),
+    mentor: {
+        code: 580,
+        description: $t({defaultMessage: "Mentor"}),
     },
-    member: {
-        code: 400,
-        description: $t({defaultMessage: "Member"}),
+    parent: {
+        code: 550,
+        description: $t({defaultMessage: "Parent"}),
     },
-    moderator: {
-        code: 300,
-        description: $t({defaultMessage: "Moderator"}),
+    student: {
+        code: 500,
+        description: $t({defaultMessage: "Student"}),
+    },
+    faculty: {
+        code: 450,
+        description: $t({defaultMessage: "Faculty"}),
     },
     admin: {
         code: 200,
@@ -1227,23 +1231,33 @@ export const system_user_groups_list = [
     },
     {
         name: "role:everyone",
-        dropdown_option_name: $t({defaultMessage: "Admins, moderators, members and guests"}),
-        display_name: $t({defaultMessage: "Everyone including guests"}),
+        dropdown_option_name: $t({defaultMessage: "Admins, faculty, students, parents and mentors"}),
+        display_name: $t({defaultMessage: "Everyone"}),
     },
     {
-        name: "role:members",
-        dropdown_option_name: $t({defaultMessage: "Admins, moderators and members"}),
-        display_name: $t({defaultMessage: "Everyone except guests"}),
+        name: "role:faculty",
+        dropdown_option_name: $t({defaultMessage: "Faculty"}),
+        display_name: $t({defaultMessage: "Faculty"}),
+    },
+    {
+        name: "role:students",
+        dropdown_option_name: $t({defaultMessage: "Students"}),
+        display_name: $t({defaultMessage: "Students"}),
+    },
+    {
+        name: "role:parents",
+        dropdown_option_name: $t({defaultMessage: "Parents"}),
+        display_name: $t({defaultMessage: "Parents"}),
+    },
+    {
+        name: "role:mentors",
+        dropdown_option_name: $t({defaultMessage: "Mentors"}),
+        display_name: $t({defaultMessage: "Mentors"}),
     },
     {
         name: "role:fullmembers",
-        dropdown_option_name: $t({defaultMessage: "Admins, moderators and full members"}),
+        dropdown_option_name: $t({defaultMessage: "Admins and full members"}),
         display_name: $t({defaultMessage: "Full members"}),
-    },
-    {
-        name: "role:moderators",
-        dropdown_option_name: $t({defaultMessage: "Admins and moderators"}),
-        display_name: $t({defaultMessage: "Moderators"}),
     },
     {
         name: "role:administrators",

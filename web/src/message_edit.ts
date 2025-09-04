@@ -122,7 +122,7 @@ export function is_topic_editable(message: Message, edit_limit_seconds_buffer = 
     // Organization admins and moderators can edit message topics indefinitely,
     // irrespective of the topic editing deadline, if they are in the
     // can_move_messages_between_topics_group.
-    if (current_user.is_moderator) {
+    if (current_user.is_admin) {
         return true;
     }
 
@@ -241,7 +241,7 @@ export function is_stream_editable(message: Message, edit_limit_seconds_buffer =
     // Organization admins and moderators can edit stream indefinitely,
     // irrespective of the stream editing deadline, if they are in the
     // can_move_messages_between_channels_group.
-    if (current_user.is_moderator) {
+    if (current_user.is_admin) {
         return true;
     }
 

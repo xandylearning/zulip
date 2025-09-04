@@ -29,7 +29,7 @@ export type SearchUserPill = {
         email: string;
         img_src: string;
         status_emoji_info: UserStatusEmojiInfo | undefined;
-        should_add_guest_user_indicator: boolean;
+        should_add_limited_access_user_indicator: boolean;
         deactivated: boolean;
     }[];
 };
@@ -281,7 +281,7 @@ function search_user_pill_data(users: User[], operator: string, negated: boolean
             email: user.email,
             img_src: people.small_avatar_url_for_person(user),
             status_emoji_info: user_status.get_status_emoji(user.user_id),
-            should_add_guest_user_indicator: people.should_add_guest_user_indicator(user.user_id),
+            should_add_limited_access_user_indicator: people.should_add_limited_access_user_indicator(user.user_id),
             deactivated: !people.is_person_active(user.user_id) && !user.is_inaccessible_user,
         })),
     };

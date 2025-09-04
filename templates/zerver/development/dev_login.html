@@ -57,27 +57,49 @@ page can be easily identified in it's respective JavaScript file -->
                     {% else %}
                         <p>No administrators found in this realm</p>
                     {% endif %}
-                    <h2>{{ _('Moderators') }}</h2>
-                    {% if direct_moderators %}
-                        {% for direct_moderator in direct_moderators %}
+                    <h2>{{ _('Faculty') }}</h2>
+                    {% if faculty_users %}
+                        {% for faculty_user in faculty_users %}
                         <p>
-                            <input type="submit" formaction="{{ direct_moderator.realm.url }}{{ url('login-local') }}"
-                              name="direct_email" class="dev-button dev-login-button" value="{{ direct_moderator.delivery_email }}" />
+                            <input type="submit" formaction="{{ faculty_user.realm.url }}{{ url('login-local') }}"
+                              name="direct_email" class="dev-button dev-login-button" value="{{ faculty_user.delivery_email }}" />
                         </p>
                         {% endfor %}
                     {% else %}
-                        <p>No moderators found in this realm</p>
+                        <p>No faculty found in this realm</p>
                     {% endif %}
-                    <h2>{{ _('Guest users') }}</h2>
-                    {% if guest_users %}
-                        {% for guest_user in guest_users %}
+                    <h2>{{ _('Students') }}</h2>
+                    {% if student_users %}
+                        {% for student_user in student_users %}
                         <p>
-                            <input type="submit" formaction="{{ guest_user.realm.url }}{{ url('login-local') }}"
-                              name="direct_email" class="dev-button dev-login-button" value="{{ guest_user.delivery_email }}" />
+                            <input type="submit" formaction="{{ student_user.realm.url }}{{ url('login-local') }}"
+                              name="direct_email" class="dev-button dev-login-button" value="{{ student_user.delivery_email }}" />
                         </p>
                         {% endfor %}
                     {% else %}
-                        <p>No guest users found in this realm</p>
+                        <p>No students found in this realm</p>
+                    {% endif %}
+                    <h2>{{ _('Parents') }}</h2>
+                    {% if parent_users %}
+                        {% for parent_user in parent_users %}
+                        <p>
+                            <input type="submit" formaction="{{ parent_user.realm.url }}{{ url('login-local') }}"
+                              name="direct_email" class="dev-button dev-login-button" value="{{ parent_user.delivery_email }}" />
+                        </p>
+                        {% endfor %}
+                    {% else %}
+                        <p>No parents found in this realm</p>
+                    {% endif %}
+                    <h2>{{ _('Mentors') }}</h2>
+                    {% if mentor_users %}
+                        {% for mentor_user in mentor_users %}
+                        <p>
+                            <input type="submit" formaction="{{ mentor_user.realm.url }}{{ url('login-local') }}"
+                              name="direct_email" class="dev-button dev-login-button" value="{{ mentor_user.delivery_email }}" />
+                        </p>
+                        {% endfor %}
+                    {% else %}
+                        <p>No mentors found in this realm</p>
                     {% endif %}
                 </div>
 

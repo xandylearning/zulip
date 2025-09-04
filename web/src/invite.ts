@@ -359,11 +359,11 @@ async function update_guest_visible_users_count_and_stream_ids(): Promise<void> 
 
     assert(!Number.isNaN(invite_as));
 
-    const guest_role_selected = invite_as === settings_config.user_role_values.guest.code;
-    if (guest_role_selected) {
+    const student_role_selected = invite_as === settings_config.user_role_values.student.code;
+    if (student_role_selected) {
         guest_invite_stream_ids = stream_pill.get_stream_ids(stream_pill_widget);
     }
-    if (!guest_role_selected || settings_data.guests_can_access_all_other_users()) {
+    if (!student_role_selected || settings_data.guests_can_access_all_other_users()) {
         $("#guest_visible_users_container").hide();
         return;
     }
@@ -400,10 +400,10 @@ function update_stream_list(): void {
 
     assert(!Number.isNaN(invite_as));
 
-    const guest_role_selected = invite_as === settings_config.user_role_values.guest.code;
+    const student_role_selected = invite_as === settings_config.user_role_values.student.code;
     stream_pill_widget.clear();
 
-    if (guest_role_selected) {
+    if (student_role_selected) {
         $("#invite_select_default_streams").prop("checked", false);
         $(".add_streams_container").show();
         for (const stream_id of guest_invite_stream_ids) {

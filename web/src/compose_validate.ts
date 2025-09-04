@@ -365,7 +365,7 @@ export async function warn_if_mentioning_unsubscribed_user(
                 can_subscribe_other_users,
                 name: mentioned.user.full_name,
                 classname: compose_banner.CLASSNAMES.recipient_not_subscribed,
-                should_add_guest_user_indicator: people.should_add_guest_user_indicator(user_id),
+                should_add_limited_access_user_indicator: people.should_add_limited_access_user_indicator(user_id),
             };
 
             const new_row_html = render_not_subscribed_warning(context);
@@ -622,32 +622,32 @@ export function warn_if_guest_in_dm_recipient(): void {
         return;
     }
     const recipient_ids = compose_pm_pill.get_user_ids();
-    const guest_ids = people.filter_other_guest_ids(recipient_ids);
+    const limited_access_ids = people.filter_other_limited_access_ids(recipient_ids);
 
     if (
         !realm.realm_enable_guest_user_dm_warning ||
         compose_state.get_message_type() !== "private" ||
-        guest_ids.length === 0
+        limited_access_ids.length === 0
     ) {
         clear_guest_in_dm_recipient_warning();
-        compose_state.set_recipient_guest_ids_for_dm_warning([]);
+        compose_state.set_recipient_limited_access_ids_for_dm_warning([]);
         return;
     }
     // If warning was shown earlier for same guests in the recipients, do nothing.
-    if (_.isEqual(compose_state.get_recipient_guest_ids_for_dm_warning(), guest_ids)) {
+    if (_.isEqual(compose_state.get_recipient_limited_access_ids_for_dm_warning(), limited_access_ids)) {
         return;
     }
 
-    const guest_names = people.user_ids_to_full_names_array(guest_ids);
+    const limited_access_names = people.user_ids_to_full_names_array(limited_access_ids);
     let banner_text: string;
 
-    if (guest_names.length === 1) {
+    if (limited_access_names.length === 1) {
         banner_text = $t(
             {defaultMessage: "{name} is a guest in this organization."},
-            {name: guest_names[0]},
+            {name: limited_access_names[0]},
         );
     } else {
-        const names_string = util.format_array_as_list(guest_names, "long", "conjunction");
+        const names_string = util.format_array_as_list(limited_access_names, "long", "conjunction");
         banner_text = $t(
             {defaultMessage: "{names} are guests in this organization."},
             {names: names_string},
@@ -657,7 +657,7 @@ export function warn_if_guest_in_dm_recipient(): void {
     const classname = compose_banner.CLASSNAMES.guest_in_dm_recipient_warning;
     let $banner = $(`#compose_banners .${CSS.escape(classname)}`);
 
-    compose_state.set_recipient_guest_ids_for_dm_warning(guest_ids);
+    compose_state.set_recipient_limited_access_ids_for_dm_warning(limited_access_ids);
     // Update banner text if banner already exists.
     if ($banner.length === 1) {
         $banner.find(".banner_content").text(banner_text);

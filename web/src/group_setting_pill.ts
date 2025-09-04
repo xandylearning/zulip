@@ -57,7 +57,7 @@ function check_user_allowed_for_setting(
     }
 
     const user = people.maybe_get_user_by_id(user_item.user_id, true);
-    return user !== undefined && !user.is_guest;
+    return user !== undefined && !(user.is_student || user.is_parent);
 }
 
 export function create_item_from_text(

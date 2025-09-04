@@ -330,7 +330,7 @@ export function initialize_left_sidebar(): void {
     const expanded_views = left_sidebar_navigation_area.get_built_in_views();
 
     const rendered_sidebar = render_left_sidebar({
-        is_guest: current_user.is_guest,
+        is_limited_access: current_user.is_student || current_user.is_parent,
         development_environment: page_params.development_environment,
         is_inbox_home_view:
             user_settings.web_home_view === settings_config.web_home_view_values.inbox.code,

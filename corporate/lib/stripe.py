@@ -155,7 +155,7 @@ def get_cached_seat_count(realm: Realm) -> int:
 def get_non_guest_user_count(realm: Realm) -> int:
     return (
         UserProfile.objects.filter(realm=realm, is_active=True, is_bot=False)
-        .exclude(role=UserProfile.ROLE_GUEST)
+        .exclude(role=UserProfile.ROLE_STUDENT)
         .count()
     )
 
@@ -163,7 +163,7 @@ def get_non_guest_user_count(realm: Realm) -> int:
 def get_guest_user_count(realm: Realm) -> int:
     # Same query to get guest user count as in render_stats in analytics/views/stats.py.
     return UserProfile.objects.filter(
-        realm=realm, is_active=True, is_bot=False, role=UserProfile.ROLE_GUEST
+        realm=realm, is_active=True, is_bot=False, role=UserProfile.ROLE_STUDENT
     ).count()
 
 

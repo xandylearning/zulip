@@ -11,11 +11,12 @@ def realm_user_count(realm: Realm) -> int:
 
 def realm_user_count_by_role(realm: Realm) -> dict[str, Any]:
     human_counts = {
-        str(UserProfile.ROLE_REALM_ADMINISTRATOR): 0,
         str(UserProfile.ROLE_REALM_OWNER): 0,
-        str(UserProfile.ROLE_MODERATOR): 0,
-        str(UserProfile.ROLE_MEMBER): 0,
-        str(UserProfile.ROLE_GUEST): 0,
+        str(UserProfile.ROLE_REALM_ADMINISTRATOR): 0,
+        str(UserProfile.ROLE_FACULTY): 0,
+        str(UserProfile.ROLE_STUDENT): 0,
+        str(UserProfile.ROLE_PARENT): 0,
+        str(UserProfile.ROLE_MENTOR): 0,
     }
     for value_dict in (
         UserProfile.objects.filter(realm=realm, is_bot=False, is_active=True)

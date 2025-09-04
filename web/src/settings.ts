@@ -187,7 +187,7 @@ export function initialize(): void {
     const rendered_settings_overlay = render_settings_overlay({
         is_owner: current_user.is_owner,
         is_admin: current_user.is_admin,
-        is_guest: current_user.is_guest,
+        is_limited_access: current_user.is_student || current_user.is_parent,
         show_uploaded_files_section: realm.max_file_upload_size_mib > 0,
         show_emoji_settings_lock: !settings_data.user_can_add_custom_emoji(),
         can_create_new_bots: settings_bots.can_create_incoming_webhooks(),

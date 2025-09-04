@@ -69,7 +69,7 @@ export function user_has_permission_for_group_setting(
     );
     assert(settings_config !== undefined);
 
-    if (!settings_config.allow_everyone_group && user.is_guest) {
+    if (!settings_config.allow_everyone_group && (user.is_student || user.is_parent)) {
         return false;
     }
 
@@ -351,7 +351,7 @@ export function user_can_access_all_other_users(): boolean {
         return true;
     }
 
-    if (!current_user.is_guest) {
+    if (!(current_user.is_student || current_user.is_parent)) {
         // The only valid values for this setting are role:members and
         // role:everyone, both of which are always true for non-guest
         // users. This is an important optimization for code that may

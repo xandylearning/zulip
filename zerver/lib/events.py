@@ -223,7 +223,7 @@ def fetch_initial_state_data(
             # We tag logged-out users as guests because most guest
             # restrictions apply to these users as well, and it lets
             # us avoid unnecessary conditionals.
-            role=UserProfile.ROLE_GUEST,
+            role=UserProfile.ROLE_STUDENT,
             avatar_source=UserProfile.AVATAR_FROM_GRAVATAR,
             # ID=0 is not used in real Zulip databases, ensuring this is unique.
             id=0,
@@ -718,8 +718,15 @@ def fetch_initial_state_data(
         )
         state["is_admin"] = settings_user.is_realm_admin
         state["is_owner"] = settings_user.is_realm_owner
-        state["is_moderator"] = settings_user.is_moderator
-        state["is_guest"] = settings_user.is_guest
+        # is_moderator removed - use is_admin instead
+        state["is_moderator"] = settings_user.is_realm_admin
+        # is_guest removed - no longer used
+        # New custom role properties
+        state["is_faculty"] = settings_user.is_faculty
+        state["is_student"] = settings_user.is_student
+        state["is_parent"] = settings_user.is_parent
+        state["is_mentor"] = settings_user.is_mentor
+        state["role"] = settings_user.role
         state["user_id"] = settings_user.id
         state["email"] = settings_user.email
         state["delivery_email"] = settings_user.delivery_email
@@ -851,8 +858,9 @@ def fetch_initial_state_data(
                 realm, anonymous_group_membership_data_dict
             )  # nocoverage
     if want("default_streams"):
-        if settings_user.is_guest:
-            # Guest users and logged-out users don't have access to
+        # Students and parents have limited access to default streams
+        if settings_user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
+            # Students and parents don't have access to
             # all default streams, so we pretend the organization
             # doesn't have any.
             state["realm_default_streams"] = []
@@ -860,7 +868,7 @@ def fetch_initial_state_data(
             state["realm_default_streams"] = list(get_default_stream_ids_for_realm(realm.id))
 
     if want("default_stream_groups"):
-        if settings_user.is_guest:
+        if settings_user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
             state["realm_default_stream_groups"] = []
         else:
             state["realm_default_stream_groups"] = default_stream_groups_to_dicts_sorted(
@@ -931,7 +939,11 @@ def fetch_initial_state_data(
         # To ensure we have the correct user state set.
         assert state["is_admin"] is False
         assert state["is_owner"] is False
-        assert state["is_guest"] is True
+        # is_guest removed - check role instead
+        # Ensure role is set for spectators
+        if "role" not in state:
+            state["role"] = UserProfile.ROLE_STUDENT
+        assert state["role"] == UserProfile.ROLE_STUDENT
 
     return state
 
@@ -1175,8 +1187,14 @@ def apply_event(
                 if "role" in person:
                     state["is_admin"] = is_administrator_role(person["role"])
                     state["is_owner"] = person["role"] == UserProfile.ROLE_REALM_OWNER
-                    state["is_moderator"] = is_moderator_role(person["role"])
-                    state["is_guest"] = person["role"] == UserProfile.ROLE_GUEST
+                    # is_moderator removed - use is_admin instead
+                    state["is_moderator"] = is_administrator_role(person["role"])
+                    # is_guest removed - no longer used
+                    # New custom role properties
+                    state["is_faculty"] = person["role"] == UserProfile.ROLE_FACULTY
+                    state["is_student"] = person["role"] == UserProfile.ROLE_STUDENT
+                    state["is_parent"] = person["role"] == UserProfile.ROLE_PARENT
+                    state["is_mentor"] = person["role"] == UserProfile.ROLE_MENTOR
                     # Recompute properties based on is_admin/is_guest
                     state["can_create_private_streams"] = user_profile.can_create_private_streams()
                     state["can_create_public_streams"] = user_profile.can_create_public_streams()
@@ -1190,7 +1208,8 @@ def apply_event(
                     )
                     state["can_invite_others_to_realm"] = user_profile.can_invite_users_by_email()
 
-                    if state["is_guest"]:
+                    # Check role instead of is_guest
+                    if person["role"] in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
                         state["realm_default_streams"] = []
                     else:
                         state["realm_default_streams"] = list(
@@ -1248,7 +1267,12 @@ def apply_event(
                 if "role" in person:
                     p["is_admin"] = is_administrator_role(person["role"])
                     p["is_owner"] = person["role"] == UserProfile.ROLE_REALM_OWNER
-                    p["is_guest"] = person["role"] == UserProfile.ROLE_GUEST
+                    # is_guest removed - no longer used
+                    # New custom role properties
+                    p["is_faculty"] = person["role"] == UserProfile.ROLE_FACULTY
+                    p["is_student"] = person["role"] == UserProfile.ROLE_STUDENT
+                    p["is_parent"] = person["role"] == UserProfile.ROLE_PARENT
+                    p["is_mentor"] = person["role"] == UserProfile.ROLE_MENTOR
 
                 if "custom_profile_field" in person:
                     custom_field_id = str(person["custom_profile_field"]["id"])

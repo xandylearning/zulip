@@ -283,7 +283,7 @@ def update_user_backend(
                 _("The owner permission cannot be removed from the only organization owner.")
             )
 
-        if settings.BILLING_ENABLED and target.is_guest:
+        if settings.BILLING_ENABLED and target.role == UserProfile.ROLE_STUDENT:
             from corporate.lib.registration import (
                 check_spare_license_available_for_changing_guest_user_role,
             )

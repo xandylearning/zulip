@@ -27,7 +27,7 @@ export type UserPill = {
     img_src?: string;
     deactivated?: boolean;
     status_emoji_info?: (EmojiRenderingDetails & {emoji_alt_code?: boolean}) | undefined; // TODO: Move this in user_status.js
-    should_add_guest_user_indicator?: boolean;
+    should_add_limited_access_user_indicator?: boolean;
     is_bot?: boolean;
 };
 
@@ -65,7 +65,7 @@ export function create_item_from_user_id(
         img_src: avatar_url,
         deactivated: false,
         status_emoji_info,
-        should_add_guest_user_indicator: people.should_add_guest_user_indicator(user.user_id),
+        should_add_limited_access_user_indicator: people.should_add_limited_access_user_indicator(user.user_id),
         is_bot: user.is_bot,
     };
 
@@ -105,7 +105,7 @@ export function append_person(
         email: person.email,
         img_src: avatar_url,
         status_emoji_info,
-        should_add_guest_user_indicator: people.should_add_guest_user_indicator(person.user_id),
+        should_add_limited_access_user_indicator: people.should_add_limited_access_user_indicator(person.user_id),
         is_bot: person.is_bot,
     };
 
@@ -148,7 +148,7 @@ export function typeahead_source(
         );
         assert(group_setting_config !== undefined);
         if (!group_setting_config.allow_everyone_group) {
-            users = users.filter((user) => !user.is_guest);
+            users = users.filter((user) => !(user.is_student || user.is_parent));
         }
     }
     return filter_taken_users(users, pill_widget).map((user) => ({type: "user", user}));
@@ -198,7 +198,7 @@ export function generate_pill_html(item: UserPill, show_user_status_emoji = fals
         display_value: get_display_value_from_item(item),
         has_image: item.img_src !== undefined,
         deactivated: item.deactivated,
-        should_add_guest_user_indicator: item.should_add_guest_user_indicator,
+        should_add_limited_access_user_indicator: item.should_add_limited_access_user_indicator,
         user_id: item.user_id,
         img_src: item.img_src,
         has_status,

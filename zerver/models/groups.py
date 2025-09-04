@@ -13,8 +13,10 @@ class SystemGroups:
     EVERYONE_ON_INTERNET = "role:internet"
     OWNERS = "role:owners"
     ADMINISTRATORS = "role:administrators"
-    MODERATORS = "role:moderators"
-    MEMBERS = "role:members"
+    FACULTY = "role:faculty"
+    STUDENTS = "role:students"
+    PARENTS = "role:parents"
+    MENTORS = "role:mentors"
     EVERYONE = "role:everyone"
     NOBODY = "role:nobody"
 
@@ -22,9 +24,11 @@ class SystemGroups:
         NOBODY: gettext_lazy("Nobody"),
         OWNERS: gettext_lazy("Owners"),
         ADMINISTRATORS: gettext_lazy("Administrators"),
-        MODERATORS: gettext_lazy("Moderators"),
         FULL_MEMBERS: gettext_lazy("Full members"),
-        MEMBERS: gettext_lazy("Members"),
+        FACULTY: gettext_lazy("Faculty"),
+        STUDENTS: gettext_lazy("Students"),
+        PARENTS: gettext_lazy("Parents"),
+        MENTORS: gettext_lazy("Mentors"),
         EVERYONE: gettext_lazy("Everyone"),
         EVERYONE_ON_INTERNET: gettext_lazy("Everyone on the internet"),
     }
@@ -98,17 +102,21 @@ class NamedUserGroup(UserGroup):
             "name": SystemGroups.ADMINISTRATORS,
             "description": "Administrators of this organization, including owners",
         },
-        UserProfile.ROLE_MODERATOR: {
-            "name": SystemGroups.MODERATORS,
-            "description": "Moderators of this organization, including administrators",
+        UserProfile.ROLE_FACULTY: {
+            "name": SystemGroups.FACULTY,
+            "description": "Faculty members of this organization",
         },
-        UserProfile.ROLE_MEMBER: {
-            "name": SystemGroups.MEMBERS,
-            "description": "Members of this organization, not including guests",
+        UserProfile.ROLE_STUDENT: {
+            "name": SystemGroups.STUDENTS,
+            "description": "Students of this organization",
         },
-        UserProfile.ROLE_GUEST: {
-            "name": SystemGroups.EVERYONE,
-            "description": "Everyone in this organization, including guests",
+        UserProfile.ROLE_PARENT: {
+            "name": SystemGroups.PARENTS,
+            "description": "Parents of this organization",
+        },
+        UserProfile.ROLE_MENTOR: {
+            "name": SystemGroups.MENTORS,
+            "description": "Mentors of this organization",
         },
     }
 

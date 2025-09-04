@@ -177,7 +177,7 @@ def get_user_ids_for_streams(stream_ids: set[int]) -> dict[int, set[int]]:
 def get_guest_user_ids_for_streams(stream_ids: set[int]) -> dict[int, set[int]]:
     return get_user_ids_for_stream_query(
         get_active_subscriptions_for_stream_ids(stream_ids).filter(
-            user_profile__role=UserProfile.ROLE_GUEST
+            user_profile__role=UserProfile.ROLE_STUDENT
         )
     )
 

@@ -311,7 +311,7 @@ class ZulipSCIMUser(SCIMUser):
             add_initial_stream_subscriptions = True
             if (
                 self.config.get("create_guests_without_streams", False)
-                and role_new_value == UserProfile.ROLE_GUEST
+                and role_new_value == UserProfile.ROLE_STUDENT
             ):
                 add_initial_stream_subscriptions = False
 

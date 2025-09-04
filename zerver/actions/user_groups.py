@@ -113,7 +113,7 @@ def update_users_in_full_members_system_group(
         realm=realm, name=SystemGroups.FULL_MEMBERS, is_system_group=True
     )
     members_system_group = NamedUserGroup.objects.get(
-        realm=realm, name=SystemGroups.MEMBERS, is_system_group=True
+        realm=realm, name=SystemGroups.EVERYONE, is_system_group=True
     )
 
     full_member_group_users: list[MemberGroupUserDict] = list()
@@ -147,7 +147,7 @@ def update_users_in_full_members_system_group(
     old_full_members = [
         user
         for user in full_member_group_users
-        if is_provisional_member(user) or user["role"] != UserProfile.ROLE_MEMBER
+        if is_provisional_member(user) or user["role"] != UserProfile.ROLE_FACULTY
     ]
 
     full_member_group_user_ids = [user["id"] for user in full_member_group_users]

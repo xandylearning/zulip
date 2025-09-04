@@ -295,7 +295,7 @@ def get_users_dict_with_metadata_access_to_streams_via_permission_groups(
             # can_add_subscribers_group and
             # can_administer_channel_group, so guest users cannot
             # exercise these permission to get metadata access.
-            user_profile__role=UserProfile.ROLE_GUEST
+            user_profile__role=UserProfile.ROLE_STUDENT
         )
         .values_list("user_group_id", "user_profile_id")
     )
@@ -638,7 +638,7 @@ def access_stream_for_send_message(
         # Even guest users can write to web-public streams.
         return
 
-    if not (stream.invite_only or sender.is_guest):
+    if not (stream.invite_only or sender.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]):
         # This is a public stream and sender is not a guest user
         return
 
@@ -663,7 +663,7 @@ def access_stream_for_send_message(
     if (
         stream.history_public_to_subscribers
         and is_user_in_groups_granting_content_access(stream, user_recursive_group_ids)
-        and not sender.is_guest
+        and sender.role not in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]
     ):
         return
 
@@ -697,7 +697,7 @@ def user_has_metadata_access(
     if is_subscribed:
         return True
 
-    if user_profile.is_guest:
+    if user_profile.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
         return False
 
     if stream.is_public():
@@ -737,7 +737,7 @@ def user_has_content_access(
     if is_subscribed:
         return True
 
-    if user_profile.is_guest:
+    if user_profile.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
         return False
 
     if exclude_zephyr_realms_from_public_check and not stream.invite_only:
@@ -751,7 +751,7 @@ def user_has_content_access(
             get_recursive_membership_groups(user_profile).values_list("id", flat=True)
         )
 
-    # This check must be after the user_profile.is_guest check, since
+    # This check must be after the role check, since
     # allow_everyone_group=False for can_add_subscribers_group and
     # can_subscribe_group.
     if is_user_in_groups_granting_content_access(
@@ -822,7 +822,8 @@ def has_metadata_access_to_channel_via_groups(
 ) -> bool:
     for setting_name in Stream.stream_permission_group_settings_granting_metadata_access:
         permission_configuration = Stream.stream_permission_group_settings[setting_name]
-        if not permission_configuration.allow_everyone_group and user_profile.is_guest:
+        # Check if user has limited access (students and parents)
+        if not permission_configuration.allow_everyone_group and user_profile.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
             return False
 
     # It's best to just check the variables directly here since it
@@ -1146,7 +1147,7 @@ def can_access_stream_history(user_profile: UserProfile, stream: Stream) -> bool
     if stream.is_web_public:
         return True
 
-    if stream.is_history_realm_public() and not user_profile.is_guest:
+    if stream.is_history_realm_public() and user_profile.role not in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
         return True
 
     if stream.is_history_public_to_subscribers():
@@ -1283,7 +1284,7 @@ def bulk_can_remove_subscribers_from_streams(
     if user_profile.is_realm_admin:
         return True
 
-    if user_profile.is_guest:
+    if user_profile.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
         # All the permissions in this function have allow_everyone_group=False
         return False  # nocoverage
 
@@ -1353,7 +1354,7 @@ def get_streams_to_which_user_cannot_add_subscribers(
 
     for stream in streams:
         # All the permissions in this function have allow_everyone_group=False
-        if user_profile.is_guest:  # nocoverage
+        if user_profile.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:  # nocoverage
             result.append(stream)
             continue
 

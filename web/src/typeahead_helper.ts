@@ -119,7 +119,7 @@ export let render_person = (person: UserPillData | UserOrMentionPillData): strin
         is_person: true,
         is_bot: person.user.is_bot,
         status_emoji_info,
-        should_add_guest_user_indicator: people.should_add_guest_user_indicator(
+        should_add_limited_access_user_indicator: people.should_add_limited_access_user_indicator(
             person.user.user_id,
         ),
         pronouns,

@@ -1085,7 +1085,7 @@ def get_base_query_for_search(
     user_recursive_group_ids = []
     # We ignore group membership for guests; see the TODO comment in
     # has_channel_content_access_helper.
-    if not user_profile.is_guest:
+    if user_profile.role not in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
         user_recursive_group_ids = sorted(
             get_recursive_membership_groups(user_profile).values_list("id", flat=True)
         )

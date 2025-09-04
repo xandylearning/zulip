@@ -136,13 +136,13 @@ def bulk_create_users(
         name=SystemGroups.FULL_MEMBERS, realm=realm, is_system_group=True
     )
     members_system_group = NamedUserGroup.objects.get(
-        name=SystemGroups.MEMBERS, realm=realm, is_system_group=True
+        name=SystemGroups.EVERYONE, realm=realm, is_system_group=True
     )
     group_memberships_to_create: list[UserGroupMembership] = []
     for user_profile in profiles_to_create:
         # All users are members since this function is only used to create bots
         # and test and development environment users.
-        assert user_profile.role == UserProfile.ROLE_MEMBER
+        assert user_profile.role == UserProfile.ROLE_FACULTY
         group_memberships_to_create.append(
             UserGroupMembership(user_profile=user_profile, user_group=members_system_group)
         )

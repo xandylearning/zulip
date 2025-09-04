@@ -287,7 +287,7 @@ export function create_user_pill_context(user: User): UserPillItem {
         display_value: user.full_name,
         has_image: true,
         img_src: avatar_url,
-        should_add_guest_user_indicator: people.should_add_guest_user_indicator(user.user_id),
+        should_add_limited_access_user_indicator: people.should_add_limited_access_user_indicator(user.user_id),
     };
 }
 
@@ -892,7 +892,7 @@ export class Filter {
     static describe_channels_operator(negated: boolean, operand: string): string {
         const possible_prefix = negated ? "exclude " : "";
         assert(channels_operands.has(operand));
-        if ((page_params.is_spectator || current_user.is_guest) && operand === "public") {
+        if ((page_params.is_spectator || current_user.is_student || current_user.is_parent) && operand === "public") {
             return possible_prefix + "all public channels that you can view";
         }
         switch (operand) {
@@ -1472,13 +1472,13 @@ export class Filter {
                     return email;
                 }
                 if (muted_users.is_user_muted(person.user_id)) {
-                    if (people.should_add_guest_user_indicator(person.user_id)) {
+                    if (people.should_add_limited_access_user_indicator(person.user_id)) {
                         return $t({defaultMessage: "Muted user (guest)"});
                     }
 
                     return $t({defaultMessage: "Muted user"});
                 }
-                if (people.should_add_guest_user_indicator(person.user_id)) {
+                if (people.should_add_limited_access_user_indicator(person.user_id)) {
                     return $t({defaultMessage: "{name} (guest)"}, {name: person.full_name});
                 }
                 return person.full_name;
@@ -1495,7 +1495,7 @@ export class Filter {
                     return $t({defaultMessage: "Messages sent by you"});
                 }
 
-                if (people.should_add_guest_user_indicator(user.user_id)) {
+                if (people.should_add_limited_access_user_indicator(user.user_id)) {
                     sender = $t({defaultMessage: "{name} (guest)"}, {name: user.full_name});
                 } else {
                     sender = user.full_name;
@@ -1516,7 +1516,7 @@ export class Filter {
                 case "in-all":
                     return $t({defaultMessage: "All messages including muted channels"});
                 case "channels-public":
-                    if (page_params.is_spectator || current_user.is_guest) {
+                    if (page_params.is_spectator || current_user.is_student || current_user.is_parent) {
                         return $t({
                             defaultMessage: "Messages in all public channels that you can view",
                         });

@@ -99,9 +99,9 @@ def process_user(
     if is_team_admin(user_dict):
         role = UserProfile.ROLE_REALM_OWNER
     elif is_team_guest(user_dict):
-        role = UserProfile.ROLE_GUEST
+        role = UserProfile.ROLE_STUDENT
     else:
-        role = UserProfile.ROLE_MEMBER
+        role = UserProfile.ROLE_FACULTY
 
     if user_dict["is_mirror_dummy"]:
         is_active = False

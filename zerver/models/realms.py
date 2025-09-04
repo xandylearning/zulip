@@ -253,20 +253,22 @@ class Realm(models.Model):
     SYSTEM_GROUPS_ENUM_MAP = {
         SystemGroups.OWNERS: POLICY_OWNERS_ONLY,
         SystemGroups.ADMINISTRATORS: POLICY_ADMINS_ONLY,
-        SystemGroups.MODERATORS: POLICY_MODERATORS_ONLY,
         SystemGroups.FULL_MEMBERS: POLICY_FULL_MEMBERS_ONLY,
-        SystemGroups.MEMBERS: POLICY_MEMBERS_ONLY,
         SystemGroups.EVERYONE: POLICY_EVERYONE,
         SystemGroups.NOBODY: POLICY_NOBODY,
+        # Legacy groups - will be removed after migration
+        "role:members": POLICY_EVERYONE,  # Map to EVERYONE since we removed MEMBERS
+        "role:moderators": POLICY_ADMINS_ONLY,  # Map to ADMINS since we removed MODERATORS
     }
 
     SYSTEM_GROUPS_TO_WILDCARD_MENTION_POLICY_MAP = {
         SystemGroups.EVERYONE: WildcardMentionPolicyEnum.EVERYONE,
-        SystemGroups.MEMBERS: WildcardMentionPolicyEnum.MEMBERS,
         SystemGroups.FULL_MEMBERS: WildcardMentionPolicyEnum.FULL_MEMBERS,
-        SystemGroups.MODERATORS: WildcardMentionPolicyEnum.MODERATORS,
         SystemGroups.ADMINISTRATORS: WildcardMentionPolicyEnum.ADMINS,
         SystemGroups.NOBODY: WildcardMentionPolicyEnum.NOBODY,
+        # Legacy groups - will be removed after migration
+        "role:members": WildcardMentionPolicyEnum.EVERYONE,
+        "role:moderators": WildcardMentionPolicyEnum.ADMINS,
     }
 
     COMMON_POLICY_TYPES = [field.value for field in CommonPolicyEnum]
@@ -753,37 +755,37 @@ class Realm(models.Model):
             default_group_name=SystemGroups.EVERYONE,
             # Note that user_can_access_all_other_users in the web
             # app is relying on members always have access.
-            allowed_system_groups=[SystemGroups.EVERYONE, SystemGroups.MEMBERS],
+            allowed_system_groups=[SystemGroups.EVERYONE],
         ),
         can_add_subscribers_group=GroupPermissionSetting(
             allow_nobody_group=True,
             allow_everyone_group=False,
-            default_group_name=SystemGroups.MEMBERS,
+            default_group_name=SystemGroups.EVERYONE,
         ),
         can_add_custom_emoji_group=GroupPermissionSetting(
             allow_nobody_group=True,
             allow_everyone_group=False,
-            default_group_name=SystemGroups.MEMBERS,
+            default_group_name=SystemGroups.EVERYONE,
         ),
         can_create_bots_group=GroupPermissionSetting(
             allow_nobody_group=True,
             allow_everyone_group=False,
-            default_group_name=SystemGroups.MEMBERS,
+            default_group_name=SystemGroups.EVERYONE,
         ),
         can_create_groups=GroupPermissionSetting(
             allow_nobody_group=True,
             allow_everyone_group=False,
-            default_group_name=SystemGroups.MEMBERS,
+            default_group_name=SystemGroups.EVERYONE,
         ),
         can_create_public_channel_group=GroupPermissionSetting(
             allow_nobody_group=True,
             allow_everyone_group=False,
-            default_group_name=SystemGroups.MEMBERS,
+            default_group_name=SystemGroups.EVERYONE,
         ),
         can_create_private_channel_group=GroupPermissionSetting(
             allow_nobody_group=True,
             allow_everyone_group=False,
-            default_group_name=SystemGroups.MEMBERS,
+            default_group_name=SystemGroups.EVERYONE,
         ),
         can_create_web_public_channel_group=GroupPermissionSetting(
             require_system_group=True,
@@ -791,7 +793,6 @@ class Realm(models.Model):
             allow_everyone_group=False,
             default_group_name=SystemGroups.OWNERS,
             allowed_system_groups=[
-                SystemGroups.MODERATORS,
                 SystemGroups.ADMINISTRATORS,
                 SystemGroups.OWNERS,
                 SystemGroups.NOBODY,
@@ -800,7 +801,7 @@ class Realm(models.Model):
         can_create_write_only_bots_group=GroupPermissionSetting(
             allow_nobody_group=True,
             allow_everyone_group=False,
-            default_group_name=SystemGroups.MEMBERS,
+            default_group_name=SystemGroups.EVERYONE,
         ),
         can_delete_any_message_group=GroupPermissionSetting(
             allow_nobody_group=True,
@@ -815,7 +816,7 @@ class Realm(models.Model):
         can_invite_users_group=GroupPermissionSetting(
             allow_nobody_group=True,
             allow_everyone_group=False,
-            default_group_name=SystemGroups.MEMBERS,
+            default_group_name=SystemGroups.EVERYONE,
         ),
         can_manage_all_groups=GroupPermissionSetting(
             allow_nobody_group=False,
@@ -835,7 +836,7 @@ class Realm(models.Model):
         can_move_messages_between_channels_group=GroupPermissionSetting(
             allow_nobody_group=True,
             allow_everyone_group=False,
-            default_group_name=SystemGroups.MEMBERS,
+            default_group_name=SystemGroups.EVERYONE,
         ),
         can_move_messages_between_topics_group=GroupPermissionSetting(
             allow_nobody_group=True,
@@ -850,12 +851,12 @@ class Realm(models.Model):
         can_set_delete_message_policy_group=GroupPermissionSetting(
             allow_nobody_group=True,
             allow_everyone_group=False,
-            default_group_name=SystemGroups.MODERATORS,
+            default_group_name=SystemGroups.ADMINISTRATORS,
         ),
         can_set_topics_policy_group=GroupPermissionSetting(
             allow_nobody_group=True,
             allow_everyone_group=True,
-            default_group_name=SystemGroups.MEMBERS,
+            default_group_name=SystemGroups.EVERYONE,
         ),
         can_summarize_topics_group=GroupPermissionSetting(
             allow_nobody_group=True,

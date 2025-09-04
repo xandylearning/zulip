@@ -189,7 +189,7 @@ export function build_page(): void {
         realm_zulip_update_announcements_stream_id:
             realm.realm_zulip_update_announcements_stream_id,
         is_admin: current_user.is_admin,
-        is_guest: current_user.is_guest,
+        is_limited_access: current_user.is_student || current_user.is_parent,
         is_owner: current_user.is_owner,
         user_can_change_logo: settings_data.user_can_change_logo(),
         realm_icon_source: realm.realm_icon_source,

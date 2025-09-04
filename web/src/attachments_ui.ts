@@ -71,7 +71,7 @@ function set_upload_space_stats(): void {
     if (realm.realm_upload_quota_mib === null) {
         return;
     }
-    if (current_user.is_guest) {
+    if (current_user.is_student || current_user.is_parent) {
         return;
     }
 

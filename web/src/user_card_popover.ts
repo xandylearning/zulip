@@ -226,9 +226,9 @@ type UserCardPopoverData = {
     user_mention_syntax: string;
     date_joined: string | undefined;
     spectator_view: boolean;
-    should_add_guest_user_indicator: boolean;
+    should_add_limited_access_user_indicator: boolean;
     user_avatar: string;
-    user_is_guest: boolean;
+    user_is_limited_access: boolean;
     show_manage_section: boolean;
     can_mute: boolean;
     can_unmute: boolean;
@@ -372,9 +372,9 @@ function get_user_card_popover_data(
         user_mention_syntax: people.get_mention_syntax(user.full_name, user.user_id, !is_active),
         date_joined,
         spectator_view,
-        should_add_guest_user_indicator: people.should_add_guest_user_indicator(user.user_id),
+        should_add_limited_access_user_indicator: people.should_add_limited_access_user_indicator(user.user_id),
         user_avatar: people.small_avatar_url_for_person(user),
-        user_is_guest: user.is_guest,
+        user_is_limited_access: user.is_student || user.is_parent || user.is_mentor || false,
         show_manage_section,
         can_mute,
         can_unmute,

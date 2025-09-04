@@ -61,7 +61,7 @@ def render_stats(
     if realm is not None:
         # Same query to get guest user count as in get_seat_count in corporate/lib/stripe.py.
         guest_users = UserProfile.objects.filter(
-            realm=realm, is_active=True, is_bot=False, role=UserProfile.ROLE_GUEST
+            realm=realm, is_active=True, is_bot=False, role=UserProfile.ROLE_STUDENT
         ).count()
         space_used = realm.currently_used_upload_space_bytes()
         if title:

@@ -735,7 +735,7 @@ def send_user_creation_events_on_adding_subscriptions(
         if users_to_receive_creation_event:
             notify_created_user(user, list(users_to_receive_creation_event))
 
-        if user.is_guest:
+        if user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
             # If the altered user is a guest, then the user may receive
             # user creation events for subscribers of the new stream.
             users_already_accessible_to_altered_user = (
@@ -850,7 +850,7 @@ def bulk_add_subscriptions(
         altered_streams_dict[sub_info.user].add(sub_info.stream.id)
         if sub_info.user.is_active:
             subscriber_count_changes[sub_info.stream.id].add(sub_info.user.id)
-        if sub_info.user.is_guest:
+        if sub_info.user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
             altered_guests.add(sub_info.user.id)
 
     if not all_users_accessible_by_everyone_in_realm(realm):
@@ -1048,7 +1048,7 @@ def send_user_remove_events_on_removing_subscriptions(
                 realm, event_remove_user, list(subscribers_without_access_to_altered_user)
             )
 
-        if user.is_guest:
+        if user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
             users_inaccessible_to_altered_user = users_in_unsubscribed_streams - (
                 subscribers_of_altered_user_subscriptions[user.id]
                 | users_involved_in_dms[user.id]

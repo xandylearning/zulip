@@ -563,17 +563,19 @@ class UserProfile(AbstractBaseUser, PermissionsMixin, UserBaseSettings):
     # changes to them will require a migration of RealmAuditLog.
     ROLE_REALM_OWNER = 100
     ROLE_REALM_ADMINISTRATOR = 200
-    ROLE_MODERATOR = 300
-    ROLE_MEMBER = 400
-    ROLE_GUEST = 600
-    role = models.PositiveSmallIntegerField(default=ROLE_MEMBER, db_index=True)
+    ROLE_FACULTY = 450
+    ROLE_STUDENT = 500
+    ROLE_PARENT = 550
+    ROLE_MENTOR = 580
+    role = models.PositiveSmallIntegerField(default=ROLE_FACULTY, db_index=True)
 
     ROLE_TYPES = [
         ROLE_REALM_OWNER,
         ROLE_REALM_ADMINISTRATOR,
-        ROLE_MODERATOR,
-        ROLE_MEMBER,
-        ROLE_GUEST,
+        ROLE_FACULTY,
+        ROLE_STUDENT,
+        ROLE_PARENT,
+        ROLE_MENTOR,
     ]
 
     # Maps: user_profile.role -> which email_address_visibility values
@@ -591,16 +593,20 @@ class UserProfile(AbstractBaseUser, PermissionsMixin, UserBaseSettings):
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_EVERYONE,
         ],
-        ROLE_MODERATOR: [
-            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MODERATORS,
+        ROLE_FACULTY: [
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_EVERYONE,
         ],
-        ROLE_MEMBER: [
+        ROLE_STUDENT: [
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_EVERYONE,
         ],
-        ROLE_GUEST: [
+        ROLE_PARENT: [
+            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
+            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_EVERYONE,
+        ],
+        ROLE_MENTOR: [
+            UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_MEMBERS,
             UserBaseSettings.EMAIL_ADDRESS_VISIBILITY_EVERYONE,
         ],
     }
@@ -684,9 +690,10 @@ class UserProfile(AbstractBaseUser, PermissionsMixin, UserBaseSettings):
     ROLE_ID_TO_NAME_MAP = {
         ROLE_REALM_OWNER: gettext_lazy("Organization owner"),
         ROLE_REALM_ADMINISTRATOR: gettext_lazy("Organization administrator"),
-        ROLE_MODERATOR: gettext_lazy("Moderator"),
-        ROLE_MEMBER: gettext_lazy("Member"),
-        ROLE_GUEST: gettext_lazy("Guest"),
+        ROLE_FACULTY: gettext_lazy("Faculty"),
+        ROLE_STUDENT: gettext_lazy("Student"),
+        ROLE_PARENT: gettext_lazy("Parent"),
+        ROLE_MENTOR: gettext_lazy("Mentor"),
     }
 
     # Mapping of role ids to simple string identifiers for the roles,
@@ -694,9 +701,10 @@ class UserProfile(AbstractBaseUser, PermissionsMixin, UserBaseSettings):
     ROLE_ID_TO_API_NAME = {
         ROLE_REALM_OWNER: "owner",
         ROLE_REALM_ADMINISTRATOR: "administrator",
-        ROLE_MODERATOR: "moderator",
-        ROLE_MEMBER: "member",
-        ROLE_GUEST: "guest",
+        ROLE_FACULTY: "faculty",
+        ROLE_STUDENT: "student",
+        ROLE_PARENT: "parent",
+        ROLE_MENTOR: "mentor",
     }
     ROLE_API_NAME_TO_ID = {v: k for k, v in ROLE_ID_TO_API_NAME.items()}
 
@@ -774,7 +782,7 @@ class UserProfile(AbstractBaseUser, PermissionsMixin, UserBaseSettings):
 
     @property
     def is_provisional_member(self) -> bool:
-        if self.is_moderator:
+        if self.is_realm_admin:
             return False
         diff = (timezone_now() - self.date_joined).days
         if diff < self.realm.waiting_period_threshold:
@@ -791,8 +799,8 @@ class UserProfile(AbstractBaseUser, PermissionsMixin, UserBaseSettings):
             self.role = UserProfile.ROLE_REALM_ADMINISTRATOR
         elif self.role == UserProfile.ROLE_REALM_ADMINISTRATOR:
             # We need to be careful to not accidentally change
-            # ROLE_GUEST to ROLE_MEMBER here.
-            self.role = UserProfile.ROLE_MEMBER
+            # ROLE_MENTOR to ROLE_FACULTY here.
+            self.role = UserProfile.ROLE_FACULTY
 
     @property
     def has_billing_access(self) -> bool:
@@ -808,34 +816,52 @@ class UserProfile(AbstractBaseUser, PermissionsMixin, UserBaseSettings):
             self.role = UserProfile.ROLE_REALM_OWNER
         elif self.role == UserProfile.ROLE_REALM_OWNER:
             # We need to be careful to not accidentally change
-            # ROLE_GUEST to ROLE_MEMBER here.
-            self.role = UserProfile.ROLE_MEMBER
+            # ROLE_MENTOR to ROLE_FACULTY here.
+            self.role = UserProfile.ROLE_FACULTY
 
     @property
-    def is_guest(self) -> bool:
-        return self.role == UserProfile.ROLE_GUEST
+    def is_faculty(self) -> bool:
+        return self.role == UserProfile.ROLE_FACULTY
 
-    @is_guest.setter
-    def is_guest(self, value: bool) -> None:
+    @is_faculty.setter
+    def is_faculty(self, value: bool) -> None:
         if value:
-            self.role = UserProfile.ROLE_GUEST
-        elif self.role == UserProfile.ROLE_GUEST:
-            # We need to be careful to not accidentally change
-            # ROLE_REALM_ADMINISTRATOR to ROLE_MEMBER here.
-            self.role = UserProfile.ROLE_MEMBER
+            self.role = UserProfile.ROLE_FACULTY
+        elif self.role == UserProfile.ROLE_FACULTY:
+            self.role = UserProfile.ROLE_STUDENT
 
     @property
-    def is_moderator(self) -> bool:
-        return self.is_realm_admin or self.role == UserProfile.ROLE_MODERATOR
+    def is_student(self) -> bool:
+        return self.role == UserProfile.ROLE_STUDENT
 
-    @is_moderator.setter
-    def is_moderator(self, value: bool) -> None:
+    @is_student.setter
+    def is_student(self, value: bool) -> None:
         if value:
-            self.role = UserProfile.ROLE_MODERATOR
-        elif self.role == UserProfile.ROLE_MODERATOR:
-            # We need to be careful to not accidentally change
-            # ROLE_GUEST to ROLE_MEMBER here.
-            self.role = UserProfile.ROLE_MEMBER
+            self.role = UserProfile.ROLE_STUDENT
+        elif self.role == UserProfile.ROLE_STUDENT:
+            self.role = UserProfile.ROLE_PARENT
+
+    @property
+    def is_parent(self) -> bool:
+        return self.role == UserProfile.ROLE_PARENT
+
+    @is_parent.setter
+    def is_parent(self, value: bool) -> None:
+        if value:
+            self.role = UserProfile.ROLE_PARENT
+        elif self.role == UserProfile.ROLE_PARENT:
+            self.role = UserProfile.ROLE_MENTOR
+
+    @property
+    def is_mentor(self) -> bool:
+        return self.role == UserProfile.ROLE_MENTOR
+
+    @is_mentor.setter
+    def is_mentor(self, value: bool) -> None:
+        if value:
+            self.role = UserProfile.ROLE_MENTOR
+        elif self.role == UserProfile.ROLE_MENTOR:
+            self.role = UserProfile.ROLE_FACULTY
 
     @property
     def is_incoming_webhook(self) -> bool:
@@ -937,7 +963,51 @@ class UserProfile(AbstractBaseUser, PermissionsMixin, UserBaseSettings):
         return self.has_permission("can_summarize_topics_group")
 
     def can_access_public_streams(self) -> bool:
-        return not (self.is_guest or self.realm.is_zephyr_mirror_realm)
+        return not self.realm.is_zephyr_mirror_realm
+
+    def can_communicate_with(self, other_user: "UserProfile") -> bool:
+        """
+        Check if this user can communicate with another user based on role restrictions.
+        
+        Communication rules:
+        - Students cannot communicate with other students
+        - Parents cannot communicate with other parents
+        - Parents can communicate with mentors, faculty, and students
+        - Students can communicate with mentors
+        - Mentors can communicate with parents, faculty, and students
+        - Faculty can communicate with everyone
+        - Owners and administrators can communicate with everyone
+        """
+        # Owners and administrators can communicate with everyone
+        if self.is_realm_owner or self.is_realm_admin:
+            return True
+            
+        # Faculty can communicate with everyone
+        if self.is_faculty:
+            return True
+            
+        # Students cannot communicate with other students
+        if self.is_student and other_user.is_student:
+            return False
+            
+        # Parents cannot communicate with other parents
+        if self.is_parent and other_user.is_parent:
+            return False
+            
+        # Students can communicate with mentors
+        if self.is_student and other_user.is_mentor:
+            return True
+            
+        # Parents can communicate with mentors, faculty, and students
+        if self.is_parent and (other_user.is_mentor or other_user.is_faculty or other_user.is_student):
+            return True
+            
+        # Mentors can communicate with parents, faculty, and students
+        if self.is_mentor and (other_user.is_parent or other_user.is_faculty or other_user.is_student):
+            return True
+            
+        # Default: allow communication
+        return True
 
     def major_tos_version(self) -> int:
         if self.tos_version is not None:
@@ -1196,16 +1266,11 @@ def active_user_ids(realm_id: int) -> list[int]:
 
 @cache_with_key(active_non_guest_user_ids_cache_key, timeout=3600 * 24 * 7)
 def active_non_guest_user_ids(realm_id: int) -> list[int]:
-    query = (
-        UserProfile.objects.filter(
-            realm_id=realm_id,
-            is_active=True,
-        )
-        .exclude(
-            role=UserProfile.ROLE_GUEST,
-        )
-        .values_list("id", flat=True)
-    )
+    # Since we removed the GUEST role, this now returns all active users
+    query = UserProfile.objects.filter(
+        realm_id=realm_id,
+        is_active=True,
+    ).values_list("id", flat=True)
     return list(query)
 
 

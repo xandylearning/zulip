@@ -34,7 +34,7 @@ class BillingInfo:
 @dataclass
 class UserPermissionInfo:
     color_scheme: int
-    is_guest: bool
+    # is_guest removed - no longer used
     is_realm_admin: bool
     is_realm_owner: bool
     show_webathena: bool
@@ -64,7 +64,7 @@ def get_user_permission_info(user_profile: UserProfile | None) -> UserPermission
     if user_profile is not None:
         return UserPermissionInfo(
             color_scheme=user_profile.color_scheme,
-            is_guest=user_profile.is_guest,
+            # is_guest removed
             is_realm_owner=user_profile.is_realm_owner,
             is_realm_admin=user_profile.is_realm_admin,
             show_webathena=user_profile.realm.webathena_enabled,
@@ -72,7 +72,7 @@ def get_user_permission_info(user_profile: UserProfile | None) -> UserPermission
     else:
         return UserPermissionInfo(
             color_scheme=UserProfile.COLOR_SCHEME_AUTOMATIC,
-            is_guest=False,
+            # is_guest removed
             is_realm_admin=False,
             is_realm_owner=False,
             show_webathena=False,

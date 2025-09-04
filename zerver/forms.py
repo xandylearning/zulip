@@ -316,7 +316,7 @@ class HomepageForm(forms.Form):
             )
             from corporate.lib.stripe import LicenseLimitError
 
-            role = self.invited_as if self.invited_as is not None else UserProfile.ROLE_MEMBER
+            role = self.invited_as if self.invited_as is not None else UserProfile.ROLE_FACULTY
             try:
                 check_spare_licenses_available_for_registering_new_user(realm, email, role=role)
             except LicenseLimitError:

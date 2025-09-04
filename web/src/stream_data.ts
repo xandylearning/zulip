@@ -537,7 +537,7 @@ export function has_metadata_access(sub: StreamSubscription): boolean {
         return false;
     }
 
-    if (!current_user.is_guest && !sub.invite_only) {
+    if (!(current_user.is_student || current_user.is_parent) && !sub.invite_only) {
         return true;
     }
 
@@ -609,7 +609,7 @@ export let has_content_access = (sub: StreamSubscription): boolean => {
         return false;
     }
 
-    if (current_user.is_guest) {
+    if (current_user.is_student || current_user.is_parent) {
         /* istanbul ignore next */
         return false;
     }
