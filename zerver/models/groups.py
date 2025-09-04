@@ -16,6 +16,7 @@ class SystemGroups:
     STUDENTS = "role:students"
     PARENTS = "role:parents"
     MENTORS = "role:mentors"
+    FULL_MEMBERS = "role:full_members"  # Added for compatibility
     EVERYONE = "role:everyone"
     NOBODY = "role:nobody"
 
@@ -27,6 +28,7 @@ class SystemGroups:
         STUDENTS: gettext_lazy("Students"),
         PARENTS: gettext_lazy("Parents"),
         MENTORS: gettext_lazy("Mentors"),
+        FULL_MEMBERS: gettext_lazy("Full Members"),
         EVERYONE: gettext_lazy("Everyone"),
         EVERYONE_ON_INTERNET: gettext_lazy("Everyone on the internet"),
     }
