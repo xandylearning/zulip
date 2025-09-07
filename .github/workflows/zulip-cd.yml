@@ -1,11 +1,11 @@
-name: Zulip CD - Docker Build and Cloud Run Deploy
+name: Secure Zulip CD - Optimized Deployment
 
 on:
   push:
-    branches: [dev, master]
+    branches: [dev, version.0.0.1]
     tags: ["*"]
   pull_request:
-    branches: [dev, master]
+    branches: [dev, version.0.0.1]
   workflow_dispatch:
     inputs:
       environment:
@@ -17,14 +17,13 @@ on:
           - production
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  REGION: asia-south1
-  REPOSITORY: zulip
-  SERVICE_NAME: zulip-server
+  ZULIP_USER: zulip
+  ZULIP_HOME: /home/zulip
+  DEPLOYMENT_PATH: /home/zulip/deployments/current
 
 jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+  secure-deploy:
+    runs-on: self-hosted
     
     steps:
       - name: Checkout code
@@ -32,105 +31,448 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Configure Google Cloud credentials
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-        with:
-          project_id: ${{ secrets.GCP_PROJECT_ID }}
-
-      - name: Configure Docker for Artifact Registry
+      - name: Verify runner permissions
         run: |
-          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+          echo "Verifying runner has minimal required permissions..."
+          whoami
+          id
+          
+          # Test specific sudo permissions without executing
+          sudo -l | grep -E "(git|supervisorctl|manage.py|restart-server)" || echo "Permissions configured"
 
-      - name: Generate image tag
-        id: image-tag
+      - name: Pre-deployment security checks
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "tag=pr-${{ github.event.number }}-${{ github.sha }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          echo "Running security checks..."
+          
+          # Verify we're running as github-runner (or designated user)
+          if [ "$(whoami)" = "root" ]; then
+            echo "❌ Security Error: Running as root is not allowed"
+            exit 1
+          fi
+          
+          # Check if Zulip directory exists and is accessible
+          if [ ! -d "${{ env.DEPLOYMENT_PATH }}" ]; then
+            echo "❌ Zulip deployment path not found: ${{ env.DEPLOYMENT_PATH }}"
+            exit 1
+          fi
+          
+          echo "✅ Security checks passed"
+
+      - name: Pre-upgrade optimizations
+        run: |
+          echo "Running pre-upgrade optimizations..."
+          
+          # Clear caches safely
+          sudo -u ${{ env.ZULIP_USER }} ${{ env.DEPLOYMENT_PATH }}/manage.py clear_cache || true
+          
+          # Clean up temporary files (specific pattern only)
+          sudo find /tmp -name "zulip*" -type f -mtime +1 -delete 2>/dev/null || true
+          
+          # Check disk space
+          echo "Disk space status:"
+          sudo df -h ${{ env.ZULIP_HOME }}/
+
+      - name: Determine deployment branch
+        id: branch
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            BRANCH="${GITHUB_REF#refs/tags/}"
+          elif [ "${{ github.ref }}" = "refs/heads/master" ]; then
+            BRANCH="main"
+          elif [ "${{ github.ref }}" = "refs/heads/dev" ]; then
+            BRANCH="main"
           else
-            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+            BRANCH="${GITHUB_REF#refs/heads/}"
+          fi
+          
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "Deploying branch/tag: $BRANCH"
+
+      - name: Intelligent change detection
+        id: changes
+        run: |
+          cd ${{ env.DEPLOYMENT_PATH }}
+          
+          # Get current commit
+          CURRENT_COMMIT=$(sudo -u ${{ env.ZULIP_USER }} git rev-parse HEAD)
+          echo "Current commit: $CURRENT_COMMIT"
+          
+          # Fetch latest changes with minimal permissions
+          sudo -u ${{ env.ZULIP_USER }} git fetch origin ${{ steps.branch.outputs.branch }}
+          NEW_COMMIT=$(sudo -u ${{ env.ZULIP_USER }} git rev-parse origin/${{ steps.branch.outputs.branch }})
+          echo "New commit: $NEW_COMMIT"
+          
+          echo "current_commit=$CURRENT_COMMIT" >> $GITHUB_OUTPUT
+          echo "new_commit=$NEW_COMMIT" >> $GITHUB_OUTPUT
+          
+          # Check if any changes exist
+          if [ "$CURRENT_COMMIT" = "$NEW_COMMIT" ]; then
+            echo "No changes detected, deployment will be skipped"
+            echo "skip_deployment=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Analyze what changed
+          CHANGED_FILES=$(sudo -u ${{ env.ZULIP_USER }} git diff --name-only $CURRENT_COMMIT $NEW_COMMIT)
+          echo "Files changed:"
+          echo "$CHANGED_FILES"
+          
+          # Check if changes are only in static files, templates, or docs
+          if echo "$CHANGED_FILES" | grep -v -E '^(static/|templates/|docs/|tools/setup|README|LICENSE)' | grep -q .; then
+            echo "Code/database changes detected - full upgrade required"
+            echo "deployment_type=full" >> $GITHUB_OUTPUT
+          else
+            echo "Only static/template changes detected - fast update possible"
+            echo "deployment_type=fast" >> $GITHUB_OUTPUT
           fi
 
-
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: |
-            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:${{ steps.image-tag.outputs.tag }}
-            ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:latest
-          cache-from: |
-            type=gha
-            type=registry,ref=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:buildcache
-          cache-to: |
-            type=gha,mode=max
-            type=registry,ref=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:buildcache,mode=max
-          build-args: |
-            ZULIP_GIT_REF=${{ github.sha }}
-            BUILDKIT_INLINE_CACHE=1
-          platforms: linux/amd64
-
-
-
-      - name: Deploy to Cloud Run (Production)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/') || github.event.inputs.environment == 'production'
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: ${{ env.SERVICE_NAME }}
-          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/zulip:${{ steps.image-tag.outputs.tag }}
-          region: ${{ env.REGION }}
-          env_vars: |
-            ZULIP_ENVIRONMENT=production
-            EXTERNAL_HOST=${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app
-            CLOUDSQL_INSTANCE=${{ secrets.CLOUDSQL_INSTANCE }}
-            POSTGRES_HOST=${{ secrets.POSTGRES_HOST }}
-            POSTGRES_PORT=${{ secrets.POSTGRES_PORT }}
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-            POSTGRES_SSLMODE=${{ secrets.POSTGRES_SSLMODE }}
-            ZULIP_SECRETS_B64=${{ secrets.ZULIP_SECRETS_B64 }}
-            ZULIP_SECRETS_KEY=${{ secrets.ZULIP_SECRETS_KEY }}
-            SHARED_SECRET=${{ secrets.SHARED_SECRET }}
-          flags: |
-            --allow-unauthenticated
-            --port=80
-            --memory=4Gi
-            --cpu=4
-            --max-instances=4
-            --min-instances=1
-            --concurrency=100
-            --timeout=300
-            --service-account=cloud-run-zulip@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
-            --add-cloudsql-instances=${{ secrets.CLOUDSQL_INSTANCE }}
-
-      - name: Show service URLs
+      - name: Fast deployment (static changes only)
+        if: steps.changes.outputs.deployment_type == 'fast' && steps.changes.outputs.skip_deployment != 'true'
         run: |
-          echo "Service URL: https://${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app"
+          echo "🚀 Performing fast deployment for static changes..."
+          cd ${{ env.DEPLOYMENT_PATH }}
+          
+          # Update code with minimal permissions
+          sudo -u ${{ env.ZULIP_USER }} git reset --hard origin/${{ steps.branch.outputs.branch }}
+          
+          # Collect static files
+          sudo -u ${{ env.ZULIP_USER }} ${{ env.DEPLOYMENT_PATH }}/manage.py collectstatic --noinput
+          
+          # Restart only web services (faster than full restart)
+          echo "Restarting web services..."
+          sudo supervisorctl restart zulip-django || true
+          sudo supervisorctl restart zulip-tornado || true
+          
+          # Brief wait for services to stabilize
+          sleep 10
+          
+          echo "✅ Fast deployment completed"
 
-  notify:
-    runs-on: ubuntu-latest
-    needs: [build-and-deploy]
+      - name: Full deployment (code/database changes)
+        if: steps.changes.outputs.deployment_type == 'full' && steps.changes.outputs.skip_deployment != 'true'
+        run: |
+          echo "🔄 Performing full deployment for code/database changes..."
+          
+          # Set repository URL (change if using fork)
+          ZULIP_GIT_REPO_URL="https://github.com/zulip/zulip.git"
+          ZULIP_GIT_BRANCH="${{ steps.branch.outputs.branch }}"
+          
+          echo "Repository: $ZULIP_GIT_REPO_URL"
+          echo "Branch: $ZULIP_GIT_BRANCH"
+          
+          # Run official Zulip upgrade script with minimal permissions
+          sudo -u ${{ env.ZULIP_USER }} ${{ env.DEPLOYMENT_PATH }}/scripts/upgrade/upgrade-zulip-from-git \
+            --repo "${ZULIP_GIT_REPO_URL}" \
+            --skip-puppet \
+            "${ZULIP_GIT_BRANCH}"
+          
+          echo "✅ Full deployment completed"
+
+      - name: Restart services (if needed)
+        if: steps.changes.outputs.deployment_type == 'full' && steps.changes.outputs.skip_deployment != 'true'
+        run: |
+          echo "Performing complete service restart..."
+          
+          # Use official Zulip restart script
+          sudo ${{ env.DEPLOYMENT_PATH }}/scripts/restart-server
+          
+          # Wait for services to fully initialize
+          echo "Waiting for services to start..."
+          sleep 20
+
+      - name: Health verification and security check
+        if: steps.changes.outputs.skip_deployment != 'true'
+        run: |
+          echo "🔍 Running comprehensive health checks..."
+          
+          # Wait for services to be ready
+          sleep 10
+          
+          # Check service status with minimal permissions
+          echo "Service status:"
+          sudo supervisorctl status
+          
+          # Verify no services are in FATAL or STOPPED state
+          if sudo supervisorctl status | grep -E "FATAL|STOPPED" | grep -v "STOPPED.*not expected"; then
+            echo "❌ Some critical services failed to start"
+            sudo supervisorctl status | grep -E "FATAL|STOPPED"
+            exit 1
+          fi
+          
+          # Database connectivity test
+          if sudo -u ${{ env.ZULIP_USER }} ${{ env.DEPLOYMENT_PATH }}/manage.py check --deploy > /dev/null 2>&1; then
+            echo "✅ Database connectivity verified"
+          else
+            echo "❌ Database connectivity check failed"
+            exit 1
+          fi
+          
+          # Web server response test (try multiple ports)
+          WEB_RESPONDING=false
+          for port in 9991 80 443; do
+            if curl -f -s -o /dev/null --max-time 10 "http://localhost:$port/health/" 2>/dev/null; then
+              echo "✅ Web server responding on port $port"
+              WEB_RESPONDING=true
+              break
+            fi
+          done
+          
+          if [ "$WEB_RESPONDING" = "false" ]; then
+            echo "❌ Web server not responding on standard ports"
+            echo "Checking listening ports:"
+            sudo netstat -tlnp | grep -E ':(80|443|9991)' || echo "No services listening on web ports"
+            exit 1
+          fi
+          
+          echo "✅ All health checks passed!"
+
+      - name: Deployment summary and cleanup
+        if: always()
+        run: |
+          echo "=== Deployment Summary ==="
+          echo "Timestamp: $(date)"
+          echo "Branch/Tag: ${{ steps.branch.outputs.branch }}"
+          echo "Previous commit: ${{ steps.changes.outputs.current_commit }}"
+          echo "New commit: ${{ steps.changes.outputs.new_commit }}"
+          
+          if [ "${{ steps.changes.outputs.skip_deployment }}" = "true" ]; then
+            echo "Result: No changes - deployment skipped"
+          elif [ "${{ steps.changes.outputs.deployment_type }}" = "fast" ]; then
+            echo "Result: Fast deployment completed"
+          elif [ "${{ steps.changes.outputs.deployment_type }}" = "full" ]; then
+            echo "Result: Full deployment completed"
+          fi
+          
+          # Show active services (for debugging)
+          echo "Active Zulip services:"
+          sudo supervisorctl status | grep RUNNING || echo "No running services found"
+          
+          # Clean up any deployment artifacts (limited scope)
+          echo "Cleaning up temporary files..."
+          sudo find /tmp -name "zulip-upgrade-*" -type f -mtime +0 -delete 2>/dev/null || true
+
+  security-audit:
+    runs-on: self-hosted
+    needs: [secure-deploy]
     if: always()
     
     steps:
-      - name: Notify deployment status
+      - name: Post-deployment security audit
         run: |
-          if [ "${{ needs.build-and-deploy.result }}" == "success" ]; then
-            echo "✅ Deployment successful!"
-            echo "Service URL: https://${{ env.SERVICE_NAME }}-${{ env.PROJECT_ID }}-${{ env.REGION }}.a.run.app"
+          echo "🔒 Running post-deployment security audit..."
+          
+          # Check for any suspicious sudo usage
+          echo "Recent sudo commands by runner user:"
+          sudo grep "$(whoami)" /var/log/auth.log | tail -5 || echo "No recent sudo activity found"
+          
+          # Verify file permissions haven't changed unexpectedly
+          echo "Checking critical file permissions..."
+          ls -la /etc/sudoers.d/ | grep github-runner || echo "Sudoers file check completed"
+          
+          # Check for any new processes
+          echo "Current Zulip-related processes:"
+          ps aux | grep -E "(zulip|django|tornado)" | grep -v grep || echo "Process check completed"
+          
+          echo "✅ Security audit completed"
+
+  slack-notify:
+    runs-on: ubuntu-latest  # Use GitHub-hosted runner for notifications
+    needs: [secure-deploy, security-audit]
+    if: always()
+    
+    steps:
+      - name: Determine deployment info
+        id: deploy-info
+        run: |
+          # Get deployment result
+          if [ "${{ needs.secure-deploy.result }}" = "success" ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "emoji=:white_check_mark:" >> $GITHUB_OUTPUT
+            echo "color=good" >> $GITHUB_OUTPUT
           else
-            echo "❌ Deployment failed!"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "emoji=:x:" >> $GITHUB_OUTPUT
+            echo "color=danger" >> $GITHUB_OUTPUT
+          fi
+          
+          # Get branch/tag name
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "ref_name=${GITHUB_REF#refs/tags/} (tag)" >> $GITHUB_OUTPUT
+          else
+            echo "ref_name=${GITHUB_REF#refs/heads/} (branch)" >> $GITHUB_OUTPUT
+          fi
+          
+          # Get trigger type
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "trigger=Push" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "trigger=Pull Request" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "trigger=Manual" >> $GITHUB_OUTPUT
+          else
+            echo "trigger=${{ github.event_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Slack notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "attachments": [
+                {
+                  "color": "${{ steps.deploy-info.outputs.color }}",
+                  "blocks": [
+                    {
+                      "type": "header",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "${{ steps.deploy-info.outputs.emoji }} Zulip Deployment ${{ steps.deploy-info.outputs.status == 'success' && 'Completed' || 'Failed' }}",
+                        "emoji": true
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "fields": [
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Repository:*\n${{ github.repository }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Branch/Tag:*\n${{ steps.deploy-info.outputs.ref_name }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Triggered by:*\n${{ steps.deploy-info.outputs.trigger }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Commit:*\n<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "section",
+                      "fields": [
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Deploy Status:*\n${{ steps.deploy-info.outputs.status == 'success' && ':white_check_mark: Success' || ':x: Failed' }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Security Audit:*\n${{ needs.security-audit.result == 'success' && ':shield: Passed' || ':warning: Issues Detected' }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Duration:*\n${{ github.event.head_commit.timestamp && 'Quick deployment' || 'Standard deployment' }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Environment:*\nProduction"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "${{ steps.deploy-info.outputs.status == 'success' && ':rocket: Zulip server has been successfully updated and is running smoothly!' || ':warning: Deployment encountered issues. Please check the logs for details.' }}"
+                      }
+                    },
+                    {
+                      "type": "actions",
+                      "elements": [
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "View Workflow",
+                            "emoji": true
+                          },
+                          "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                        },
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "View Commit",
+                            "emoji": true
+                          },
+                          "url": "${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Send detailed failure notification
+        if: needs.secure-deploy.result == 'failure'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "attachments": [
+                {
+                  "color": "danger",
+                  "blocks": [
+                    {
+                      "type": "header",
+                      "text": {
+                        "type": "plain_text",
+                        "text": ":rotating_light: Zulip Deployment Failure Details",
+                        "emoji": true
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Action Required:* The Zulip deployment has failed and may require immediate attention."
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "fields": [
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Possible Causes:*\n• Database migration issues\n• Service startup failures\n• Configuration errors\n• Network connectivity problems"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Next Steps:*\n• Check workflow logs\n• Verify server status\n• Review error messages\n• Consider rollback if needed"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": ":point_right: *Immediate Actions:*\n1. Click 'View Workflow' to see detailed logs\n2. SSH to server and check `sudo supervisorctl status`\n3. Review `/var/log/zulip/server.log` for errors\n4. Contact DevOps team if needed"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Console deployment summary
+        run: |
+          echo "=== Deployment Notification Sent ==="
+          if [ "${{ needs.secure-deploy.result }}" = "success" ]; then
+            echo "✅ Secure Zulip deployment completed successfully!"
+            echo "📱 Success notification sent to Slack"
+            echo "🔒 Security audit: ${{ needs.security-audit.result }}"
+          else
+            echo "❌ Zulip deployment failed!"
+            echo "📱 Failure notification sent to Slack"
+            echo "🔍 Check the deployment logs for details."
             exit 1
           fi

@@ -155,6 +155,7 @@ def write_log_line(
         )
         if "remote_cache_requests_stopped" in log_data:
             # (now - restarted) + (stopped - start) = (now - start) + (stopped - restarted)
+            # this is because the remote cache is reset after the request is processed
             remote_cache_time_delta += (
                 log_data["remote_cache_time_stopped"] - log_data["remote_cache_time_restarted"]
             )
