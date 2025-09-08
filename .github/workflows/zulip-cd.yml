@@ -24,8 +24,6 @@ env:
 jobs:
   secure-deploy:
     runs-on: self-hosted
-    outputs:
-      deployment_type: ${{ steps.changes.outputs.deployment_type }}
     
     steps:
       - name: Checkout code
@@ -120,14 +118,10 @@ jobs:
           echo "Files changed:"
           echo "$CHANGED_FILES"
           
-          # Check if changes are only in static files, templates, docs, or workflow files
-          if echo "$CHANGED_FILES" | grep -v -E '^(static/|templates/|docs/|tools/setup|README|LICENSE|\.github/workflows/)' | grep -q .; then
+          # Check if changes are only in static files, templates, or docs
+          if echo "$CHANGED_FILES" | grep -v -E '^(static/|templates/|docs/|tools/setup|README|LICENSE)' | grep -q .; then
             echo "Code/database changes detected - full upgrade required"
             echo "deployment_type=full" >> $GITHUB_OUTPUT
-          elif echo "$CHANGED_FILES" | grep -q '\.github/workflows/'; then
-            echo "Only workflow file changes detected - no deployment needed"
-            echo "deployment_type=workflow_only" >> $GITHUB_OUTPUT
-            echo "skip_deployment=true" >> $GITHUB_OUTPUT
           else
             echo "Only static/template changes detected - fast update possible"
             echo "deployment_type=fast" >> $GITHUB_OUTPUT
@@ -233,6 +227,18 @@ jobs:
           if systemctl is-active --quiet nginx; then
             echo "✅ Nginx service is running"
             NGINX_RUNNING=true
+            
+            # Check nginx configuration and status
+            echo "Nginx status:"
+            systemctl status nginx --no-pager -l || true
+            
+            # Check nginx configuration
+            if sudo nginx -t 2>/dev/null; then
+              echo "✅ Nginx configuration is valid"
+            else
+              echo "⚠️ Nginx configuration has issues"
+              sudo nginx -t || true
+            fi
           else
             echo "⚠️ Nginx service is not running"
             NGINX_RUNNING=false
@@ -241,7 +247,7 @@ jobs:
           # Web server response test (try multiple ports)
           WEB_RESPONDING=false
           for port in 9991 80 443; do
-            if curl -f -s -o /dev/null --max-time 10 "http://localhost:$port/health/" 2>/dev/null; then
+            if curl -f -s -o /dev/null --max-time 100 "http://localhost:$port/health/" 2>/dev/null; then
               echo "✅ Web server responding on port $port"
               WEB_RESPONDING=true
               break
@@ -251,7 +257,27 @@ jobs:
           if [ "$WEB_RESPONDING" = "false" ]; then
             echo "❌ Web server not responding on standard ports"
             echo "Checking listening ports (without sudo):"
-            ss -tln | grep -E ':(80|443|9991)' || echo "No services listening on web ports"
+            
+            # Try different commands to check listening ports
+            if command -v ss >/dev/null 2>&1; then
+              echo "Using 'ss' to check listening ports:"
+              ss -tln | grep -E ':(80|443|9991)' || echo "No services listening on web ports"
+            elif command -v netstat >/dev/null 2>&1; then
+              echo "Using 'netstat' to check listening ports:"
+              netstat -tln | grep -E ':(80|443|9991)' || echo "No services listening on web ports"
+            else
+              echo "Neither 'ss' nor 'netstat' commands available"
+              echo "Checking if nginx process is running:"
+              ps aux | grep nginx | grep -v grep || echo "No nginx processes found"
+            fi
+            
+            # Additional debugging: check what's actually listening
+            echo "All listening ports:"
+            if command -v ss >/dev/null 2>&1; then
+              ss -tln | head -20
+            elif command -v netstat >/dev/null 2>&1; then
+              netstat -tln | head -20
+            fi
             
             if [ "$NGINX_RUNNING" = "false" ]; then
               echo "⚠️ Nginx is not running. This may be expected if using --skip-puppet"
@@ -278,11 +304,7 @@ jobs:
           echo "New commit: ${{ steps.changes.outputs.new_commit }}"
           
           if [ "${{ steps.changes.outputs.skip_deployment }}" = "true" ]; then
-            if [ "${{ steps.changes.outputs.deployment_type }}" = "workflow_only" ]; then
-              echo "Result: Workflow-only changes - deployment skipped"
-            else
-              echo "Result: No changes - deployment skipped"
-            fi
+            echo "Result: No changes - deployment skipped"
           elif [ "${{ steps.changes.outputs.deployment_type }}" = "fast" ]; then
             echo "Result: Fast deployment completed"
           elif [ "${{ steps.changes.outputs.deployment_type }}" = "full" ]; then
@@ -358,9 +380,6 @@ jobs:
           else
             echo "trigger=${{ github.event_name }}" >> $GITHUB_OUTPUT
           fi
-          
-          # Get deployment type for notification
-          echo "deployment_type=${{ needs.secure-deploy.outputs.deployment_type || 'unknown' }}" >> $GITHUB_OUTPUT
 
       - name: Send Slack notification
         uses: 8398a7/action-slack@v3
@@ -406,7 +425,7 @@ jobs:
                       "fields": [
                         {
                           "type": "mrkdwn",
-                          "text": "*Deploy Status:*\n${{ steps.deploy-info.outputs.deployment_type == 'workflow_only' && ':gear: Workflow Only' || (steps.deploy-info.outputs.status == 'success' && ':white_check_mark: Success' || ':x: Failed') }}"
+                          "text": "*Deploy Status:*\n${{ steps.deploy-info.outputs.status == 'success' && ':white_check_mark: Success' || ':x: Failed' }}"
                         },
                         {
                           "type": "mrkdwn",
@@ -426,7 +445,7 @@ jobs:
                       "type": "section",
                       "text": {
                         "type": "mrkdwn",
-                        "text": "${{ steps.deploy-info.outputs.deployment_type == 'workflow_only' && ':gear: Workflow file updated - no deployment needed!' || (steps.deploy-info.outputs.status == 'success' && ':rocket: Zulip server has been successfully updated and is running smoothly!' || ':warning: Deployment encountered issues. Please check the logs for details.') }}"
+                        "text": "${{ steps.deploy-info.outputs.status == 'success' && ':rocket: Zulip server has been successfully updated and is running smoothly!' || ':warning: Deployment encountered issues. Please check the logs for details.' }}"
                       }
                     },
                     {
