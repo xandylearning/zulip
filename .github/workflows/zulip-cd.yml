@@ -24,6 +24,8 @@ env:
 jobs:
   secure-deploy:
     runs-on: self-hosted
+    outputs:
+      deployment_type: ${{ steps.changes.outputs.deployment_type }}
     
     steps:
       - name: Checkout code
@@ -118,10 +120,14 @@ jobs:
           echo "Files changed:"
           echo "$CHANGED_FILES"
           
-          # Check if changes are only in static files, templates, or docs
-          if echo "$CHANGED_FILES" | grep -v -E '^(static/|templates/|docs/|tools/setup|README|LICENSE)' | grep -q .; then
+          # Check if changes are only in static files, templates, docs, or workflow files
+          if echo "$CHANGED_FILES" | grep -v -E '^(static/|templates/|docs/|tools/setup|README|LICENSE|\.github/workflows/)' | grep -q .; then
             echo "Code/database changes detected - full upgrade required"
             echo "deployment_type=full" >> $GITHUB_OUTPUT
+          elif echo "$CHANGED_FILES" | grep -q '\.github/workflows/'; then
+            echo "Only workflow file changes detected - no deployment needed"
+            echo "deployment_type=workflow_only" >> $GITHUB_OUTPUT
+            echo "skip_deployment=true" >> $GITHUB_OUTPUT
           else
             echo "Only static/template changes detected - fast update possible"
             echo "deployment_type=fast" >> $GITHUB_OUTPUT
@@ -245,7 +251,7 @@ jobs:
           if [ "$WEB_RESPONDING" = "false" ]; then
             echo "❌ Web server not responding on standard ports"
             echo "Checking listening ports (without sudo):"
-            netstat -tln | grep -E ':(80|443|9991)' || echo "No services listening on web ports"
+            ss -tln | grep -E ':(80|443|9991)' || echo "No services listening on web ports"
             
             if [ "$NGINX_RUNNING" = "false" ]; then
               echo "⚠️ Nginx is not running. This may be expected if using --skip-puppet"
@@ -272,7 +278,11 @@ jobs:
           echo "New commit: ${{ steps.changes.outputs.new_commit }}"
           
           if [ "${{ steps.changes.outputs.skip_deployment }}" = "true" ]; then
-            echo "Result: No changes - deployment skipped"
+            if [ "${{ steps.changes.outputs.deployment_type }}" = "workflow_only" ]; then
+              echo "Result: Workflow-only changes - deployment skipped"
+            else
+              echo "Result: No changes - deployment skipped"
+            fi
           elif [ "${{ steps.changes.outputs.deployment_type }}" = "fast" ]; then
             echo "Result: Fast deployment completed"
           elif [ "${{ steps.changes.outputs.deployment_type }}" = "full" ]; then
@@ -348,6 +358,9 @@ jobs:
           else
             echo "trigger=${{ github.event_name }}" >> $GITHUB_OUTPUT
           fi
+          
+          # Get deployment type for notification
+          echo "deployment_type=${{ needs.secure-deploy.outputs.deployment_type || 'unknown' }}" >> $GITHUB_OUTPUT
 
       - name: Send Slack notification
         uses: 8398a7/action-slack@v3
@@ -393,7 +406,7 @@ jobs:
                       "fields": [
                         {
                           "type": "mrkdwn",
-                          "text": "*Deploy Status:*\n${{ steps.deploy-info.outputs.status == 'success' && ':white_check_mark: Success' || ':x: Failed' }}"
+                          "text": "*Deploy Status:*\n${{ steps.deploy-info.outputs.deployment_type == 'workflow_only' && ':gear: Workflow Only' || (steps.deploy-info.outputs.status == 'success' && ':white_check_mark: Success' || ':x: Failed') }}"
                         },
                         {
                           "type": "mrkdwn",
@@ -413,7 +426,7 @@ jobs:
                       "type": "section",
                       "text": {
                         "type": "mrkdwn",
-                        "text": "${{ steps.deploy-info.outputs.status == 'success' && ':rocket: Zulip server has been successfully updated and is running smoothly!' || ':warning: Deployment encountered issues. Please check the logs for details.' }}"
+                        "text": "${{ steps.deploy-info.outputs.deployment_type == 'workflow_only' && ':gear: Workflow file updated - no deployment needed!' || (steps.deploy-info.outputs.status == 'success' && ':rocket: Zulip server has been successfully updated and is running smoothly!' || ':warning: Deployment encountered issues. Please check the logs for details.') }}"
                       }
                     },
                     {
