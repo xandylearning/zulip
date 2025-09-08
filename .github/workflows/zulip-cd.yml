@@ -161,7 +161,7 @@ jobs:
           echo "Branch: $ZULIP_GIT_BRANCH"
           
           # Run official Zulip upgrade script with minimal permissions
-          sudo -u ${{ env.ZULIP_USER }} ${{ env.DEPLOYMENT_PATH }}/scripts/upgrade/upgrade-zulip-from-git \
+          sudo -u ${{ env.ZULIP_USER }} ${{ env.DEPLOYMENT_PATH }}/scripts/upgrade-zulip-from-git \
             --repo "${ZULIP_GIT_REPO_URL}" \
             --skip-puppet \
             "${ZULIP_GIT_BRANCH}"
