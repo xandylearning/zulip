@@ -155,7 +155,7 @@ jobs:
           echo "🔄 Performing full deployment for code/database changes..."
           
           # Set repository URL (change if using fork)
-          ZULIP_GIT_REPO_URL="https://github.com/zulip/zulip.git"
+          ZULIP_GIT_REPO_URL="https://github.com/xandylearning/zulip.git"
           ZULIP_GIT_BRANCH="${{ steps.branch.outputs.branch }}"
           
           echo "Repository: $ZULIP_GIT_REPO_URL"
