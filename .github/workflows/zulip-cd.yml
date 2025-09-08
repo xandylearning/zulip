@@ -63,14 +63,15 @@ jobs:
           echo "Running pre-upgrade optimizations..."
           
           # Clear caches safely
-          sudo -u ${{ env.ZULIP_USER }} ${{ env.DEPLOYMENT_PATH }}/manage.py clear_cache || true
+          sudo -u zulip /home/zulip/deployments/current/manage.py collectstatic --clear --noinput || true
+    
           
           # Clean up temporary files (specific pattern only)
           sudo find /tmp -name "zulip*" -type f -mtime +1 -delete 2>/dev/null || true
           
           # Check disk space
           echo "Disk space status:"
-          sudo df -h ${{ env.ZULIP_HOME }}/
+          sudo df -h /home/zulip/
 
       - name: Determine deployment branch
         id: branch
@@ -160,8 +161,8 @@ jobs:
           echo "Repository: $ZULIP_GIT_REPO_URL"
           echo "Branch: $ZULIP_GIT_BRANCH"
           
-          # Run official Zulip upgrade script with minimal permissions
-          sudo -u ${{ env.ZULIP_USER }} ${{ env.DEPLOYMENT_PATH }}/scripts/upgrade-zulip-from-git \
+          # Run official Zulip upgrade script (requires root privileges)
+          sudo ${{ env.DEPLOYMENT_PATH }}/scripts/upgrade-zulip-from-git \
             --repo "${ZULIP_GIT_REPO_URL}" \
             --skip-puppet \
             "${ZULIP_GIT_BRANCH}"
