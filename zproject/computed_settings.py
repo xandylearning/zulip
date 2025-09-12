@@ -1005,6 +1005,11 @@ LOGGING: dict[str, Any] = {
         "zerver.management.commands.deliver_scheduled_messages": {
             "level": "DEBUG",
         },
+        "zerver.event_listeners": {
+            "level": "INFO",
+            "handlers": [*DEFAULT_ZULIP_HANDLERS],
+            "propagate": False,
+        },
         "zulip.analytics": {
             "handlers": ["analytics_file", "errors_file"],
             "propagate": False,

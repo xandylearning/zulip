@@ -77,6 +77,48 @@ EMAIL_GATEWAY_BOT = "emailgateway@zulip.com"
 PHYSICAL_ADDRESS = "Zulip Headquarters, 123 Octo Stream, South Pacific Ocean"
 STAFF_SUBDOMAIN = "zulip"
 EXTRA_INSTALLED_APPS = ["zilencer", "analytics", "corporate"]
+
+# =============================================================================
+# EVENT LISTENERS PLUGIN CONFIGURATION
+# =============================================================================
+
+# Enable the event listeners plugin
+EVENT_LISTENERS_ENABLED = True
+
+# Add event listeners to installed apps
+if "zerver.event_listeners" not in EXTRA_INSTALLED_APPS:
+    EXTRA_INSTALLED_APPS.append("zerver.event_listeners")
+
+# Event listener configuration
+EVENT_LISTENERS_CONFIG = {
+    'DEFAULT_LISTENERS': [
+        'message_logger',
+        'user_status_tracker',
+        'stream_activity_monitor',
+    ],
+    'QUEUE_CONFIG': {
+        'max_retries': 3,
+        'retry_delay': 5,
+        'batch_size': 100,
+    },
+    'LOGGING': {
+        'level': 'INFO',
+        'file': None,  # Use console logging in development
+    },
+    'STATISTICS': {
+        'enabled': True,
+        'retention_days': 7,  # Shorter retention in development
+    },
+    'FILTERS': {
+        'default_realm_filter': None,  # All realms
+        'max_event_age': 3600,  # 1 hour
+    },
+    'PERFORMANCE': {
+        'max_concurrent_handlers': 5,
+        'handler_timeout': 30,
+        'memory_threshold': 50 * 1024 * 1024,  # 50MB
+    },
+}
 # Disable Camo in development
 CAMO_URI = ""
 KATEX_SERVER = False

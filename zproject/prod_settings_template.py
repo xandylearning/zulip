@@ -897,3 +897,77 @@ CAMO_URI = "/external_content/"
 ##
 ## A value of None disables the navigation tour video experience.
 # NAVIGATION_TOUR_VIDEO_URL = "https://static.zulipchat.com/static/navigation-tour-video/zulip-10.mp4"
+
+
+################
+## Event Listeners Plugin Configuration
+##
+## Enable the event listeners plugin system for custom event handling.
+## This allows you to create custom listeners for messages, user activities,
+## stream changes, and other Zulip events.
+##
+## For detailed documentation, see:
+##   /path/to/zulip/zerver/event_listeners/README.md
+
+## Enable the event listeners plugin
+# EVENT_LISTENERS_ENABLED = True
+
+## Add event listeners app to EXTRA_INSTALLED_APPS
+## (Uncomment and modify as needed)
+# EXTRA_INSTALLED_APPS = getattr(globals(), 'EXTRA_INSTALLED_APPS', []) + ['zerver.event_listeners']
+
+## Event listener configuration
+# EVENT_LISTENERS_CONFIG = {
+#     # Default listeners to enable
+#     'DEFAULT_LISTENERS': [
+#         'message_logger',
+#         'user_status_tracker', 
+#         'stream_activity_monitor',
+#         # 'ai_mentoring_demo',  # Uncomment for AI mentoring
+#     ],
+#     
+#     # Queue processing configuration
+#     'QUEUE_CONFIG': {
+#         'max_retries': 3,
+#         'retry_delay': 5,  # seconds
+#         'batch_size': 100,
+#         'timeout': 30,  # seconds
+#     },
+#     
+#     # Logging configuration
+#     'LOGGING': {
+#         'level': 'WARNING',  # Use WARNING for production
+#         'file': '/var/log/zulip/event_listeners.log',  # Log to file in production
+#     },
+#     
+#     # Statistics and monitoring
+#     'STATISTICS': {
+#         'enabled': True,
+#         'retention_days': 30,  # Keep stats for 30 days
+#         'aggregation_interval': 300,  # 5 minutes
+#     },
+#     
+#     # Event filtering
+#     'FILTERS': {
+#         'default_realm_filter': None,  # None for all realms
+#         'default_user_filter': None,   # None for all users
+#         'max_event_age': 3600,        # Ignore events older than 1 hour
+#     },
+#     
+#     # Performance limits
+#     'PERFORMANCE': {
+#         'max_concurrent_handlers': 5,  # Conservative for production
+#         'handler_timeout': 30,
+#         'memory_threshold': 100 * 1024 * 1024,  # 100MB limit
+#     },
+#     
+#     # Listener-specific settings
+#     'LISTENER_CONFIG': {
+#         'ai_mentoring_demo': {
+#             'response_delay_min': 30,    # Min delay before AI response (seconds)
+#             'response_delay_max': 300,   # Max delay before AI response (seconds)
+#             'learning_enabled': True,
+#             'response_probability': 0.7, # Probability of AI responding
+#         },
+#     },
+# }
