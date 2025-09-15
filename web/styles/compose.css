@@ -2043,3 +2043,4 @@ textarea.new_message_textarea {
         overflow: hidden !important;
     }
 }
+.creating-call { opacity: 0.6 \!important; cursor: wait \!important; } .creating-call::after { content: " (Creating call...)"; font-size: 10px; }

@@ -1,6 +1,6 @@
 import uuid
 import logging
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, HttpRequest
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 from django.db import transaction
@@ -24,7 +24,7 @@ def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None
     """Send FCM push notification for call events"""
     try:
         send_android_push_notification(
-            user_profile=recipient,
+            user=recipient,
             data=call_data,
             priority="high"
         )
@@ -34,7 +34,7 @@ def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None
 
 @require_http_methods(["POST"])
 @authenticated_rest_api_view(webhook_client_name="Zulip")
-def initiate_quick_call(request, user_profile: UserProfile) -> JsonResponse:
+def initiate_quick_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
     """Quick call implementation - generates Jitsi room and sends notification"""
     try:
         # Get request parameters
@@ -52,7 +52,20 @@ def initiate_quick_call(request, user_profile: UserProfile) -> JsonResponse:
 
         # Get Jitsi server URL (use realm setting or fallback)
         jitsi_server = getattr(user_profile.realm, "jitsi_server_url", None) or "https://meet.jit.si"
-        call_url = f"{jitsi_server}/zulip-call-{room_id}"
+
+        # Add URL parameters to make the initiator a moderator
+        moderator_params = (
+            f"?userInfo.displayName={user_profile.full_name}"
+            f"&config.startWithAudioMuted=false"
+            f"&config.startWithVideoMuted=false"
+            f"&config.enableWelcomePage=false"
+            f"&config.enableClosePage=false"
+            f"&config.prejoinPageEnabled=false"
+            f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
+            f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
+        )
+
+        call_url = f"{jitsi_server}/zulip-call-{room_id}{moderator_params}"
 
         # Find recipient user
         try:
@@ -94,7 +107,7 @@ def initiate_quick_call(request, user_profile: UserProfile) -> JsonResponse:
 
 @require_http_methods(["POST"])
 @authenticated_rest_api_view(webhook_client_name="Zulip")
-def create_call(request, user_profile: UserProfile) -> JsonResponse:
+def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
     """Create a new call with full database tracking"""
     try:
         with transaction.atomic():
@@ -147,9 +160,39 @@ def create_call(request, user_profile: UserProfile) -> JsonResponse:
                 realm=user_profile.realm
             )
 
-            # Generate Jitsi URL
+            # Generate Jitsi URLs - separate URLs for moderator and participant
             jitsi_server = getattr(user_profile.realm, "jitsi_server_url", None) or "https://meet.jit.si"
-            call.jitsi_room_url = f"{jitsi_server}/{call.jitsi_room_name}"
+            base_room_url = f"{jitsi_server}/{call.jitsi_room_name}"
+
+            # Moderator URL (for initiator) with special parameters
+            moderator_params = (
+                f"?userInfo.displayName={user_profile.full_name}"
+                f"&config.startWithAudioMuted=false"
+                f"&config.startWithVideoMuted=false"
+                f"&config.enableWelcomePage=false"
+                f"&config.enableClosePage=false"
+                f"&config.prejoinPageEnabled=false"
+                f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
+                f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
+                f"&config.enableInsecureRoomNameWarning=false"
+            )
+
+            # Participant URL (for recipient) without moderator privileges
+            participant_params = (
+                f"?userInfo.displayName={recipient.full_name}"
+                f"&config.startWithAudioMuted=true"
+                f"&config.startWithVideoMuted=true"
+                f"&config.enableWelcomePage=false"
+                f"&config.enableClosePage=false"
+                f"&config.prejoinPageEnabled=false"
+                f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
+            )
+
+            # Store the base URL and create specific URLs for each participant
+            call.jitsi_room_url = base_room_url  # Base URL without parameters
+            moderator_url = f"{base_room_url}{moderator_params}"
+            participant_url = f"{base_room_url}{participant_params}"
+
             call.save()
 
             # Create initial call event
@@ -163,11 +206,11 @@ def create_call(request, user_profile: UserProfile) -> JsonResponse:
                 }
             )
 
-            # Send push notification
+            # Send push notification with participant URL
             push_data = {
                 "type": "call_invitation",
                 "call_id": str(call.call_id),
-                "call_url": call.jitsi_room_url,
+                "call_url": participant_url,  # Participant URL for the recipient
                 "call_type": call.call_type,
                 "caller_name": user_profile.full_name,
                 "caller_id": user_profile.id,
@@ -179,7 +222,8 @@ def create_call(request, user_profile: UserProfile) -> JsonResponse:
             return JsonResponse({
                 "result": "success",
                 "call_id": str(call.call_id),
-                "call_url": call.jitsi_room_url,
+                "call_url": moderator_url,  # Moderator URL for the initiator
+                "participant_url": participant_url,  # Available if needed
                 "call_type": call.call_type,
                 "room_name": call.jitsi_room_name,
                 "recipient": {
@@ -199,7 +243,7 @@ def create_call(request, user_profile: UserProfile) -> JsonResponse:
 
 @require_http_methods(["POST"])
 @authenticated_rest_api_view(webhook_client_name="Zulip")
-def respond_to_call(request, user_profile: UserProfile, call_id: str) -> JsonResponse:
+def respond_to_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
     """Accept or decline a call invitation with full tracking"""
     try:
         with transaction.atomic():
@@ -280,7 +324,7 @@ def respond_to_call(request, user_profile: UserProfile, call_id: str) -> JsonRes
 
 @require_http_methods(["POST"])
 @authenticated_rest_api_view(webhook_client_name="Zulip")
-def end_call(request, user_profile: UserProfile, call_id: str) -> JsonResponse:
+def end_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
     """End an ongoing call"""
     try:
         with transaction.atomic():
@@ -330,7 +374,7 @@ def end_call(request, user_profile: UserProfile, call_id: str) -> JsonResponse:
 
 @require_http_methods(["GET"])
 @authenticated_rest_api_view(webhook_client_name="Zulip")
-def get_call_status(request, user_profile: UserProfile, call_id: str) -> JsonResponse:
+def get_call_status(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
     """Get current status of a call"""
     try:
         try:
@@ -385,7 +429,7 @@ def get_call_status(request, user_profile: UserProfile, call_id: str) -> JsonRes
 
 @require_http_methods(["GET"])
 @authenticated_rest_api_view(webhook_client_name="Zulip")
-def get_call_history(request, user_profile: UserProfile) -> JsonResponse:
+def get_call_history(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
     """Get call history for the user"""
     try:
         # Get query parameters
@@ -436,8 +480,8 @@ def get_call_history(request, user_profile: UserProfile) -> JsonResponse:
 
 
 @require_http_methods(["POST"])
-@authenticated_rest_api_view(webhook_client_name="Zulip")
-def create_embedded_call(request, user_profile: UserProfile) -> JsonResponse:
+@zulip_login_required
+def create_embedded_call(request: HttpRequest) -> JsonResponse:
     """Create a call and immediately redirect to meeting interface"""
     try:
         with transaction.atomic():
@@ -452,17 +496,51 @@ def create_embedded_call(request, user_profile: UserProfile) -> JsonResponse:
                     "message": "recipient_email is required"
                 }, status=400)
 
-            # Find recipient
+            # Debug logging
+            logger.info(f"Attempting to create call: recipient_email='{recipient_email}', realm='{request.user.realm.string_id}'")
+
+            # Find recipient - try multiple email formats
+            recipient = None
+            tried_emails = []
+
+            # Try the email as provided
             try:
-                recipient = get_user_by_delivery_email(recipient_email, user_profile.realm)
+                recipient = get_user_by_delivery_email(recipient_email, request.user.realm)
             except UserProfile.DoesNotExist:
+                tried_emails.append(recipient_email)
+
+                # If it has @zulipdev.com, try @zulip.com instead
+                if "@zulipdev.com" in recipient_email:
+                    alternative_email = recipient_email.replace("@zulipdev.com", "@zulip.com")
+                    try:
+                        recipient = get_user_by_delivery_email(alternative_email, request.user.realm)
+                        logger.info(f"Found user with alternative email: '{alternative_email}' instead of '{recipient_email}'")
+                    except UserProfile.DoesNotExist:
+                        tried_emails.append(alternative_email)
+
+                # If it has @zulip.com, try @zulipdev.com instead
+                elif "@zulip.com" in recipient_email:
+                    alternative_email = recipient_email.replace("@zulip.com", "@zulipdev.com")
+                    try:
+                        recipient = get_user_by_delivery_email(alternative_email, request.user.realm)
+                        logger.info(f"Found user with alternative email: '{alternative_email}' instead of '{recipient_email}'")
+                    except UserProfile.DoesNotExist:
+                        tried_emails.append(alternative_email)
+
+            if not recipient:
+                # Debug: List some users in the realm to see what emails exist
+                from zerver.models import UserProfile as ZulipUserProfile
+                realm_users = ZulipUserProfile.objects.filter(realm=request.user.realm)[:10]
+                user_emails = [f"'{u.delivery_email}'" for u in realm_users]
+                logger.error(f"User not found after trying: {tried_emails}, realm='{request.user.realm.string_id}'")
+                logger.error(f"Available users in realm: {', '.join(user_emails)}")
                 return JsonResponse({
                     "result": "error",
-                    "message": "Recipient not found"
+                    "message": f"Recipient not found. Tried: {', '.join(tried_emails)}. Available: {', '.join(user_emails[:5])}"
                 }, status=404)
 
             # Check if users are the same
-            if user_profile.id == recipient.id:
+            if request.user.id == recipient.id:
                 return JsonResponse({
                     "result": "error",
                     "message": "Cannot call yourself"
@@ -471,22 +549,52 @@ def create_embedded_call(request, user_profile: UserProfile) -> JsonResponse:
             # Create call record
             call = Call.objects.create(
                 call_type="video" if is_video_call else "audio",
-                initiator=user_profile,
+                initiator=request.user,
                 recipient=recipient,
                 jitsi_room_name=f"zulip-call-{uuid.uuid4().hex[:12]}",
-                realm=user_profile.realm
+                realm=request.user.realm
             )
 
-            # Generate Jitsi URL
-            jitsi_server = getattr(user_profile.realm, "jitsi_server_url", None) or "https://meet.jit.si"
-            call.jitsi_room_url = f"{jitsi_server}/{call.jitsi_room_name}"
+            # Generate Jitsi URLs - separate URLs for moderator and participant
+            jitsi_server = getattr(request.user.realm, "jitsi_server_url", None) or "https://meet.jit.si"
+            base_room_url = f"{jitsi_server}/{call.jitsi_room_name}"
+
+            # Moderator URL (for initiator) with special parameters
+            moderator_params = (
+                f"?userInfo.displayName={request.user.full_name}"
+                f"&config.startWithAudioMuted=false"
+                f"&config.startWithVideoMuted=false"
+                f"&config.enableWelcomePage=false"
+                f"&config.enableClosePage=false"
+                f"&config.prejoinPageEnabled=false"
+                f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
+                f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
+                f"&config.enableInsecureRoomNameWarning=false"
+            )
+
+            # Participant URL (for recipient) without moderator privileges
+            participant_params = (
+                f"?userInfo.displayName={recipient.full_name}"
+                f"&config.startWithAudioMuted=true"
+                f"&config.startWithVideoMuted=true"
+                f"&config.enableWelcomePage=false"
+                f"&config.enableClosePage=false"
+                f"&config.prejoinPageEnabled=false"
+                f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
+            )
+
+            # Store the base URL and create specific URLs for each participant
+            call.jitsi_room_url = base_room_url  # Base URL without parameters
+            moderator_url = f"{base_room_url}{moderator_params}"
+            participant_url = f"{base_room_url}{participant_params}"
+
             call.save()
 
             # Create initial call event
             CallEvent.objects.create(
                 call=call,
                 event_type="initiated",
-                user=user_profile,
+                user=request.user,
                 metadata={
                     "recipient_email": recipient_email,
                     "is_video_call": is_video_call,
@@ -494,25 +602,26 @@ def create_embedded_call(request, user_profile: UserProfile) -> JsonResponse:
                 }
             )
 
-            # Send push notification to recipient
+            # Send push notification to recipient with participant URL
             push_data = {
                 "type": "call_invitation_embedded",
                 "call_id": str(call.call_id),
-                "call_url": call.jitsi_room_url,
+                "call_url": participant_url,  # Participant URL for the recipient
                 "call_type": call.call_type,
-                "caller_name": user_profile.full_name,
-                "caller_id": user_profile.id,
+                "caller_name": request.user.full_name,
+                "caller_id": request.user.id,
                 "room_name": call.jitsi_room_name,
                 "embedded_url": f"/calls/embed/{call.call_id}",
             }
 
             send_call_push_notification(recipient, push_data)
 
-            # Return response with both redirect and embed URLs
+            # Return response with moderator URL for the initiator
             response_data = {
                 "result": "success",
                 "call_id": str(call.call_id),
-                "call_url": call.jitsi_room_url,  # Direct Jitsi URL
+                "call_url": moderator_url,  # Moderator URL for the initiator
+                "participant_url": participant_url,  # Available if needed
                 "embedded_url": f"/calls/embed/{call.call_id}",  # Embedded interface URL
                 "call_type": call.call_type,
                 "room_name": call.jitsi_room_name,
@@ -523,10 +632,10 @@ def create_embedded_call(request, user_profile: UserProfile) -> JsonResponse:
                 }
             }
 
-            # If redirect_to_meeting is requested, return the Jitsi URL for immediate redirect
+            # If redirect_to_meeting is requested, return the moderator URL for immediate redirect
             if redirect_to_meeting:
                 response_data["action"] = "redirect"
-                response_data["redirect_url"] = call.jitsi_room_url
+                response_data["redirect_url"] = moderator_url
 
             return JsonResponse(response_data)
 
@@ -625,49 +734,124 @@ def get_calls_override_script(request):
         # Fallback: return the JavaScript inline
         js_content = '''
 /**
- * Zulip Calls Plugin - Direct Integration
+ * Zulip Calls Plugin - Aggressive Override
+ * This script forcefully replaces Zulip's call button behavior
  */
 (function() {
     'use strict';
 
-    console.log('Zulip Calls Plugin: Starting integration...');
+    console.log('🔵 Zulip Calls Plugin: Starting aggressive override...');
 
-    // Wait for Zulip to be ready
-    function waitForZulip() {
-        if (typeof window.compose_call_ui === 'undefined' || typeof $ === 'undefined') {
-            setTimeout(waitForZulip, 100);
-            return;
-        }
-        overrideZulipCallFunctionality();
+    // Multiple override strategies
+    function startOverride() {
+        // Strategy 1: Override the compose_call_ui function
+        overrideComposeCallUI();
+
+        // Strategy 2: Override click handlers directly
+        overrideClickHandlers();
+
+        // Strategy 3: Intercept at DOM level
+        interceptButtonClicks();
+
+        console.log('🟢 Zulip Calls Plugin: All override strategies active');
     }
 
-    function overrideZulipCallFunctionality() {
-        const originalFunction = window.compose_call_ui.generate_and_insert_audio_or_video_call_link;
+    // Strategy 1: Function override
+    function overrideComposeCallUI() {
+        function tryOverride() {
+            if (window.compose_call_ui && window.compose_call_ui.generate_and_insert_audio_or_video_call_link) {
+                const original = window.compose_call_ui.generate_and_insert_audio_or_video_call_link;
 
-        if (originalFunction) {
-            window.compose_call_ui.generate_and_insert_audio_or_video_call_link = function($target_element, is_audio_call) {
-                console.log('Zulip Calls Plugin: Intercepted call creation, is_audio_call:', is_audio_call);
-                createEmbeddedCall($target_element, !is_audio_call);
-            };
-            console.log('Zulip Calls Plugin: Successfully overrode call functionality');
+                window.compose_call_ui.generate_and_insert_audio_or_video_call_link = function($target, is_audio_call) {
+                    console.log('🚀 INTERCEPTED Zulip call function! is_audio:', is_audio_call);
+                    createEmbeddedCall($target, !is_audio_call);
+                    return; // Don't call original
+                };
+
+                console.log('✅ Successfully overrode compose_call_ui function');
+                return true;
+            }
+            return false;
         }
+
+        if (!tryOverride()) {
+            // Keep trying until Zulip loads
+            setTimeout(tryOverride, 100);
+        }
+    }
+
+    // Strategy 2: Direct click handler override
+    function overrideClickHandlers() {
+        // Remove ALL existing handlers and add ours
+        $(document).off('click', '.video_link, .audio_link');
+
+        // Add our handlers with high priority
+        $(document).on('click.zulip-calls-plugin', '.video_link', function(e) {
+            console.log('🎥 VIDEO BUTTON CLICKED - Our handler!');
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            createEmbeddedCall($(this), true);
+            return false;
+        });
+
+        $(document).on('click.zulip-calls-plugin', '.audio_link', function(e) {
+            console.log('🎤 AUDIO BUTTON CLICKED - Our handler!');
+            e.preventDefault();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            createEmbeddedCall($(this), false);
+            return false;
+        });
+
+        console.log('✅ Click handlers overridden');
+    }
+
+    // Strategy 3: DOM-level interception
+    function interceptButtonClicks() {
+        // Use capture phase to intercept before other handlers
+        document.addEventListener('click', function(e) {
+            const target = e.target.closest('.video_link, .audio_link');
+            if (target) {
+                console.log('🎯 DOM LEVEL INTERCEPT:', target.className);
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+
+                const isVideo = target.classList.contains('video_link');
+                createEmbeddedCall($(target), isVideo);
+                return false;
+            }
+        }, true); // Use capture phase
+
+        console.log('✅ DOM level interceptor active');
     }
 
     function createEmbeddedCall($button, isVideoCall) {
+        console.log('🚀 Creating embedded call, isVideo:', isVideoCall);
+
+        // Get recipient
         const recipientEmail = getRecipientEmail();
+        console.log('📧 Recipient:', recipientEmail);
 
         if (!recipientEmail) {
-            alert('Please select a recipient for the call');
+            if (window.ui_report && window.ui_report.error) {
+                ui_report.error('Please select a recipient for the call');
+            } else {
+                alert('Please select a recipient for the call');
+            }
             return;
         }
 
-        $button.prop('disabled', true);
+        // Show loading
+        $button.addClass('loading-call').prop('disabled', true);
 
+        // Make API call
         $.ajax({
             url: '/api/v1/calls/create-embedded',
             method: 'POST',
             headers: {
-                'X-CSRFToken': $('input[name="csrfmiddlewaretoken"]').val() || $('[name="csrfmiddlewaretoken"]').val()
+                'X-CSRFToken': getCsrfToken()
             },
             data: {
                 recipient_email: recipientEmail,
@@ -675,48 +859,175 @@ def get_calls_override_script(request):
                 redirect_to_meeting: true
             },
             success: function(response) {
+                console.log('📞 Call API response:', response);
+
                 if (response.result === 'success' && response.redirect_url) {
-                    window.open(response.redirect_url, '_blank', 'width=1200,height=800,resizable=yes');
+                    // Open meeting immediately
+                    console.log('🌐 Opening meeting:', response.redirect_url);
+                    window.open(response.redirect_url, '_blank', 'width=1200,height=800,resizable=yes,menubar=no,toolbar=no');
 
-                    const $textarea = $('textarea#compose-textarea');
-                    const callType = isVideoCall ? 'video' : 'audio';
-                    const link = `[Join ${callType} call](${response.redirect_url})`;
-                    const currentValue = $textarea.val();
-                    $textarea.val(currentValue + (currentValue ? '\\n\\n' : '') + link).trigger('input');
+                    // Insert link in compose
+                    insertCallLink(response, isVideoCall);
 
+                    // Show success
                     if (window.ui_report && window.ui_report.success) {
-                        ui_report.success(`${callType} call started successfully`);
+                        ui_report.success(`${isVideoCall ? 'Video' : 'Audio'} call started!`);
                     }
+                } else {
+                    throw new Error(response.message || 'Failed to create call');
                 }
             },
-            error: function() {
-                alert('Failed to create call');
+            error: function(xhr) {
+                console.error('❌ Call creation failed:', xhr);
+                const msg = xhr.responseJSON?.message || 'Failed to create call';
+                if (window.ui_report && window.ui_report.error) {
+                    ui_report.error(msg);
+                } else {
+                    alert('Error: ' + msg);
+                }
             },
             complete: function() {
-                $button.prop('disabled', false);
+                $button.removeClass('loading-call').prop('disabled', false);
             }
         });
     }
 
-    function getRecipientEmail() {
-        const dmInput = $('#private_message_recipient');
-        if (dmInput.length && dmInput.val()) {
-            return dmInput.val().trim().split(',')[0].trim();
-        }
+    function insertCallLink(response, isVideoCall) {
+        const $textarea = $('textarea#compose-textarea');
+        const callType = isVideoCall ? 'video' : 'audio';
+        const link = `[Join ${callType} call](${response.redirect_url})`;
+        const currentValue = $textarea.val();
+        const newValue = currentValue + (currentValue ? '\n\n' : '') + link;
 
-        if (window.compose_state && window.compose_state.private_message_recipient) {
-            const recipients = compose_state.private_message_recipient();
-            if (recipients) {
-                return recipients.split(',')[0].trim();
+        $textarea.val(newValue).trigger('input').focus();
+        console.log('📝 Inserted call link in compose');
+    }
+
+    function getRecipientEmail() {
+        // Try multiple methods to get the actual email address
+        let recipient = null;
+        console.log('🔍 Starting recipient search...');
+
+        // Method 1: Check if we're in a private message context using compose_state
+        if (window.compose_state) {
+            console.log('🔍 Compose state available');
+            const messageType = window.compose_state.get_message_type();
+            console.log('🔍 Message type:', messageType);
+
+            if (messageType === "private") {
+                // First try to get from the compose state (this returns emails)
+                const recipients = window.compose_state.private_message_recipient_emails();
+                console.log('🔍 Compose state recipients:', recipients);
+                if (recipients) {
+                    recipient = recipients.split(',')[0].trim();
+                    console.log('📧 Found recipient via compose_state emails:', recipient);
+                    return recipient;
+                }
             }
         }
 
+        // Method 2: If not composing but viewing a DM conversation, get recipient from narrow
+        if (window.narrow_state && window.narrow_state.filter) {
+            console.log('🔍 Narrow state available');
+            const currentFilter = window.narrow_state.filter();
+            console.log('🔍 Current filter:', currentFilter);
+
+            if (currentFilter && currentFilter.is_conversation_view()) {
+                console.log('🔍 Is conversation view');
+                const termTypes = currentFilter.sorted_term_types();
+                console.log('🔍 Term types:', termTypes);
+
+                if (termTypes.includes("dm")) {
+                    console.log('🔍 Has DM terms');
+                    // Get the recipient IDs from the narrow
+                    const recipientIds = currentFilter.operands("dm");
+                    console.log('🔍 Recipient IDs from narrow:', recipientIds);
+
+                    if (recipientIds && recipientIds.length > 0) {
+                        // Get the first recipient's email using people.get_by_user_id
+                        const firstRecipientId = recipientIds[0];
+                        console.log('🔍 First recipient ID:', firstRecipientId);
+                        if (window.people && window.people.get_by_user_id) {
+                            const user = window.people.get_by_user_id(firstRecipientId);
+                            console.log('🔍 User from people API:', user);
+
+                            if (user && user.email) {
+                                console.log('📧 Found recipient via narrow:', user.email);
+                                return user.email;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Method 3: Direct input fallback (might contain display names, needs conversion)
+        const $dmInput = $('#private_message_recipient');
+        if ($dmInput.length && $dmInput.val()) {
+            const inputValue = $dmInput.val().trim().split(',')[0].trim();
+
+            // Try to convert display name to email if people API is available
+            if (window.people && window.people.get_by_name) {
+                const user = window.people.get_by_name(inputValue);
+                if (user && user.email) {
+                    console.log('📧 Found recipient via input name lookup:', user.email);
+                    return user.email;
+                }
+            }
+
+            // If it already looks like an email, use it directly
+            if (inputValue.includes('@')) {
+                console.log('📧 Found recipient via direct input (email):', inputValue);
+                return inputValue;
+            }
+
+            console.log('⚠️ Found input but could not convert to email:', inputValue);
+        }
+
+        console.log('❌ No recipient found');
         return null;
     }
 
-    waitForZulip();
+    function getCsrfToken() {
+        return $('input[name="csrfmiddlewaretoken"]').val() ||
+               $('[name="csrfmiddlewaretoken"]').val() ||
+               document.querySelector('[name="csrfmiddlewaretoken"]')?.value;
+    }
 
-    window.zulipCallsPlugin = { createEmbeddedCall, getRecipientEmail };
+    // Add CSS for loading state
+    const style = document.createElement('style');
+    style.textContent = `
+        .loading-call {
+            opacity: 0.5 !important;
+            cursor: wait !important;
+        }
+        .loading-call::after {
+            content: " (Creating call...)";
+            font-size: 10px;
+        }
+    `;
+    document.head.appendChild(style);
+
+    // Start override when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startOverride);
+    } else {
+        startOverride();
+    }
+
+    // Also start after a delay to catch late-loading Zulip components
+    setTimeout(startOverride, 1000);
+    setTimeout(startOverride, 3000);
+
+    // Export for debugging
+    window.zulipCallsPlugin = {
+        createEmbeddedCall,
+        getRecipientEmail,
+        startOverride,
+        version: 'v2-aggressive'
+    };
+
+    console.log('🎉 Zulip Calls Plugin v2 loaded!');
 })();
 '''
 

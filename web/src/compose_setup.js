@@ -4,6 +4,7 @@ import _ from "lodash";
 import {unresolve_name} from "../shared/src/resolved_topic.ts";
 import render_add_poll_modal from "../templates/add_poll_modal.hbs";
 import render_add_todo_list_modal from "../templates/add_todo_list_modal.hbs";
+import render_compose_banner from "../templates/compose_banner/compose_banner.hbs";
 
 import * as compose from "./compose.js";
 import * as compose_actions from "./compose_actions.ts";
@@ -26,6 +27,7 @@ import * as message_view from "./message_view.ts";
 import * as narrow_state from "./narrow_state.ts";
 import * as onboarding_steps from "./onboarding_steps.ts";
 import {page_params} from "./page_params.ts";
+import * as people from "./people.ts";
 import * as popovers from "./popovers.ts";
 import * as resize from "./resize.ts";
 import * as rows from "./rows.ts";
@@ -376,7 +378,8 @@ export function initialize() {
             return;
         }
 
-        compose_call_ui.generate_and_insert_audio_or_video_call_link($(e.target), false);
+        // Use Zulip Calls Plugin instead of default behavior
+        create_embedded_call_instead_of_link($(e.target), true); // true for video
     });
 
     $("body").on("click", ".audio_link", (e) => {
@@ -389,7 +392,8 @@ export function initialize() {
             return;
         }
 
-        compose_call_ui.generate_and_insert_audio_or_video_call_link($(e.target), true);
+        // Use Zulip Calls Plugin instead of default behavior
+        create_embedded_call_instead_of_link($(e.target), false); // false for audio
     });
 
     $("body").on("click", ".time_pick", function (e) {
@@ -647,6 +651,152 @@ export function initialize() {
         e.preventDefault();
         e.stopPropagation();
     });
+
+    // Zulip Calls Plugin - Function to create embedded calls instead of links
+    function create_embedded_call_instead_of_link($button, isVideoCall) {
+        console.log('🚀 Zulip Calls Plugin: Creating embedded call, isVideo:', isVideoCall);
+
+        // Get recipient email
+        function getRecipientEmail() {
+            console.log('🔍 [compose_setup.js] Starting recipient search...');
+
+            // Check if we're in a private message context
+            const messageType = compose_state.get_message_type();
+            console.log('🔍 [compose_setup.js] Message type:', messageType);
+
+            if (messageType === "private") {
+                // First try to get from the compose state
+                const recipients = compose_state.private_message_recipient_emails();
+                console.log('🔍 [compose_setup.js] Recipients from compose state:', recipients);
+                if (recipients) {
+                    const firstRecipient = recipients.split(',')[0].trim();
+                    console.log('📧 [compose_setup.js] Found recipient via compose_state:', firstRecipient);
+                    return firstRecipient;
+                }
+
+                // Fallback: check the DM input field
+                const dmInput = $("#private_message_recipient");
+                console.log('🔍 [compose_setup.js] DM input:', dmInput.val());
+                if (dmInput.length && dmInput.val()) {
+                    const inputRecipient = dmInput.val().trim().split(',')[0].trim();
+                    console.log('📧 [compose_setup.js] Found recipient via input:', inputRecipient);
+                    return inputRecipient;
+                }
+            }
+
+            // If not composing but viewing a DM conversation, get recipient from narrow
+            const currentFilter = narrow_state.filter();
+            console.log('🔍 [compose_setup.js] Current filter:', currentFilter);
+
+            if (currentFilter && currentFilter.is_conversation_view()) {
+                console.log('🔍 [compose_setup.js] Is conversation view');
+                const termTypes = currentFilter.sorted_term_types();
+                console.log('🔍 [compose_setup.js] Term types:', termTypes);
+
+                if (termTypes.includes("dm")) {
+                    console.log('🔍 [compose_setup.js] Has DM terms');
+                    // Get the recipient IDs from the narrow
+                    const recipientIds = currentFilter.operands("dm");
+                    console.log('🔍 [compose_setup.js] Recipient IDs:', recipientIds);
+
+                    if (recipientIds && recipientIds.length > 0) {
+                        // Get the first recipient's email
+                        const firstRecipientId = recipientIds[0];
+                        console.log('🔍 [compose_setup.js] First recipient ID:', firstRecipientId);
+                        const user = people.get_by_user_id(firstRecipientId);
+                        console.log('🔍 [compose_setup.js] User from people API:', user);
+
+                        if (user) {
+                            console.log('📧 [compose_setup.js] Found recipient via narrow:', user.email);
+                            return user.email;
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        const recipientEmail = getRecipientEmail();
+
+        if (!recipientEmail) {
+            compose_banner.show_error_message(
+                "Please select a recipient for the call",
+                compose_banner.CLASSNAMES.generic_compose_error,
+                $("#compose_banners"),
+                $("textarea#compose-textarea"),
+            );
+            return;
+        }
+
+        // Show loading state
+        $button.prop('disabled', true).addClass('creating-call');
+
+        // Create the embedded call
+        $.ajax({
+            url: '/api/v1/calls/create-embedded',
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': $('meta[name="csrf-token"]').attr('content') || $('input[name="csrfmiddlewaretoken"]').val()
+            },
+            data: {
+                recipient_email: recipientEmail,
+                is_video_call: isVideoCall,
+                redirect_to_meeting: true
+            },
+            success: function(response) {
+                console.log('📞 Call creation response:', response);
+
+                if (response.result === 'success' && response.redirect_url) {
+                    // Open meeting immediately
+                    window.open(response.redirect_url, '_blank', 'width=1200,height=800,resizable=yes,menubar=no,toolbar=no');
+
+                    // Insert call link in compose box
+                    const $textarea = $('textarea#compose-textarea');
+                    const callType = isVideoCall ? 'video' : 'audio';
+                    const linkText = `Join ${callType} call`;
+                    const callMessage = `[${linkText}](${response.redirect_url})`;
+                    const currentValue = $textarea.val();
+                    const newValue = currentValue + (currentValue ? '\n\n' : '') + callMessage;
+
+                    $textarea.val(newValue);
+                    $textarea.trigger('input');
+                    $textarea.focus();
+
+                    // Show success message
+                    const successMessage = `${callType} call started with ${response.recipient.full_name}`;
+                    const successBannerHtml = render_compose_banner({
+                        banner_type: compose_banner.SUCCESS,
+                        stream_id: null,
+                        topic_name: null,
+                        banner_text: successMessage,
+                        button_text: null,
+                        classname: "call_success_banner",
+                    });
+                    compose_banner.append_compose_banner_to_banner_list($(successBannerHtml), $("#compose_banners"));
+                } else {
+                    throw new Error(response.message || 'Failed to create call');
+                }
+            },
+            error: function(xhr) {
+                console.error('❌ Call creation failed:', xhr);
+                const errorMsg = xhr.responseJSON?.message || 'Failed to create call';
+                compose_banner.show_error_message(
+                    errorMsg,
+                    compose_banner.CLASSNAMES.generic_compose_error,
+                    $("#compose_banners"),
+                    $("textarea#compose-textarea"),
+                );
+
+                // Fallback to original Zulip functionality
+                console.log('🔄 Falling back to original Zulip call functionality');
+                compose_call_ui.generate_and_insert_audio_or_video_call_link($button, !isVideoCall);
+            },
+            complete: function() {
+                $button.prop('disabled', false).removeClass('creating-call');
+            }
+        });
+    }
 
     if (page_params.narrow !== undefined) {
         if (page_params.narrow_topic !== undefined) {
