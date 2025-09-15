@@ -4,6 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% if is_video_call %}Video{% else %}Audio{% endif %} Call - {{ caller_name }} and {{ recipient_name }}</title>
+    <style>
+        body { margin: 0; padding: 0; }
+        .test-banner {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: green;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            z-index: 99999;
+            font-weight: bold;
+        }
+    </style>
 
     <!-- Jitsi Meet API -->
     <script src="{{ jitsi_server }}/external_api.js"></script>
@@ -138,9 +153,141 @@
             font-size: 12px;
             margin-left: 10px;
         }
+
+        /* Calling Screen Styles */
+        .calling-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, #1f2329 0%, #2d3439 100%);
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            width: 100vw;
+            height: 100vh;
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+
+        .calling-content {
+            text-align: center;
+            color: white;
+            max-width: 400px;
+            padding: 40px;
+        }
+
+        .user-avatar {
+            margin-bottom: 30px;
+        }
+
+        .avatar-circle {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #1890ff, #52c41a);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+            box-shadow: 0 8px 32px rgba(24, 144, 255, 0.3);
+            animation: pulse 2s infinite;
+        }
+
+        .avatar-text {
+            font-size: 48px;
+            font-weight: bold;
+            color: white;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); box-shadow: 0 8px 32px rgba(24, 144, 255, 0.3); }
+            50% { transform: scale(1.05); box-shadow: 0 12px 40px rgba(24, 144, 255, 0.5); }
+            100% { transform: scale(1); box-shadow: 0 8px 32px rgba(24, 144, 255, 0.3); }
+        }
+
+        .calling-info {
+            margin-bottom: 40px;
+        }
+
+        .user-name {
+            font-size: 28px;
+            font-weight: 600;
+            margin: 0 0 10px 0;
+            color: white;
+        }
+
+        .call-status-text {
+            font-size: 16px;
+            color: #52c41a;
+            margin: 0 0 5px 0;
+            font-weight: 500;
+        }
+
+        .call-type-text {
+            font-size: 14px;
+            color: #aaa;
+            margin: 0;
+        }
+
+        .calling-actions {
+            display: flex;
+            gap: 30px;
+            justify-content: center;
+        }
+
+        .call-action-btn {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            border: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .call-action-btn.decline {
+            background: #ff4d4f;
+            color: white;
+        }
+
+        .call-action-btn.decline:hover {
+            background: #d32f2f;
+            transform: scale(1.1);
+        }
+
+        .call-action-btn.accept {
+            background: #52c41a;
+            color: white;
+        }
+
+        .call-action-btn.accept:hover {
+            background: #389e0d;
+            transform: scale(1.1);
+        }
+
+        .btn-icon {
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+
+        .btn-text {
+            font-size: 11px;
+        }
     </style>
 </head>
 <body>
+    <div class="test-banner">
+        🚨 PAGE LOADED - TEMPLATE IS WORKING! Call ID: {{ call_id }}
+    </div>
+    
     <div class="call-header">
         <div class="call-info">
             <div class="call-type-icon">
@@ -153,6 +300,9 @@
             <div class="call-details">
                 <h2>{% if is_video_call %}Video Call{% else %}Audio Call{% endif %}</h2>
                 <p>{{ caller_name }} and {{ recipient_name }}</p>
+                {% if is_initiator %}
+                <p style="color: #52c41a; font-size: 11px; margin: 2px 0 0 0;">👑 You are the moderator</p>
+                {% endif %}
             </div>
             <div class="participants-count" id="participants-count">
                 Connecting...
@@ -169,15 +319,73 @@
         </div>
     </div>
 
-    <div class="loading-overlay" id="loading-overlay">
-        <div class="loading-spinner"></div>
-        <div class="call-status">
-            <h3>Connecting to call...</h3>
-            <p>Please wait while we set up your {{ call_type }} call</p>
+    <!-- TEST ELEMENT -->
+    <div style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: blue; z-index: 10000; display: flex; align-items: center; justify-content: center; color: white; font-size: 24px;">
+        TEST - CALLING SCREEN SHOULD BE HERE<br>
+        Is Initiator: {{ is_initiator }}<br>
+        Caller: {{ caller_name }}<br>
+        Recipient: {{ recipient_name }}
+    </div>
+
+    <!-- Calling Screen -->
+    <div class="calling-screen" id="calling-screen" style="display: flex !important; background: red !important;">
+        <div class="calling-content">
+            <div class="user-avatar">
+                <div class="avatar-circle">
+                    <span class="avatar-text">
+                        {% if is_initiator %}
+                            {{ recipient_name|first|upper }}
+                        {% else %}
+                            {{ caller_name|first|upper }}
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+            
+            <div class="calling-info">
+                <h2 class="user-name">
+                    {% if is_initiator %}
+                        {{ recipient_name }}
+                    {% else %}
+                        {{ caller_name }}
+                    {% endif %}
+                </h2>
+                <p class="call-status-text">
+                    {% if is_initiator %}
+                        Calling...
+                    {% else %}
+                        Incoming call...
+                    {% endif %}
+                </p>
+                <p class="call-type-text">{% if is_video_call %}Video Call{% else %}Audio Call{% endif %}</p>
+            </div>
+
+            <div class="calling-actions">
+                {% if is_initiator %}
+                    <button class="call-action-btn decline" onclick="declineCall()">
+                        <span class="btn-icon">📞</span>
+                        <span class="btn-text">Cancel</span>
+                    </button>
+                    <button class="call-action-btn accept" onclick="acceptCall()">
+                        <span class="btn-icon">✅</span>
+                        <span class="btn-text">Start</span>
+                    </button>
+                {% else %}
+                    <button class="call-action-btn decline" onclick="declineCall()">
+                        <span class="btn-icon">📞</span>
+                        <span class="btn-text">Decline</span>
+                    </button>
+                    <button class="call-action-btn accept" onclick="acceptCall()">
+                        <span class="btn-icon">✅</span>
+                        <span class="btn-text">Accept</span>
+                    </button>
+                {% endif %}
+            </div>
         </div>
     </div>
 
-    <div id="jitsi-container"></div>
+    <!-- Jitsi Meeting Container (hidden initially) -->
+    <div id="jitsi-container" style="display: none;"></div>
 
     <script>
         // Configuration from Django template
@@ -190,27 +398,58 @@
             callerName: '{{ caller_name }}',
             recipientName: '{{ recipient_name }}',
             currentUserName: '{{ current_user_name }}',
-            callType: '{{ call_type }}'
+            callType: '{{ call_type }}',
+            isInitiator: {{ is_initiator|yojson }}
         };
 
         let jitsiApi = null;
         let participantCount = 0;
+        let callAccepted = false;
+
+        // Accept call and join meeting
+        function acceptCall() {
+            console.log('Accepting call...');
+            callAccepted = true;
+            
+            const callingScreen = document.getElementById('calling-screen');
+            const jitsiContainer = document.getElementById('jitsi-container');
+            
+            if (callingScreen) {
+                callingScreen.style.display = 'none';
+                console.log('Calling screen hidden');
+            }
+            
+            if (jitsiContainer) {
+                jitsiContainer.style.display = 'block';
+                console.log('Jitsi container shown');
+            }
+            
+            initializeJitsi();
+        }
+
+        // Decline call
+        function declineCall() {
+            endCall();
+        }
 
         // Initialize Jitsi Meet
         function initializeJitsi() {
             const domain = callConfig.jitsiServer.replace('https://', '').replace('http://', '');
 
+            // Use the pre-configured URL with appropriate parameters
             const options = {
                 roomName: callConfig.roomName,
                 width: '100%',
                 height: '100%',
                 parentNode: document.querySelector('#jitsi-container'),
                 configOverwrite: {
-                    startWithAudioMuted: false,
-                    startWithVideoMuted: !callConfig.isVideoCall,
+                    // Use the URL parameters that were already configured
+                    startWithAudioMuted: callConfig.isInitiator ? false : true,
+                    startWithVideoMuted: callConfig.isInitiator ? false : !callConfig.isVideoCall,
                     enableWelcomePage: false,
                     prejoinPageEnabled: false,
                     disableInviteFunctions: true,
+                    enableInsecureRoomNameWarning: false,
                     toolbarButtons: [
                         'microphone', 'camera', 'desktop', 'fullscreen',
                         'fodeviceselection', 'hangup', 'profile', 'chat',
@@ -338,7 +577,26 @@
 
         // Initialize when page loads
         document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(initializeJitsi, 500);
+            console.log('Page loaded, showing calling screen');
+            console.log('Is initiator:', callConfig.isInitiator);
+            
+            // Ensure calling screen is visible
+            const callingScreen = document.getElementById('calling-screen');
+            if (callingScreen) {
+                callingScreen.style.display = 'flex';
+                console.log('Calling screen displayed');
+            }
+            
+            // If user is the initiator, auto-accept after a short delay
+            if (callConfig.isInitiator) {
+                console.log('Auto-accepting call in 2 seconds...');
+                setTimeout(function() {
+                    if (!callAccepted) {
+                        console.log('Auto-accepting call now');
+                        acceptCall();
+                    }
+                }, 2000); // Auto-accept after 2 seconds for initiator
+            }
         });
     </script>
 </body>

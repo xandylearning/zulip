@@ -705,14 +705,33 @@ export function initialize() {
                         console.log('🔍 [compose_setup.js] First recipient ID:', firstRecipientId);
                         const user = people.get_by_user_id(firstRecipientId);
                         console.log('🔍 [compose_setup.js] User from people API:', user);
+                        console.log('🔍 [compose_setup.js] User ID:', firstRecipientId);
+                        console.log('🔍 [compose_setup.js] User email:', user ? user.email : 'NO EMAIL');
 
-                        if (user) {
+                        if (user && user.email) {
                             console.log('📧 [compose_setup.js] Found recipient via narrow:', user.email);
+                            console.log('📧 [compose_setup.js] User full object:', JSON.stringify(user, null, 2));
                             return user.email;
+                        } else {
+                            console.log('❌ [compose_setup.js] No user found for ID:', firstRecipientId);
+
+                            // Try to get all users to see what's available
+                            console.log('👥 [compose_setup.js] All available users:');
+                            const allUsers = people.get_realm_active_human_users();
+                            allUsers.slice(0, 5).forEach(u => {
+                                console.log(`  - ID: ${u.user_id}, Email: ${u.email}, Name: ${u.full_name}`);
+                            });
                         }
                     }
                 }
             }
+
+            // If we still don't have a recipient, show available users for debugging
+            console.log('❌ [compose_setup.js] No recipient found. Available users:');
+            const allUsers = people.get_realm_active_human_users();
+            allUsers.slice(0, 10).forEach(u => {
+                console.log(`  - ID: ${u.user_id}, Email: ${u.email}, Name: ${u.full_name}`);
+            });
 
             return null;
         }
@@ -720,14 +739,44 @@ export function initialize() {
         const recipientEmail = getRecipientEmail();
 
         if (!recipientEmail) {
+            // Get available users to show in error message
+            const allUsers = people.get_realm_active_human_users();
+            const availableUsers = allUsers.slice(0, 5).map(u => u.email).join(', ');
+            const moreCount = allUsers.length > 5 ? ` and ${allUsers.length - 5} more` : '';
+            
             compose_banner.show_error_message(
-                "Please select a recipient for the call",
+                `Please select a recipient for the call. Available users: ${availableUsers}${moreCount}`,
                 compose_banner.CLASSNAMES.generic_compose_error,
                 $("#compose_banners"),
                 $("textarea#compose-textarea"),
             );
             return;
         }
+
+        // Validate that the recipient exists in the realm
+        console.log('🔍 [compose_setup.js] Validating recipient:', recipientEmail);
+        const recipientUser = people.get_by_email(recipientEmail);
+        console.log('🔍 [compose_setup.js] Recipient user found:', recipientUser);
+        
+        if (!recipientUser) {
+            // Get available users to show in error message
+            const allUsers = people.get_realm_active_human_users();
+            const availableUsers = allUsers.slice(0, 5).map(u => u.email).join(', ');
+            const moreCount = allUsers.length > 5 ? ` and ${allUsers.length - 5} more` : '';
+            
+            console.log('❌ [compose_setup.js] Recipient validation failed. User not found in people API');
+            console.log('❌ [compose_setup.js] Available users:', availableUsers);
+            
+            compose_banner.show_error_message(
+                `Recipient "${recipientEmail}" not found in this realm. Available users: ${availableUsers}${moreCount}`,
+                compose_banner.CLASSNAMES.generic_compose_error,
+                $("#compose_banners"),
+                $("textarea#compose-textarea"),
+            );
+            return;
+        }
+        
+        console.log('✅ [compose_setup.js] Recipient validation passed:', recipientUser.email, 'delivery_email:', recipientUser.delivery_email);
 
         // Show loading state
         $button.prop('disabled', true).addClass('creating-call');
@@ -780,7 +829,23 @@ export function initialize() {
             },
             error: function(xhr) {
                 console.error('❌ Call creation failed:', xhr);
-                const errorMsg = xhr.responseJSON?.message || 'Failed to create call';
+                console.error('❌ Response status:', xhr.status);
+                console.error('❌ Response text:', xhr.responseText);
+                
+                const response = xhr.responseJSON;
+                console.error('❌ Response JSON:', response);
+                
+                let errorMsg = response?.message || 'Failed to create call';
+                
+                // If we have available users in the response, show them
+                if (response?.available_users && response.available_users.length > 0) {
+                    // Clean up the user emails (remove quotes)
+                    const cleanUsers = response.available_users.map(email => email.replace(/'/g, ''));
+                    const availableUsers = cleanUsers.slice(0, 5).join(', ');
+                    const moreCount = response.available_users.length > 5 ? ` and ${response.available_users.length - 5} more` : '';
+                    errorMsg += `\n\nAvailable users: ${availableUsers}${moreCount}`;
+                }
+                
                 compose_banner.show_error_message(
                     errorMsg,
                     compose_banner.CLASSNAMES.generic_compose_error,

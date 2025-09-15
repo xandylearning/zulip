@@ -67,13 +67,49 @@ def initiate_quick_call(request: HttpRequest, user_profile: UserProfile) -> Json
 
         call_url = f"{jitsi_server}/zulip-call-{room_id}{moderator_params}"
 
-        # Find recipient user
+        # Find recipient user with domain flexibility
+        recipient = None
+        tried_emails = []
+
+        # Try the email as provided - use email field for API compatibility
         try:
             recipient = get_user_by_delivery_email(recipient_email, user_profile.realm)
         except UserProfile.DoesNotExist:
+            # Fallback: try to find by the public email field
+            try:
+                recipient = UserProfile.objects.get(email=recipient_email, realm=user_profile.realm)
+                logger.info(f"Found user by public email field: '{recipient_email}'")
+            except UserProfile.DoesNotExist:
+                tried_emails.append(recipient_email)
+
+            # Try multiple domain variations
+            domain_variations = []
+
+            if "@dev.zulip.xandylearning.in" in recipient_email:
+                # Try Gmail for dev.zulip.xandylearning.in users
+                username = recipient_email.split('@')[0]
+                domain_variations = [
+                    f"{username}@gmail.com",
+                    f"{username}@zulip.com",
+                    f"{username}@zulipdev.com"
+                ]
+            elif "@zulipdev.com" in recipient_email:
+                domain_variations = [recipient_email.replace("@zulipdev.com", "@zulip.com")]
+            elif "@zulip.com" in recipient_email:
+                domain_variations = [recipient_email.replace("@zulip.com", "@zulipdev.com")]
+
+            for alternative_email in domain_variations:
+                try:
+                    recipient = get_user_by_delivery_email(alternative_email, user_profile.realm)
+                    logger.info(f"Found user with alternative email: '{alternative_email}' instead of '{recipient_email}'")
+                    break
+                except UserProfile.DoesNotExist:
+                    tried_emails.append(alternative_email)
+
+        if not recipient:
             return JsonResponse({
                 "result": "error",
-                "message": "Recipient not found"
+                "message": f"Recipient not found. Tried: {', '.join(tried_emails)}"
             }, status=404)
 
         # Prepare call data
@@ -121,13 +157,49 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                     "message": "recipient_email is required"
                 }, status=400)
 
-            # Find recipient
+            # Find recipient with domain flexibility
+            recipient = None
+            tried_emails = []
+
+            # Try the email as provided - use email field for API compatibility
             try:
                 recipient = get_user_by_delivery_email(recipient_email, user_profile.realm)
             except UserProfile.DoesNotExist:
+                # Fallback: try to find by the public email field
+                try:
+                    recipient = UserProfile.objects.get(email=recipient_email, realm=user_profile.realm)
+                    logger.info(f"Found user by public email field: '{recipient_email}'")
+                except UserProfile.DoesNotExist:
+                    tried_emails.append(recipient_email)
+
+                # Try multiple domain variations
+                domain_variations = []
+
+                if "@dev.zulip.xandylearning.in" in recipient_email:
+                    # Try Gmail for dev.zulip.xandylearning.in users
+                    username = recipient_email.split('@')[0]
+                    domain_variations = [
+                        f"{username}@gmail.com",
+                        f"{username}@zulip.com",
+                        f"{username}@zulipdev.com"
+                    ]
+                elif "@zulipdev.com" in recipient_email:
+                    domain_variations = [recipient_email.replace("@zulipdev.com", "@zulip.com")]
+                elif "@zulip.com" in recipient_email:
+                    domain_variations = [recipient_email.replace("@zulip.com", "@zulipdev.com")]
+
+                for alternative_email in domain_variations:
+                    try:
+                        recipient = get_user_by_delivery_email(alternative_email, user_profile.realm)
+                        logger.info(f"Found user with alternative email: '{alternative_email}' instead of '{recipient_email}'")
+                        break
+                    except UserProfile.DoesNotExist:
+                        tried_emails.append(alternative_email)
+
+            if not recipient:
                 return JsonResponse({
                     "result": "error",
-                    "message": "Recipient not found"
+                    "message": f"Recipient not found. Tried: {', '.join(tried_emails)}"
                 }, status=404)
 
             # Check if users are the same
@@ -503,27 +575,38 @@ def create_embedded_call(request: HttpRequest) -> JsonResponse:
             recipient = None
             tried_emails = []
 
-            # Try the email as provided
+            # Try the email as provided - use email field for API compatibility
             try:
                 recipient = get_user_by_delivery_email(recipient_email, request.user.realm)
             except UserProfile.DoesNotExist:
-                tried_emails.append(recipient_email)
+                # Fallback: try to find by the public email field
+                try:
+                    recipient = UserProfile.objects.get(email=recipient_email, realm=request.user.realm)
+                    logger.info(f"Found user by public email field: '{recipient_email}'")
+                except UserProfile.DoesNotExist:
+                    tried_emails.append(recipient_email)
 
-                # If it has @zulipdev.com, try @zulip.com instead
-                if "@zulipdev.com" in recipient_email:
-                    alternative_email = recipient_email.replace("@zulipdev.com", "@zulip.com")
-                    try:
-                        recipient = get_user_by_delivery_email(alternative_email, request.user.realm)
-                        logger.info(f"Found user with alternative email: '{alternative_email}' instead of '{recipient_email}'")
-                    except UserProfile.DoesNotExist:
-                        tried_emails.append(alternative_email)
+                # Try multiple domain variations
+                domain_variations = []
 
-                # If it has @zulip.com, try @zulipdev.com instead
+                if "@dev.zulip.xandylearning.in" in recipient_email:
+                    # Try Gmail for dev.zulip.xandylearning.in users
+                    username = recipient_email.split('@')[0]
+                    domain_variations = [
+                        f"{username}@gmail.com",
+                        f"{username}@zulip.com",
+                        f"{username}@zulipdev.com"
+                    ]
+                elif "@zulipdev.com" in recipient_email:
+                    domain_variations = [recipient_email.replace("@zulipdev.com", "@zulip.com")]
                 elif "@zulip.com" in recipient_email:
-                    alternative_email = recipient_email.replace("@zulip.com", "@zulipdev.com")
+                    domain_variations = [recipient_email.replace("@zulip.com", "@zulipdev.com")]
+
+                for alternative_email in domain_variations:
                     try:
                         recipient = get_user_by_delivery_email(alternative_email, request.user.realm)
                         logger.info(f"Found user with alternative email: '{alternative_email}' instead of '{recipient_email}'")
+                        break
                     except UserProfile.DoesNotExist:
                         tried_emails.append(alternative_email)
 
@@ -534,9 +617,17 @@ def create_embedded_call(request: HttpRequest) -> JsonResponse:
                 user_emails = [f"'{u.delivery_email}'" for u in realm_users]
                 logger.error(f"User not found after trying: {tried_emails}, realm='{request.user.realm.string_id}'")
                 logger.error(f"Available users in realm: {', '.join(user_emails)}")
+                
+                # Provide a more helpful error message
+                available_users_text = ', '.join(user_emails[:5])
+                if len(user_emails) > 5:
+                    available_users_text += f" and {len(user_emails) - 5} more"
+                
                 return JsonResponse({
                     "result": "error",
-                    "message": f"Recipient not found. Tried: {', '.join(tried_emails)}. Available: {', '.join(user_emails[:5])}"
+                    "message": f"Recipient not found. Tried: {', '.join(tried_emails)}. Available users: {available_users_text}",
+                    "available_users": user_emails[:10],  # Include more users in response
+                    "tried_emails": tried_emails
                 }, status=404)
 
             # Check if users are the same
@@ -664,13 +755,43 @@ def embedded_call_view(request, call_id: str):
 
         # Get Jitsi server URL
         jitsi_server = getattr(request.user.realm, "jitsi_server_url", None) or "https://meet.jit.si"
+        base_room_url = f"{jitsi_server}/{call.jitsi_room_name}"
+
+        # Determine if current user is the initiator (gets moderator privileges)
+        is_initiator = call.initiator.id == request.user.id
+        
+        # Generate appropriate URL parameters based on user role
+        if is_initiator:
+            # Moderator URL (for initiator) with special parameters
+            url_params = (
+                f"?userInfo.displayName={request.user.full_name}"
+                f"&config.startWithAudioMuted=false"
+                f"&config.startWithVideoMuted=false"
+                f"&config.enableWelcomePage=false"
+                f"&config.enableClosePage=false"
+                f"&config.prejoinPageEnabled=false"
+                f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
+                f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
+                f"&config.enableInsecureRoomNameWarning=false"
+            )
+        else:
+            # Participant URL (for recipient) without moderator privileges
+            url_params = (
+                f"?userInfo.displayName={request.user.full_name}"
+                f"&config.startWithAudioMuted=true"
+                f"&config.startWithVideoMuted=true"
+                f"&config.enableWelcomePage=false"
+                f"&config.enableClosePage=false"
+                f"&config.prejoinPageEnabled=false"
+                f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
+            )
 
         # Determine other participant
         other_user = call.recipient if call.initiator.id == request.user.id else call.initiator
 
         context = {
             "call_id": str(call.call_id),
-            "call_url": call.jitsi_room_url,
+            "call_url": f"{base_room_url}{url_params}",
             "room_name": call.jitsi_room_name,
             "jitsi_server": jitsi_server,
             "is_video_call": call.call_type == "video",
@@ -678,6 +799,7 @@ def embedded_call_view(request, call_id: str):
             "caller_name": call.initiator.full_name,
             "recipient_name": call.recipient.full_name,
             "current_user_name": request.user.full_name,
+            "is_initiator": is_initiator,
         }
 
         # Mark call as active if this is the first time someone joins
