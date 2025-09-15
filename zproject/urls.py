@@ -27,6 +27,7 @@ from zerver.tornado.views import (
 )
 from zerver.views.alert_words import add_alert_words, list_alert_words, remove_alert_words
 from zerver.views.antispam import get_challenge
+from zulip_calls_plugin.urls import urlpatterns as calls_urls
 from zerver.views.attachments import list_by_user, remove
 from zerver.views.auth import (
     api_fetch_api_key,
@@ -974,6 +975,9 @@ urls += [
 
 # Healthcheck URL
 urls += [path("health", health)]
+
+# Zulip Calls Plugin URLs
+urls += calls_urls
 
 # The sequence is important; if i18n URLs don't come first then
 # reverse URL mapping points to i18n URLs which causes the frontend

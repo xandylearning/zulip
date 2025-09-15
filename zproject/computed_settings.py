@@ -1322,3 +1322,5 @@ SCIM_SERVICE_PROVIDER = {
 TOPIC_SUMMARIZATION_API_KEY = get_secret("topic_summarization_api_key", None)
 
 PARTIAL_USERS = bool(os.environ.get("PARTIAL_USERS"))
+
+# Zulip Calls Plugin - Added via EXTRA_INSTALLED_APPS in dev_settings.py

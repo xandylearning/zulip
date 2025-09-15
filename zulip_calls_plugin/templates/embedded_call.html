@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if is_video_call %}Video{% else %}Audio{% endif %} Call - {{ caller_name }} and {{ recipient_name }}</title>
+
+    <!-- Jitsi Meet API -->
+    <script src="{{ jitsi_server }}/external_api.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1f2329;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .call-header {
+            background: #2d3439;
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #444;
+            z-index: 1000;
+            position: relative;
+        }
+
+        .call-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .call-type-icon {
+            width: 24px;
+            height: 24px;
+            background: #52c41a;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .call-details h2 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .call-details p {
+            margin: 5px 0 0 0;
+            font-size: 12px;
+            color: #aaa;
+        }
+
+        .call-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .call-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .call-btn.end {
+            background: #ff4d4f;
+            color: white;
+        }
+
+        .call-btn.end:hover {
+            background: #d32f2f;
+        }
+
+        .call-btn.minimize {
+            background: #1890ff;
+            color: white;
+        }
+
+        .call-btn.minimize:hover {
+            background: #1565c0;
+        }
+
+        #jitsi-container {
+            height: calc(100vh - 70px);
+            width: 100%;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            top: 70px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #1f2329;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 999;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #333;
+            border-top: 4px solid #1890ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .call-status {
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .participants-count {
+            background: #52c41a;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="call-header">
+        <div class="call-info">
+            <div class="call-type-icon">
+                {% if is_video_call %}
+                📹
+                {% else %}
+                🎤
+                {% endif %}
+            </div>
+            <div class="call-details">
+                <h2>{% if is_video_call %}Video Call{% else %}Audio Call{% endif %}</h2>
+                <p>{{ caller_name }} and {{ recipient_name }}</p>
+            </div>
+            <div class="participants-count" id="participants-count">
+                Connecting...
+            </div>
+        </div>
+
+        <div class="call-actions">
+            <button class="call-btn minimize" onclick="minimizeCall()">
+                Minimize
+            </button>
+            <button class="call-btn end" onclick="endCall()">
+                End Call
+            </button>
+        </div>
+    </div>
+
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div class="call-status">
+            <h3>Connecting to call...</h3>
+            <p>Please wait while we set up your {{ call_type }} call</p>
+        </div>
+    </div>
+
+    <div id="jitsi-container"></div>
+
+    <script>
+        // Configuration from Django template
+        const callConfig = {
+            callId: '{{ call_id }}',
+            callUrl: '{{ call_url }}',
+            roomName: '{{ room_name }}',
+            jitsiServer: '{{ jitsi_server }}',
+            isVideoCall: {{ is_video_call|yojson }},
+            callerName: '{{ caller_name }}',
+            recipientName: '{{ recipient_name }}',
+            currentUserName: '{{ current_user_name }}',
+            callType: '{{ call_type }}'
+        };
+
+        let jitsiApi = null;
+        let participantCount = 0;
+
+        // Initialize Jitsi Meet
+        function initializeJitsi() {
+            const domain = callConfig.jitsiServer.replace('https://', '').replace('http://', '');
+
+            const options = {
+                roomName: callConfig.roomName,
+                width: '100%',
+                height: '100%',
+                parentNode: document.querySelector('#jitsi-container'),
+                configOverwrite: {
+                    startWithAudioMuted: false,
+                    startWithVideoMuted: !callConfig.isVideoCall,
+                    enableWelcomePage: false,
+                    prejoinPageEnabled: false,
+                    disableInviteFunctions: true,
+                    toolbarButtons: [
+                        'microphone', 'camera', 'desktop', 'fullscreen',
+                        'fodeviceselection', 'hangup', 'profile', 'chat',
+                        'recording', 'livestreaming', 'etherpad', 'sharedvideo',
+                        'settings', 'raisehand', 'videoquality', 'filmstrip',
+                        'feedback', 'stats', 'shortcuts', 'tileview', 'videobackgroundblur',
+                        'download', 'help', 'mute-everyone'
+                    ]
+                },
+                interfaceConfigOverwrite: {
+                    SHOW_JITSI_WATERMARK: false,
+                    SHOW_WATERMARK_FOR_GUESTS: false,
+                    SHOW_BRAND_WATERMARK: false,
+                    BRAND_WATERMARK_LINK: '',
+                    SHOW_POWERED_BY: false,
+                    DEFAULT_BACKGROUND: '#1f2329'
+                },
+                userInfo: {
+                    displayName: callConfig.currentUserName
+                }
+            };
+
+            jitsiApi = new JitsiMeetExternalAPI(domain, options);
+
+            // Event listeners
+            jitsiApi.addEventListener('videoConferenceJoined', function() {
+                document.getElementById('loading-overlay').style.display = 'none';
+                updateParticipantCount(1);
+
+                // Notify parent window that call started
+                if (window.opener) {
+                    window.opener.postMessage({
+                        type: 'call_started',
+                        callId: callConfig.callId
+                    }, '*');
+                }
+            });
+
+            jitsiApi.addEventListener('participantJoined', function(event) {
+                participantCount++;
+                updateParticipantCount(participantCount + 1);
+            });
+
+            jitsiApi.addEventListener('participantLeft', function(event) {
+                participantCount--;
+                updateParticipantCount(Math.max(1, participantCount + 1));
+            });
+
+            jitsiApi.addEventListener('videoConferenceLeft', function() {
+                endCall();
+            });
+
+            jitsiApi.addEventListener('readyToClose', function() {
+                endCall();
+            });
+        }
+
+        function updateParticipantCount(count) {
+            const element = document.getElementById('participants-count');
+            if (count === 1) {
+                element.textContent = 'Waiting for others...';
+                element.style.background = '#faad14';
+            } else {
+                element.textContent = count + ' participants';
+                element.style.background = '#52c41a';
+            }
+        }
+
+        function minimizeCall() {
+            // Minimize the window
+            window.blur();
+
+            // Notify parent window
+            if (window.opener) {
+                window.opener.postMessage({
+                    type: 'call_minimized',
+                    callId: callConfig.callId
+                }, '*');
+                window.opener.focus();
+            }
+        }
+
+        function endCall() {
+            // End the Jitsi call
+            if (jitsiApi) {
+                jitsiApi.dispose();
+            }
+
+            // Notify backend that call ended
+            fetch('/api/v1/calls/' + callConfig.callId + '/end', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                credentials: 'same-origin'
+            }).then(function(response) {
+                return response.json();
+            }).then(function(data) {
+                console.log('Call ended:', data);
+            }).catch(function(error) {
+                console.error('Error ending call:', error);
+            });
+
+            // Notify parent window
+            if (window.opener) {
+                window.opener.postMessage({
+                    type: 'call_ended',
+                    callId: callConfig.callId
+                }, '*');
+            }
+
+            // Close the window
+            setTimeout(function() {
+                window.close();
+            }, 1000);
+        }
+
+        // Handle page unload
+        window.addEventListener('beforeunload', function(e) {
+            if (jitsiApi) {
+                // Try to end the call gracefully
+                endCall();
+            }
+        });
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(initializeJitsi, 500);
+        });
+    </script>
+</body>
+</html>

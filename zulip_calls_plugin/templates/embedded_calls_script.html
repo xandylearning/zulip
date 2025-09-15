@@ -1,0 +1,309 @@
+<!-- Zulip Calls Plugin - Embedded Call Integration -->
+<script>
+// Check if we should load the embedded calls plugin
+window.EMBEDDED_CALLS_ENABLED = true;
+
+// Zulip Calls Plugin - Embedded Call Integration
+// This script overrides the default call behavior to use embedded calls
+
+(function() {
+    'use strict';
+
+    // Store active call windows
+    const activeCallWindows = new Map();
+
+    // Override the original call generation function
+    function overrideCallButtons() {
+        // Remove existing event handlers
+        $('.video_link, .audio_link').off('click.embedded_calls');
+
+        // Add our custom handlers
+        $('.video_link').on('click.embedded_calls', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const isVideoCall = true;
+            initiateEmbeddedCall($(this), isVideoCall);
+        });
+
+        $('.audio_link').on('click.embedded_calls', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const isVideoCall = false;
+            initiateEmbeddedCall($(this), isVideoCall);
+        });
+
+        console.log('Embedded calls: Overrode call button handlers');
+    }
+
+    function initiateEmbeddedCall($button, isVideoCall) {
+        // Get recipient email from the current compose context
+        const recipientEmail = getRecipientEmail();
+
+        if (!recipientEmail) {
+            showError('Please select a recipient for the call');
+            return;
+        }
+
+        // Show loading state
+        const originalText = $button.attr('data-tippy-content');
+        $button.addClass('loading');
+
+        // Create the call
+        $.ajax({
+            url: '/api/v1/calls/create-embedded',
+            method: 'POST',
+            data: {
+                recipient_email: recipientEmail,
+                is_video_call: isVideoCall
+            },
+            success: function(response) {
+                if (response.result === 'success') {
+                    openEmbeddedCallWindow(response, isVideoCall);
+
+                    // Also insert a message about the call
+                    insertCallMessage(response, isVideoCall);
+                } else {
+                    showError('Failed to create call: ' + response.message);
+                }
+            },
+            error: function(xhr) {
+                const errorMsg = xhr.responseJSON?.message || 'Failed to create call';
+                showError(errorMsg);
+            },
+            complete: function() {
+                $button.removeClass('loading');
+            }
+        });
+    }
+
+    function getRecipientEmail() {
+        // Try to get recipient from compose form
+        const composeType = $('#compose-content .recipient_box').find('input[name="type"]:checked').val();
+
+        if (composeType === 'private') {
+            const recipientInput = $('#compose-content .recipient_box input[name="private_message_recipient"]');
+            const recipients = recipientInput.val();
+
+            if (recipients) {
+                // For now, take the first recipient if multiple
+                const emails = recipients.split(',').map(r => r.trim());
+                return emails[0];
+            }
+        } else if (composeType === 'stream') {
+            // For stream messages, we could show a user selector
+            // For now, let's show an error
+            showError('Please use direct messages for calls');
+            return null;
+        }
+
+        // Try to get from message thread context (for message editing)
+        const messageRow = $('.selected_message');
+        if (messageRow.length > 0) {
+            const senderId = messageRow.attr('data-sender-id');
+            if (senderId) {
+                // We'd need to resolve sender ID to email - for demo, let's skip this
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    function openEmbeddedCallWindow(callData, isVideoCall) {
+        const callId = callData.call_id;
+        const embeddedUrl = callData.embedded_url;
+
+        // Check if we already have a window for this call
+        if (activeCallWindows.has(callId)) {
+            const existingWindow = activeCallWindows.get(callId);
+            if (!existingWindow.closed) {
+                existingWindow.focus();
+                return;
+            }
+        }
+
+        // Create new call window
+        const callWindow = window.open(
+            embeddedUrl,
+            `zulip_call_${callId}`,
+            'width=1200,height=800,resizable=yes,scrollbars=no,status=no,menubar=no,toolbar=no'
+        );
+
+        if (callWindow) {
+            activeCallWindows.set(callId, callWindow);
+
+            // Listen for messages from the call window
+            window.addEventListener('message', function(event) {
+                if (event.source === callWindow) {
+                    handleCallWindowMessage(event.data, callId);
+                }
+            });
+
+            // Clean up when window closes
+            const checkClosed = setInterval(function() {
+                if (callWindow.closed) {
+                    clearInterval(checkClosed);
+                    activeCallWindows.delete(callId);
+                    console.log('Call window closed:', callId);
+                }
+            }, 1000);
+
+            // Show notification about the call
+            showCallNotification(callData, isVideoCall);
+        } else {
+            showError('Unable to open call window. Please check popup blocker settings.');
+        }
+    }
+
+    function insertCallMessage(callData, isVideoCall) {
+        // Insert a message about the call being started
+        const callType = isVideoCall ? 'video' : 'audio';
+        const linkText = `Join ${callType} call`;
+        const embeddedUrl = callData.embedded_url;
+
+        const $textarea = $('textarea#compose-textarea');
+        const currentValue = $textarea.val();
+        const callMessage = `[${linkText}](${window.location.origin}${embeddedUrl})`;
+
+        // Add the message
+        const newValue = currentValue + (currentValue ? '\n\n' : '') + callMessage;
+        $textarea.val(newValue);
+
+        // Trigger events to update UI
+        $textarea.trigger('input');
+    }
+
+    function handleCallWindowMessage(data, callId) {
+        switch (data.type) {
+            case 'call_started':
+                console.log('Call started:', callId);
+                showSuccessMessage('Call connected successfully');
+                break;
+
+            case 'call_ended':
+                console.log('Call ended:', callId);
+                activeCallWindows.delete(callId);
+                showSuccessMessage('Call ended');
+                break;
+
+            case 'call_minimized':
+                console.log('Call minimized:', callId);
+                break;
+        }
+    }
+
+    function showCallNotification(callData, isVideoCall) {
+        const callType = isVideoCall ? 'Video' : 'Audio';
+        const message = `${callType} call started with ${callData.recipient.full_name}`;
+
+        // Create a custom notification
+        const $notification = $(`
+            <div class="embedded-call-notification" style="
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #52c41a;
+                color: white;
+                padding: 15px 20px;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                z-index: 10000;
+                max-width: 300px;
+                font-size: 14px;
+            ">
+                <div style="font-weight: 600; margin-bottom: 5px;">📞 ${callType} Call Active</div>
+                <div>${message}</div>
+            </div>
+        `);
+
+        $('body').append($notification);
+
+        // Remove notification after 5 seconds
+        setTimeout(function() {
+            $notification.fadeOut(500, function() {
+                $notification.remove();
+            });
+        }, 5000);
+    }
+
+    function showError(message) {
+        // Use Zulip's existing error notification system if available
+        if (window.ui_report && window.ui_report.error) {
+            ui_report.error(message);
+        } else {
+            alert('Error: ' + message);
+        }
+    }
+
+    function showSuccessMessage(message) {
+        // Use Zulip's existing success notification system if available
+        if (window.ui_report && window.ui_report.success) {
+            ui_report.success(message);
+        } else {
+            console.log('Success: ' + message);
+        }
+    }
+
+    // Initialize when document is ready
+    $(document).ready(function() {
+        // Override call buttons initially
+        overrideCallButtons();
+
+        // Re-override when compose is reloaded (for navigation)
+        $(document).on('compose_state_changed', function() {
+            setTimeout(overrideCallButtons, 100);
+        });
+
+        // Also check periodically in case buttons are dynamically added
+        setInterval(function() {
+            if ($('.video_link, .audio_link').length > 0) {
+                overrideCallButtons();
+            }
+        }, 2000);
+
+        console.log('Embedded calls: Plugin initialized');
+    });
+
+    // Export for debugging
+    window.embeddedCalls = {
+        overrideCallButtons: overrideCallButtons,
+        activeCallWindows: activeCallWindows,
+        initiateEmbeddedCall: initiateEmbeddedCall
+    };
+})();
+</script>
+
+<style>
+/* Loading state for call buttons */
+.video_link.loading,
+.audio_link.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.video_link.loading::after,
+.audio_link.loading::after {
+    content: "...";
+    animation: loading-dots 1s infinite;
+}
+
+@keyframes loading-dots {
+    0%, 20% { content: ""; }
+    40% { content: "."; }
+    60% { content: ".."; }
+    80%, 100% { content: "..."; }
+}
+
+/* Embedded call notification styles */
+.embedded-call-notification {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Call button hover states for embedded calls */
+.video_link[data-embedded="true"]:hover,
+.audio_link[data-embedded="true"]:hover {
+    background-color: #1890ff !important;
+}
+</style>
