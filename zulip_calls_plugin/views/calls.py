@@ -59,9 +59,9 @@ def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None
             'call_type': call_data.get('call_type'),
             'jitsi_url': call_data.get('jitsi_url'),
             'timeout_seconds': getattr(settings, 'CALL_NOTIFICATION_TIMEOUT', 120),
-            'realm_uri': recipient.realm.uri,
+            'realm_uri': recipient.realm.url,
             'realm_name': recipient.realm.name,
-            'realm_url': recipient.realm.uri,
+            'realm_url': recipient.realm.url,
         }
 
         # Use Zulip's proper push notification API
@@ -79,9 +79,9 @@ def send_call_response_notification(user_profile: UserProfile, call: Call, respo
         'response': response,
         'receiver_name': call.receiver.full_name,
         'call_type': call.call_type,
-        'realm_uri': user_profile.realm.uri,
+        'realm_uri': user_profile.realm.url,
         'realm_name': user_profile.realm.name,
-        'realm_url': user_profile.realm.uri,
+        'realm_url': user_profile.realm.url,
     }
 
     try:
