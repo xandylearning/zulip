@@ -916,6 +916,10 @@ CAMO_URI = "/external_content/"
 ## (Uncomment and modify as needed)
 # EXTRA_INSTALLED_APPS = getattr(globals(), 'EXTRA_INSTALLED_APPS', []) + ['zerver.event_listeners']
 
+## Add Zulip Calls Plugin to EXTRA_INSTALLED_APPS
+## (Uncomment to enable the calls plugin)
+# EXTRA_INSTALLED_APPS = getattr(globals(), 'EXTRA_INSTALLED_APPS', []) + ['zulip_calls_plugin']
+
 ## Event listener configuration
 # EVENT_LISTENERS_CONFIG = {
 #     # Default listeners to enable
