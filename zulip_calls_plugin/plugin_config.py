@@ -34,3 +34,38 @@ class CallsPluginConfig:
                 cls.PLUGIN_NAME: f"{cls.PLUGIN_NAME}.migrations"
             }
         }
+
+    @classmethod
+    def get_default_jitsi_settings(cls) -> dict:
+        """Get default Jitsi integration settings"""
+        return {
+            # Jitsi Integration Settings
+            'JITSI_SERVER_URL': "https://meet.jit.si",  # Replace with your Jitsi server
+            'JITSI_MEETING_PREFIX': "zulip-call-",
+            'JITSI_API_ENABLED': True,
+
+            # Call Settings
+            'CALL_NOTIFICATION_TIMEOUT': 120,  # 2 minutes in seconds
+            'CALL_RING_TIMEOUT': 30,  # 30 seconds before showing "ringing"
+            'CALL_MAX_DURATION': 3600,  # 1 hour max call duration
+            'CALL_CLEANUP_INTERVAL': 300,  # 5 minutes - cleanup old calls
+
+            # Push Notification Settings for Calls
+            'CALL_PUSH_NOTIFICATION_ENABLED': True,
+            'CALL_PUSH_NOTIFICATION_SOUND': "call_ring.wav",  # Custom ringtone
+
+            # Feature Flags
+            'ENABLE_VIDEO_CALLS': True,
+            'ENABLE_AUDIO_CALLS': True,
+            'ENABLE_CALL_HISTORY': True,
+        }
+
+    @classmethod
+    def apply_settings(cls):
+        """Apply plugin settings to Django settings"""
+        defaults = cls.get_default_jitsi_settings()
+
+        # Apply defaults only if not already set
+        for key, value in defaults.items():
+            if not hasattr(settings, key):
+                setattr(settings, key, value)

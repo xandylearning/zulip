@@ -1,18 +1,29 @@
 import uuid
 import logging
+from datetime import timedelta
+from typing import Dict, Any
+
 from django.http import JsonResponse, HttpResponse, HttpRequest
 from django.views.decorators.http import require_http_methods
+from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from django.db import transaction
 from django.db import models
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 
 # Import Zulip components
-from zerver.decorator import authenticated_rest_api_view, zulip_login_required
+from zerver.decorator import (
+    authenticated_rest_api_view,
+    zulip_login_required,
+    authenticated_json_view
+)
 from zerver.models import UserProfile
 from zerver.models.users import get_user_by_delivery_email
 from zerver.lib.push_notifications import send_android_push_notification
+from zerver.lib.exceptions import JsonableError
+from zerver.lib.response import json_success
 
 # Import plugin models
 from ..models import Call, CallEvent
@@ -20,16 +31,64 @@ from ..models import Call, CallEvent
 logger = logging.getLogger(__name__)
 
 
+def generate_jitsi_url(call_id: str) -> tuple[str, str]:
+    """Generate Jitsi meeting URL and room ID"""
+    from django.conf import settings
+
+    room_id = f"{getattr(settings, 'JITSI_MEETING_PREFIX', 'zulip-call-')}{call_id}"
+    jitsi_url = f"{getattr(settings, 'JITSI_SERVER_URL', 'https://meet.jit.si')}/{room_id}"
+
+    return jitsi_url, room_id
+
+
 def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None:
-    """Send FCM push notification for call events"""
+    """Send push notification for call events"""
+    from django.conf import settings
+
+    if not getattr(settings, 'CALL_PUSH_NOTIFICATION_ENABLED', True):
+        return
+
     try:
-        send_android_push_notification(
-            user=recipient,
-            data=call_data,
-            priority="high"
-        )
+        # Enhanced call notification data
+        payload = {
+            'type': 'call',
+            'call_id': call_data.get('call_id'),
+            'sender_id': call_data.get('sender_id'),
+            'sender_name': call_data.get('sender_name'),
+            'sender_avatar_url': f"/avatar/{call_data.get('sender_id')}",
+            'call_type': call_data.get('call_type'),
+            'jitsi_url': call_data.get('jitsi_url'),
+            'timeout_seconds': getattr(settings, 'CALL_NOTIFICATION_TIMEOUT', 120),
+        }
+
+        # Send to both Android and iOS
+        send_android_push_notification(recipient, payload)
+        send_apple_push_notification(recipient, payload)
     except Exception as e:
         logger.error(f"Failed to send call push notification: {e}")
+
+
+def send_call_response_notification(user_profile: UserProfile, call: Call, response: str) -> None:
+    """Send notification about call response"""
+    payload = {
+        'type': 'call_response',
+        'call_id': str(call.call_id),
+        'response': response,
+        'receiver_name': call.receiver.full_name,
+        'call_type': call.call_type,
+    }
+
+    try:
+        send_android_push_notification(user_profile, payload)
+    except Exception as e:
+        logger.error(f"Failed to send call response notification: {str(e)}")
+
+
+def send_call_event(user_profile: UserProfile, call: Call, event_type: str) -> None:
+    """Send real-time event about call status - simplified version"""
+    # For now, just log the event. In a full implementation, this would integrate
+    # with Zulip's real-time event system
+    logger.info(f"Call event {event_type} for call {call.call_id} to user {user_profile.id}")
 
 
 @require_http_methods(["POST"])
@@ -61,11 +120,18 @@ def initiate_quick_call(request: HttpRequest, user_profile: UserProfile) -> Json
             f"&config.enableWelcomePage=false"
             f"&config.enableClosePage=false"
             f"&config.prejoinPageEnabled=false"
+            f"&config.prejoinConfig.enabled=false"
+            f"&config.prejoinConfig.hideDisplayName=true"
+            f"&config.prejoinConfig.hidePrejoinDisplayName=true"
+            f"&config.requireDisplayName=false"
+            f"&config.disableModeratorIndicator=true"
+            f"&config.startScreenSharing=false"
+            f"&config.enableInsecureRoomNameWarning=false"
             f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
             f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
         )
 
-        call_url = f"{jitsi_server}/zulip-call-{room_id}{moderator_params}"
+        call_url = f"{jitsi_server}/zulip-call-{room_id}{moderator_params}#config.prejoinPageEnabled=false"
 
         # Find recipient user with domain flexibility
         recipient = None
@@ -244,9 +310,15 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                 f"&config.enableWelcomePage=false"
                 f"&config.enableClosePage=false"
                 f"&config.prejoinPageEnabled=false"
+            f"&config.prejoinConfig.enabled=false"
+            f"&config.prejoinConfig.hideDisplayName=true"
+            f"&config.prejoinConfig.hidePrejoinDisplayName=true"
+                f"&config.requireDisplayName=false"
+                f"&config.disableModeratorIndicator=true"
+                f"&config.startScreenSharing=false"
+                f"&config.enableInsecureRoomNameWarning=false"
                 f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
                 f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
-                f"&config.enableInsecureRoomNameWarning=false"
             )
 
             # Participant URL (for recipient) without moderator privileges
@@ -257,13 +329,21 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                 f"&config.enableWelcomePage=false"
                 f"&config.enableClosePage=false"
                 f"&config.prejoinPageEnabled=false"
+            f"&config.prejoinConfig.enabled=false"
+            f"&config.prejoinConfig.hideDisplayName=true"
+            f"&config.prejoinConfig.hidePrejoinDisplayName=true"
+                f"&config.requireDisplayName=false"
+                f"&config.disableModeratorIndicator=true"
+                f"&config.startScreenSharing=false"
+                f"&config.enableInsecureRoomNameWarning=false"
                 f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
+                f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
             )
 
             # Store the base URL and create specific URLs for each participant
             call.jitsi_room_url = base_room_url  # Base URL without parameters
-            moderator_url = f"{base_room_url}{moderator_params}"
-            participant_url = f"{base_room_url}{participant_params}"
+            moderator_url = f"{base_room_url}{moderator_params}#config.prejoinPageEnabled=false"
+            participant_url = f"{base_room_url}{participant_params}#config.prejoinPageEnabled=false"
 
             call.save()
 
@@ -640,8 +720,8 @@ def create_embedded_call(request: HttpRequest) -> JsonResponse:
             # Create call record
             call = Call.objects.create(
                 call_type="video" if is_video_call else "audio",
-                initiator=request.user,
-                recipient=recipient,
+                sender=request.user,
+                receiver=recipient,
                 jitsi_room_name=f"zulip-call-{uuid.uuid4().hex[:12]}",
                 realm=request.user.realm
             )
@@ -653,14 +733,20 @@ def create_embedded_call(request: HttpRequest) -> JsonResponse:
             # Moderator URL (for initiator) with special parameters
             moderator_params = (
                 f"?userInfo.displayName={request.user.full_name}"
-                f"&config.startWithAudioMuted=false"
-                f"&config.startWithVideoMuted=false"
+                f"&config.startWithAudioMuted=true"
+                f"&config.startWithVideoMuted=true"
                 f"&config.enableWelcomePage=false"
                 f"&config.enableClosePage=false"
                 f"&config.prejoinPageEnabled=false"
+            f"&config.prejoinConfig.enabled=false"
+            f"&config.prejoinConfig.hideDisplayName=true"
+            f"&config.prejoinConfig.hidePrejoinDisplayName=true"
+                f"&config.requireDisplayName=false"
+                f"&config.disableModeratorIndicator=true"
+                f"&config.startScreenSharing=false"
+                f"&config.enableInsecureRoomNameWarning=false"
                 f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
                 f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
-                f"&config.enableInsecureRoomNameWarning=false"
             )
 
             # Participant URL (for recipient) without moderator privileges
@@ -671,13 +757,21 @@ def create_embedded_call(request: HttpRequest) -> JsonResponse:
                 f"&config.enableWelcomePage=false"
                 f"&config.enableClosePage=false"
                 f"&config.prejoinPageEnabled=false"
+            f"&config.prejoinConfig.enabled=false"
+            f"&config.prejoinConfig.hideDisplayName=true"
+            f"&config.prejoinConfig.hidePrejoinDisplayName=true"
+                f"&config.requireDisplayName=false"
+                f"&config.disableModeratorIndicator=true"
+                f"&config.startScreenSharing=false"
+                f"&config.enableInsecureRoomNameWarning=false"
                 f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
+                f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
             )
 
             # Store the base URL and create specific URLs for each participant
             call.jitsi_room_url = base_room_url  # Base URL without parameters
-            moderator_url = f"{base_room_url}{moderator_params}"
-            participant_url = f"{base_room_url}{participant_params}"
+            moderator_url = f"{base_room_url}{moderator_params}#config.prejoinPageEnabled=false"
+            participant_url = f"{base_room_url}{participant_params}#config.prejoinPageEnabled=false"
 
             call.save()
 
@@ -745,8 +839,8 @@ def embedded_call_view(request, call_id: str):
         call = get_object_or_404(Call, call_id=call_id, realm=request.user.realm)
 
         # Check authorization - user must be participant in the call
-        if (call.initiator.id != request.user.id and
-            call.recipient.id != request.user.id):
+        if (call.sender.id != request.user.id and
+            call.receiver.id != request.user.id):
             return HttpResponse("Not authorized to join this call", status=403)
 
         # Check if call is still active/joinable
@@ -758,21 +852,27 @@ def embedded_call_view(request, call_id: str):
         base_room_url = f"{jitsi_server}/{call.jitsi_room_name}"
 
         # Determine if current user is the initiator (gets moderator privileges)
-        is_initiator = call.initiator.id == request.user.id
+        is_initiator = call.sender.id == request.user.id
         
         # Generate appropriate URL parameters based on user role
         if is_initiator:
             # Moderator URL (for initiator) with special parameters
             url_params = (
                 f"?userInfo.displayName={request.user.full_name}"
-                f"&config.startWithAudioMuted=false"
-                f"&config.startWithVideoMuted=false"
+                f"&config.startWithAudioMuted=true"
+                f"&config.startWithVideoMuted=true"
                 f"&config.enableWelcomePage=false"
                 f"&config.enableClosePage=false"
                 f"&config.prejoinPageEnabled=false"
+            f"&config.prejoinConfig.enabled=false"
+            f"&config.prejoinConfig.hideDisplayName=true"
+            f"&config.prejoinConfig.hidePrejoinDisplayName=true"
+                f"&config.requireDisplayName=false"
+                f"&config.disableModeratorIndicator=true"
+                f"&config.startScreenSharing=false"
+                f"&config.enableInsecureRoomNameWarning=false"
                 f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
                 f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
-                f"&config.enableInsecureRoomNameWarning=false"
             )
         else:
             # Participant URL (for recipient) without moderator privileges
@@ -783,21 +883,29 @@ def embedded_call_view(request, call_id: str):
                 f"&config.enableWelcomePage=false"
                 f"&config.enableClosePage=false"
                 f"&config.prejoinPageEnabled=false"
+            f"&config.prejoinConfig.enabled=false"
+            f"&config.prejoinConfig.hideDisplayName=true"
+            f"&config.prejoinConfig.hidePrejoinDisplayName=true"
+                f"&config.requireDisplayName=false"
+                f"&config.disableModeratorIndicator=true"
+                f"&config.startScreenSharing=false"
+                f"&config.enableInsecureRoomNameWarning=false"
                 f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
+                f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
             )
 
         # Determine other participant
-        other_user = call.recipient if call.initiator.id == request.user.id else call.initiator
+        other_user = call.receiver if call.sender.id == request.user.id else call.sender
 
         context = {
             "call_id": str(call.call_id),
-            "call_url": f"{base_room_url}{url_params}",
+            "call_url": f"{base_room_url}{url_params}#config.prejoinPageEnabled=false",
             "room_name": call.jitsi_room_name,
             "jitsi_server": jitsi_server,
             "is_video_call": call.call_type == "video",
             "call_type": call.call_type,
-            "caller_name": call.initiator.full_name,
-            "recipient_name": call.recipient.full_name,
+            "caller_name": call.sender.full_name,
+            "recipient_name": call.receiver.full_name,
             "current_user_name": request.user.full_name,
             "is_initiator": is_initiator,
         }
@@ -805,7 +913,7 @@ def embedded_call_view(request, call_id: str):
         # Mark call as active if this is the first time someone joins
         if call.state == "initiated":
             call.state = "active"
-            call.started_at = timezone.now()
+            call.answered_at = timezone.now()
             call.save()
 
             # Create event
@@ -1154,3 +1262,240 @@ def get_calls_override_script(request):
 '''
 
     return HttpResponse(js_content, content_type='application/javascript')
+
+
+# New Enhanced API Endpoints for comprehensive Jitsi calling
+
+@csrf_exempt
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def start_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """
+    Start a new video or audio call with enhanced features
+    """
+    try:
+        # Extract and validate parameters
+        raw_user_id = request.POST.get("user_id") or request.GET.get("user_id")
+        call_type = (request.POST.get("call_type") or request.GET.get("call_type") or "").strip()
+
+        if raw_user_id is None:
+            raise JsonableError("Missing required parameter: user_id")
+        try:
+            user_id = int(raw_user_id)
+        except (TypeError, ValueError):
+            raise JsonableError("Invalid user_id; must be an integer")
+
+        if call_type not in ['video', 'audio']:
+            raise JsonableError("Invalid call type. Must be 'video' or 'audio")
+
+        # Get receiver user
+        try:
+            receiver = UserProfile.objects.get(id=user_id)
+        except UserProfile.DoesNotExist:
+            raise JsonableError("User not found")
+
+        # Check if users are in the same realm
+        if user_profile.realm_id != receiver.realm_id:
+            raise JsonableError("Cannot call users from different organizations")
+
+        # Check if receiver is the same as sender
+        if user_profile.id == receiver.id:
+            raise JsonableError("Cannot call yourself")
+
+        # Check if receiver has an active call
+        active_calls = Call.objects.filter(
+            receiver=receiver,
+            state__in=['calling', 'ringing', 'accepted']
+        ).exists()
+
+        if active_calls:
+            raise JsonableError("User is currently in another call")
+
+        # Check if sender has an active call
+        sender_active_calls = Call.objects.filter(
+            sender=user_profile,
+            state__in=['calling', 'ringing', 'accepted']
+        ).exists()
+
+        if sender_active_calls:
+            raise JsonableError("You are currently in another call")
+
+        # Generate unique call ID and Jitsi URL
+        call_id = str(uuid.uuid4())
+        jitsi_url, room_id = generate_jitsi_url(call_id)
+
+        # Create call record
+        with transaction.atomic():
+            call = Call.objects.create(
+                call_id=call_id,
+                sender=user_profile,
+                receiver=receiver,
+                realm=user_profile.realm,
+                call_type=call_type,
+                jitsi_room_url=jitsi_url,
+                jitsi_room_id=room_id,
+                jitsi_room_name=room_id,
+                state='calling'
+            )
+
+        # Send push notification to receiver
+        notification_data = {
+            'call_id': str(call.call_id),
+            'sender_id': user_profile.id,
+            'sender_name': user_profile.full_name,
+            'call_type': call_type,
+            'jitsi_url': jitsi_url,
+        }
+        send_call_push_notification(receiver, notification_data)
+
+        # Send real-time event to receiver
+        send_call_event(receiver, call, 'call_started')
+
+        logger.info(f"Call started: {call_id} from {user_profile.id} to {receiver.id}")
+
+        return JsonResponse({
+            'result': 'success',
+            'call_id': str(call_id),
+            'jitsi_url': jitsi_url,
+            'timeout_seconds': getattr(__import__('django.conf', fromlist=['settings']).settings, 'CALL_NOTIFICATION_TIMEOUT', 120)
+        })
+
+    except Exception as e:
+        logger.error(f"Error starting call: {str(e)}")
+        raise
+
+
+@csrf_exempt
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def respond_to_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """
+    Respond to an incoming call (accept/reject)
+    """
+    try:
+        # Extract parameters
+        call_id = (request.POST.get("call_id") or request.GET.get("call_id") or "").strip()
+        response = (request.POST.get("response") or request.GET.get("response") or "").strip()
+
+        if not call_id:
+            raise JsonableError("Missing required parameter: call_id")
+        if response not in ['accept', 'reject']:
+            raise JsonableError("Invalid response. Must be 'accept' or 'reject'")
+
+        # Get call
+        try:
+            call = Call.objects.get(call_id=call_id, receiver=user_profile)
+        except Call.DoesNotExist:
+            raise JsonableError("Call not found or you're not the receiver")
+
+        # Check if call can be answered
+        if not call.can_be_answered():
+            raise JsonableError(f"Call cannot be answered. Current status: {call.state}")
+
+        # Update call state
+        with transaction.atomic():
+            call.state = 'accepted' if response == 'accept' else 'rejected'
+            call.answered_at = timezone.now()
+            call.save()
+
+        # Send notification to sender
+        send_call_response_notification(call.sender, call, response)
+
+        # Send real-time events
+        send_call_event(call.sender, call, f'call_{response}d')
+        if response == 'accept':
+            send_call_event(call.receiver, call, 'call_accepted')
+
+        logger.info(f"Call {call_id} {response}ed by {user_profile.id}")
+
+        response_data = {'status': 'ok', 'call_status': call.state}
+        if response == 'accept':
+            response_data['jitsi_url'] = call.jitsi_room_url
+
+        return JsonResponse({'result': 'success', **response_data})
+
+    except Exception as e:
+        logger.error(f"Error responding to call: {str(e)}")
+        raise
+
+
+@csrf_exempt
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def end_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """
+    End an active call
+    """
+    try:
+        call_id = (request.POST.get("call_id") or request.GET.get("call_id") or "").strip()
+        if not call_id:
+            raise JsonableError("Missing required parameter: call_id")
+
+        # Get call where user is either sender or receiver
+        try:
+            call = Call.objects.get(
+                models.Q(call_id=call_id) &
+                (models.Q(sender=user_profile) | models.Q(receiver=user_profile))
+            )
+        except Call.DoesNotExist:
+            raise JsonableError("Call not found")
+
+        # Only end if call is active
+        if not call.is_active():
+            raise JsonableError(f"Call is not active. Current status: {call.state}")
+
+        # Update call state
+        with transaction.atomic():
+            call.state = 'ended'
+            call.ended_at = timezone.now()
+            call.save()
+
+        # Notify other participant
+        other_user = call.receiver if call.sender == user_profile else call.sender
+        send_call_event(other_user, call, 'call_ended')
+
+        logger.info(f"Call {call_id} ended by {user_profile.id}")
+
+        return JsonResponse({'result': 'success', 'status': 'ok'})
+
+    except Exception as e:
+        logger.error(f"Error ending call: {str(e)}")
+        raise
+
+
+@csrf_exempt
+@authenticated_json_view
+def get_call_history(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """
+    Get call history for the user
+    """
+    try:
+        raw_limit = request.GET.get("limit")
+        try:
+            limit = int(raw_limit) if raw_limit is not None else 50
+        except (TypeError, ValueError):
+            raise JsonableError("Invalid limit; must be an integer")
+
+        calls = Call.objects.filter(
+            models.Q(sender=user_profile) | models.Q(receiver=user_profile),
+            realm=user_profile.realm
+        ).order_by('-created_at')[:limit]
+
+        call_data = []
+        for call in calls:
+            other_user = call.receiver if call.sender == user_profile else call.sender
+            call_data.append({
+                'call_id': str(call.call_id),
+                'user_id': other_user.id,
+                'user_name': other_user.full_name,
+                'call_type': call.call_type,
+                'state': call.state,
+                'is_outgoing': call.sender == user_profile,
+                'created_at': call.created_at.isoformat(),
+                'answered_at': call.answered_at.isoformat() if call.answered_at else None,
+                'ended_at': call.ended_at.isoformat() if call.ended_at else None,
+                'duration': call.duration.total_seconds() if call.duration else None,
+            })
+
+        return json_success(request, {'calls': call_data})
+
+    except Exception as e:
+        logger.error(f"Error getting call history: {str(e)}")
+        raise
