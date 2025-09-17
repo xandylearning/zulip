@@ -1,7 +1,8 @@
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from datetime import timedelta
-from zulip_calls_plugin.models import Call
+from zulip_calls_plugin.models import Call, CallEvent
+from zulip_calls_plugin.views.calls import cleanup_stale_calls
 import logging
 
 logger = logging.getLogger(__name__)
@@ -33,20 +34,11 @@ class Command(BaseCommand):
         cleanup_old = options['cleanup_old_calls']
         old_calls_days = options['old_calls_days']
 
-        cutoff_time = timezone.now() - timedelta(minutes=timeout_minutes)
+        # Use the enhanced cleanup function from views
+        timeout_count = cleanup_stale_calls()
 
-        # Mark old calling/ringing calls as timed out
-        timed_out_calls = Call.objects.filter(
-            state__in=['calling', 'ringing'],
-            created_at__lt=cutoff_time
-        )
-
-        timeout_count = timed_out_calls.count()
-        timed_out_calls.update(state='timeout', ended_at=timezone.now())
-
-        logger.info(f"Marked {timeout_count} calls as timed out")
         self.stdout.write(
-            self.style.SUCCESS(f"Successfully marked {timeout_count} calls as timed out")
+            self.style.SUCCESS(f"Successfully cleaned up {timeout_count} stale calls")
         )
 
         # Cleanup old ended calls if requested

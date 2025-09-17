@@ -19,6 +19,9 @@ from ..views.calls import (
     respond_to_call as enhanced_respond_to_call,
     end_call as enhanced_end_call,
     get_call_history as enhanced_get_call_history,
+    end_all_user_calls,
+    cleanup_stale_calls_endpoint,
+    get_user_active_calls,
 )
 
 # Plugin URL patterns for call functionality
@@ -46,4 +49,9 @@ urlpatterns = [
 
     # Legacy call history endpoint (keep for backward compatibility)
     path("api/v1/calls/history-legacy", get_call_history, name="get_call_history_legacy"),
+
+    # Call management and cleanup endpoints
+    path("api/v1/calls/end-all", end_all_user_calls, name="end_all_user_calls"),
+    path("api/v1/calls/cleanup", cleanup_stale_calls_endpoint, name="cleanup_stale_calls"),
+    path("api/v1/calls/active", get_user_active_calls, name="get_user_active_calls"),
 ]

@@ -21,7 +21,7 @@ from zerver.decorator import (
 )
 from zerver.models import UserProfile
 from zerver.models.users import get_user_by_delivery_email
-from zerver.lib.push_notifications import send_android_push_notification
+from zerver.lib.push_notifications import send_push_notifications
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.response import json_success
 
@@ -42,15 +42,15 @@ def generate_jitsi_url(call_id: str) -> tuple[str, str]:
 
 
 def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None:
-    """Send push notification for call events"""
+    """Send push notification for call events using correct Zulip API"""
     from django.conf import settings
 
     if not getattr(settings, 'CALL_PUSH_NOTIFICATION_ENABLED', True):
         return
 
     try:
-        # Enhanced call notification data
-        payload = {
+        # Enhanced call notification data - format for Zulip's push notification system
+        payload_data_to_encrypt = {
             'type': 'call',
             'call_id': call_data.get('call_id'),
             'sender_id': call_data.get('sender_id'),
@@ -59,27 +59,34 @@ def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None
             'call_type': call_data.get('call_type'),
             'jitsi_url': call_data.get('jitsi_url'),
             'timeout_seconds': getattr(settings, 'CALL_NOTIFICATION_TIMEOUT', 120),
+            'realm_uri': recipient.realm.uri,
+            'realm_name': recipient.realm.name,
+            'realm_url': recipient.realm.uri,
         }
 
-        # Send to both Android and iOS
-        send_android_push_notification(recipient, payload)
-        send_apple_push_notification(recipient, payload)
+        # Use Zulip's proper push notification API
+        send_push_notifications(recipient, payload_data_to_encrypt)
+        logger.info(f"Call push notification sent to user {recipient.id} for call {call_data.get('call_id')}")
     except Exception as e:
         logger.error(f"Failed to send call push notification: {e}")
 
 
 def send_call_response_notification(user_profile: UserProfile, call: Call, response: str) -> None:
-    """Send notification about call response"""
-    payload = {
+    """Send notification about call response using correct Zulip API"""
+    payload_data_to_encrypt = {
         'type': 'call_response',
         'call_id': str(call.call_id),
         'response': response,
         'receiver_name': call.receiver.full_name,
         'call_type': call.call_type,
+        'realm_uri': user_profile.realm.uri,
+        'realm_name': user_profile.realm.name,
+        'realm_url': user_profile.realm.uri,
     }
 
     try:
-        send_android_push_notification(user_profile, payload)
+        send_push_notifications(user_profile, payload_data_to_encrypt)
+        logger.info(f"Call response notification sent to user {user_profile.id} for call {call.call_id}")
     except Exception as e:
         logger.error(f"Failed to send call response notification: {str(e)}")
 
@@ -89,6 +96,95 @@ def send_call_event(user_profile: UserProfile, call: Call, event_type: str) -> N
     # For now, just log the event. In a full implementation, this would integrate
     # with Zulip's real-time event system
     logger.info(f"Call event {event_type} for call {call.call_id} to user {user_profile.id}")
+
+
+def cleanup_stale_calls() -> int:
+    """Clean up stale calls that are stuck in active states"""
+    from django.conf import settings
+    from datetime import timedelta
+    
+    # Get timeout settings
+    call_timeout_minutes = getattr(settings, 'CALL_TIMEOUT_MINUTES', 30)
+    stale_threshold = timezone.now() - timedelta(minutes=call_timeout_minutes)
+    
+    # Find calls that are stuck in active states for too long
+    stale_calls = Call.objects.filter(
+        state__in=['calling', 'ringing', 'accepted'],
+        created_at__lt=stale_threshold
+    )
+    
+    count = 0
+    for call in stale_calls:
+        # Update call state to timeout
+        call.state = 'timeout'
+        call.ended_at = timezone.now()
+        call.save()
+        
+        # Create timeout event
+        CallEvent.objects.create(
+            call=call,
+            event_type='timeout',
+            user=call.sender,
+            metadata={'reason': 'automatic_cleanup', 'timeout_minutes': call_timeout_minutes}
+        )
+        
+        logger.info(f"Cleaned up stale call {call.call_id} (timeout after {call_timeout_minutes} minutes)")
+        count += 1
+    
+    if count > 0:
+        logger.info(f"Cleaned up {count} stale calls")
+    
+    return count
+
+
+def end_user_active_calls(user_profile: UserProfile, reason: str = 'manual_end') -> int:
+    """End all active calls for a user"""
+    active_calls = Call.objects.filter(
+        models.Q(sender=user_profile) | models.Q(receiver=user_profile),
+        state__in=['calling', 'ringing', 'accepted']
+    )
+    
+    count = 0
+    for call in active_calls:
+        call.state = 'ended'
+        call.ended_at = timezone.now()
+        call.save()
+        
+        # Create end event
+        CallEvent.objects.create(
+            call=call,
+            event_type='ended',
+            user=user_profile,
+            metadata={'reason': reason}
+        )
+        
+        logger.info(f"Ended call {call.call_id} for user {user_profile.id} (reason: {reason})")
+        count += 1
+    
+    return count
+
+
+def check_and_cleanup_user_calls(user_profile: UserProfile) -> bool:
+    """Check if user has active calls and clean them up if they're stale"""
+    from django.conf import settings
+    from datetime import timedelta
+    
+    call_timeout_minutes = getattr(settings, 'CALL_TIMEOUT_MINUTES', 30)
+    stale_threshold = timezone.now() - timedelta(minutes=call_timeout_minutes)
+    
+    # Check for stale active calls
+    stale_calls = Call.objects.filter(
+        models.Q(sender=user_profile) | models.Q(receiver=user_profile),
+        state__in=['calling', 'ringing', 'accepted'],
+        created_at__lt=stale_threshold
+    )
+    
+    if stale_calls.exists():
+        # Clean up stale calls
+        cleanup_stale_calls()
+        return True
+    
+    return False
 
 
 @require_http_methods(["POST"])
@@ -1301,7 +1397,11 @@ def start_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
         if user_profile.id == receiver.id:
             raise JsonableError("Cannot call yourself")
 
-        # Check if receiver has an active call
+        # Clean up any stale calls for both users before checking
+        check_and_cleanup_user_calls(user_profile)
+        check_and_cleanup_user_calls(receiver)
+
+        # Check if receiver has an active call (after cleanup)
         active_calls = Call.objects.filter(
             receiver=receiver,
             state__in=['calling', 'ringing', 'accepted']
@@ -1310,7 +1410,7 @@ def start_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
         if active_calls:
             raise JsonableError("User is currently in another call")
 
-        # Check if sender has an active call
+        # Check if sender has an active call (after cleanup)
         sender_active_calls = Call.objects.filter(
             sender=user_profile,
             state__in=['calling', 'ringing', 'accepted']
@@ -1498,4 +1598,144 @@ def get_call_history(request: HttpRequest, user_profile: UserProfile) -> JsonRes
 
     except Exception as e:
         logger.error(f"Error getting call history: {str(e)}")
+        raise
+
+
+@csrf_exempt
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def end_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """
+    End a specific call by call_id
+    """
+    try:
+        call_id = request.POST.get("call_id") or request.GET.get("call_id")
+        if not call_id:
+            raise JsonableError("Missing required parameter: call_id")
+
+        try:
+            call = Call.objects.get(call_id=call_id)
+        except Call.DoesNotExist:
+            raise JsonableError("Call not found")
+
+        # Check if user is a participant in this call
+        if call.sender != user_profile and call.receiver != user_profile:
+            raise JsonableError("You are not a participant in this call")
+
+        # Check if call is already ended
+        if call.state in ['ended', 'rejected', 'timeout', 'cancelled']:
+            raise JsonableError("Call is already ended")
+
+        # End the call
+        call.state = 'ended'
+        call.ended_at = timezone.now()
+        call.save()
+
+        # Create end event
+        CallEvent.objects.create(
+            call=call,
+            event_type='ended',
+            user=user_profile,
+            metadata={'reason': 'manual_end'}
+        )
+
+        # Send notification to the other participant
+        other_user = call.receiver if call.sender == user_profile else call.sender
+        send_call_response_notification(other_user, call, 'ended')
+
+        logger.info(f"Call {call_id} ended by user {user_profile.id}")
+
+        return JsonResponse({
+            'result': 'success',
+            'message': 'Call ended successfully',
+            'call_id': str(call_id)
+        })
+
+    except Exception as e:
+        logger.error(f"Error ending call: {str(e)}")
+        raise
+
+
+@csrf_exempt
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def end_all_user_calls(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """
+    End all active calls for the current user
+    """
+    try:
+        count = end_user_active_calls(user_profile, 'manual_end_all')
+        
+        return JsonResponse({
+            'result': 'success',
+            'message': f'Ended {count} active calls',
+            'calls_ended': count
+        })
+
+    except Exception as e:
+        logger.error(f"Error ending all user calls: {str(e)}")
+        raise
+
+
+@csrf_exempt
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def cleanup_stale_calls_endpoint(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """
+    Manually trigger cleanup of stale calls (admin function)
+    """
+    try:
+        # Check if user has admin privileges (optional security check)
+        if not user_profile.is_realm_admin:
+            raise JsonableError("Admin privileges required")
+
+        count = cleanup_stale_calls()
+        
+        return JsonResponse({
+            'result': 'success',
+            'message': f'Cleaned up {count} stale calls',
+            'calls_cleaned': count
+        })
+
+    except Exception as e:
+        logger.error(f"Error cleaning up stale calls: {str(e)}")
+        raise
+
+
+@csrf_exempt
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def get_user_active_calls(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """
+    Get all active calls for the current user
+    """
+    try:
+        # Clean up stale calls first
+        check_and_cleanup_user_calls(user_profile)
+        
+        # Get active calls
+        active_calls = Call.objects.filter(
+            models.Q(sender=user_profile) | models.Q(receiver=user_profile),
+            state__in=['calling', 'ringing', 'accepted']
+        ).order_by('-created_at')
+
+        call_data = []
+        for call in active_calls:
+            call_data.append({
+                'call_id': str(call.call_id),
+                'call_type': call.call_type,
+                'state': call.state,
+                'sender_id': call.sender.id,
+                'sender_name': call.sender.full_name,
+                'receiver_id': call.receiver.id,
+                'receiver_name': call.receiver.full_name,
+                'jitsi_url': call.jitsi_room_url,
+                'created_at': call.created_at.isoformat(),
+                'is_outgoing': call.sender == user_profile,
+            })
+
+        return JsonResponse({
+            'result': 'success',
+            'active_calls': call_data,
+            'count': len(call_data)
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting active calls: {str(e)}")
         raise
