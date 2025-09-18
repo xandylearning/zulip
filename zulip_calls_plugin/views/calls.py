@@ -87,10 +87,7 @@ def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None
             "custom": payload_data_to_encrypt
         }
         
-        gcm_options = {
-            "priority": "high",
-            "time_to_live": getattr(settings, 'CALL_NOTIFICATION_TIMEOUT', 120)
-        }
+        gcm_options = { }
 
         # Check device registration status
         e2ee_devices = PushDevice.objects.filter(
