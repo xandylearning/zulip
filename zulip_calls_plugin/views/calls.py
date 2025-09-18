@@ -46,6 +46,7 @@ def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None
     from django.conf import settings
     from zerver.models import PushDevice, PushDeviceToken
     from zerver.lib.push_notifications import send_push_notifications, send_push_notifications_legacy
+    from zerver.lib.remote_server import PushNotificationBouncerRetryLaterError
 
     if not getattr(settings, 'CALL_PUSH_NOTIFICATION_ENABLED', True):
         return
@@ -108,6 +109,10 @@ def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None
             try:
                 send_push_notifications(recipient, payload_data_to_encrypt)
                 logger.info(f"E2EE call push notification sent to user {recipient.id} for call {call_data.get('call_id')}")
+                return  # Success, no need to try legacy
+            except PushNotificationBouncerRetryLaterError as e:
+                logger.warning(f"E2EE push notification bouncer retry error for user {recipient.id}: {e}")
+                # Don't retry, just continue to legacy notifications
             except Exception as e:
                 logger.warning(f"E2EE push notification failed for user {recipient.id}: {e}")
                 # Continue to try legacy notifications
@@ -117,6 +122,9 @@ def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None
             try:
                 send_push_notifications_legacy(recipient, apns_payload, gcm_payload, gcm_options)
                 logger.info(f"Legacy call push notification sent to user {recipient.id} for call {call_data.get('call_id')}")
+            except PushNotificationBouncerRetryLaterError as e:
+                logger.warning(f"Legacy push notification bouncer retry error for user {recipient.id}: {e}")
+                # Don't retry - call notifications are time-sensitive
             except Exception as e:
                 logger.error(f"Legacy push notification failed for user {recipient.id}: {e}")
         
@@ -130,6 +138,7 @@ def send_call_response_notification(user_profile: UserProfile, call: Call, respo
     """Send notification about call response using correct Zulip API with fallback support"""
     from zerver.models import PushDevice, PushDeviceToken
     from zerver.lib.push_notifications import send_push_notifications, send_push_notifications_legacy
+    from zerver.lib.remote_server import PushNotificationBouncerRetryLaterError
     
     payload_data_to_encrypt = {
         'type': 'call_response',
@@ -184,6 +193,10 @@ def send_call_response_notification(user_profile: UserProfile, call: Call, respo
             try:
                 send_push_notifications(user_profile, payload_data_to_encrypt)
                 logger.info(f"E2EE call response notification sent to user {user_profile.id} for call {call.call_id}")
+                return  # Success, no need to try legacy
+            except PushNotificationBouncerRetryLaterError as e:
+                logger.warning(f"E2EE push notification bouncer retry error for user {user_profile.id}: {e}")
+                # Don't retry, just continue to legacy notifications
             except Exception as e:
                 logger.warning(f"E2EE push notification failed for user {user_profile.id}: {e}")
         
@@ -192,6 +205,9 @@ def send_call_response_notification(user_profile: UserProfile, call: Call, respo
             try:
                 send_push_notifications_legacy(user_profile, apns_payload, gcm_payload, gcm_options)
                 logger.info(f"Legacy call response notification sent to user {user_profile.id} for call {call.call_id}")
+            except PushNotificationBouncerRetryLaterError as e:
+                logger.warning(f"Legacy push notification bouncer retry error for user {user_profile.id}: {e}")
+                # Don't retry - call notifications are time-sensitive
             except Exception as e:
                 logger.error(f"Legacy push notification failed for user {user_profile.id}: {e}")
         
