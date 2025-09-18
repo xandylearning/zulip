@@ -42,8 +42,10 @@ def generate_jitsi_url(call_id: str) -> tuple[str, str]:
 
 
 def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None:
-    """Send push notification for call events using correct Zulip API"""
+    """Send push notification for call events using correct Zulip API with fallback support"""
     from django.conf import settings
+    from zerver.models import PushDevice, PushDeviceToken
+    from zerver.lib.push_notifications import send_push_notifications, send_push_notifications_legacy
 
     if not getattr(settings, 'CALL_PUSH_NOTIFICATION_ENABLED', True):
         return
@@ -64,15 +66,71 @@ def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None
             'realm_url': recipient.realm.url,
         }
 
-        # Use Zulip's proper push notification API
-        send_push_notifications(recipient, payload_data_to_encrypt)
-        logger.info(f"Call push notification sent to user {recipient.id} for call {call_data.get('call_id')}")
+        # Create legacy notification payloads for fallback
+        call_type = call_data.get('call_type', 'call')
+        sender_name = call_data.get('sender_name', 'Someone')
+        
+        apns_payload = {
+            "alert": {
+                "title": f"Incoming {call_type} call",
+                "body": f"{sender_name} is calling you"
+            },
+            "badge": 1,
+            "sound": "default",
+            "custom": payload_data_to_encrypt
+        }
+        
+        gcm_payload = {
+            "title": f"Incoming {call_type} call",
+            "content": f"{sender_name} is calling you",
+            "custom": payload_data_to_encrypt
+        }
+        
+        gcm_options = {
+            "priority": "high",
+            "time_to_live": getattr(settings, 'CALL_NOTIFICATION_TIMEOUT', 120)
+        }
+
+        # Check device registration status
+        e2ee_devices = PushDevice.objects.filter(
+            user=recipient, 
+            bouncer_device_id__isnull=False
+        ).exists()
+        
+        legacy_devices = PushDeviceToken.objects.filter(user=recipient).exists()
+        
+        if not e2ee_devices and not legacy_devices:
+            logger.info(f"No registered devices for user {recipient.id}")
+            return
+
+        # Try E2EE push notifications first (for newer clients with bouncer registration)
+        if e2ee_devices:
+            try:
+                send_push_notifications(recipient, payload_data_to_encrypt)
+                logger.info(f"E2EE call push notification sent to user {recipient.id} for call {call_data.get('call_id')}")
+            except Exception as e:
+                logger.warning(f"E2EE push notification failed for user {recipient.id}: {e}")
+                # Continue to try legacy notifications
+        
+        # Send legacy push notifications (for older clients or when E2EE fails)
+        if legacy_devices:
+            try:
+                send_push_notifications_legacy(recipient, apns_payload, gcm_payload, gcm_options)
+                logger.info(f"Legacy call push notification sent to user {recipient.id} for call {call_data.get('call_id')}")
+            except Exception as e:
+                logger.error(f"Legacy push notification failed for user {recipient.id}: {e}")
+        
+        logger.info(f"Call push notification processing completed for user {recipient.id} for call {call_data.get('call_id')}")
+        
     except Exception as e:
         logger.error(f"Failed to send call push notification: {e}")
 
 
 def send_call_response_notification(user_profile: UserProfile, call: Call, response: str) -> None:
-    """Send notification about call response using correct Zulip API"""
+    """Send notification about call response using correct Zulip API with fallback support"""
+    from zerver.models import PushDevice, PushDeviceToken
+    from zerver.lib.push_notifications import send_push_notifications, send_push_notifications_legacy
+    
     payload_data_to_encrypt = {
         'type': 'call_response',
         'call_id': str(call.call_id),
@@ -85,8 +143,60 @@ def send_call_response_notification(user_profile: UserProfile, call: Call, respo
     }
 
     try:
-        send_push_notifications(user_profile, payload_data_to_encrypt)
-        logger.info(f"Call response notification sent to user {user_profile.id} for call {call.call_id}")
+        # Create legacy notification payloads for fallback
+        response_text = "accepted" if response == "accept" else "declined"
+        
+        apns_payload = {
+            "alert": {
+                "title": f"Call {response_text}",
+                "body": f"{call.receiver.full_name} {response_text} your call"
+            },
+            "badge": 1,
+            "sound": "default",
+            "custom": payload_data_to_encrypt
+        }
+        
+        gcm_payload = {
+            "title": f"Call {response_text}",
+            "content": f"{call.receiver.full_name} {response_text} your call",
+            "custom": payload_data_to_encrypt
+        }
+        
+        gcm_options = {
+            "priority": "normal",
+            "time_to_live": 60
+        }
+
+        # Check device registration status
+        e2ee_devices = PushDevice.objects.filter(
+            user=user_profile, 
+            bouncer_device_id__isnull=False
+        ).exists()
+        
+        legacy_devices = PushDeviceToken.objects.filter(user=user_profile).exists()
+        
+        if not e2ee_devices and not legacy_devices:
+            logger.info(f"No registered devices for user {user_profile.id}")
+            return
+
+        # Try E2EE push notifications first
+        if e2ee_devices:
+            try:
+                send_push_notifications(user_profile, payload_data_to_encrypt)
+                logger.info(f"E2EE call response notification sent to user {user_profile.id} for call {call.call_id}")
+            except Exception as e:
+                logger.warning(f"E2EE push notification failed for user {user_profile.id}: {e}")
+        
+        # Send legacy push notifications
+        if legacy_devices:
+            try:
+                send_push_notifications_legacy(user_profile, apns_payload, gcm_payload, gcm_options)
+                logger.info(f"Legacy call response notification sent to user {user_profile.id} for call {call.call_id}")
+            except Exception as e:
+                logger.error(f"Legacy push notification failed for user {user_profile.id}: {e}")
+        
+        logger.info(f"Call response notification processing completed for user {user_profile.id} for call {call.call_id}")
+        
     except Exception as e:
         logger.error(f"Failed to send call response notification: {str(e)}")
 

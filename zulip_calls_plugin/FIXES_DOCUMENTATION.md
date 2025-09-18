@@ -4,6 +4,77 @@
 
 This document describes the fixes implemented to resolve the errors found in the Zulip calls plugin error logs:
 
+## ✅ FIXED: E2EE Push Notification Failure with Bouncer 500 Errors (2025-01-XX)
+
+### Problem
+The Zulip Calls plugin was failing to send push notifications when the bouncer service returned 500 errors during device registration:
+
+```
+Skipping E2EE push notifications for user 123 because there are no registered devices
+```
+
+**Root Cause:** When the bouncer service returns 500 errors, device registration fails, leaving `PushDevice` records with `bouncer_device_id = NULL`. The E2EE notification system requires `bouncer_device_id` to be set, so notifications fail even though users have locally registered devices.
+
+### Solution
+**Fixed in:** `zulip_calls_plugin/views/calls.py`
+
+**Enhanced both notification functions:**
+- `send_call_push_notification()` - For incoming call notifications
+- `send_call_response_notification()` - For call response notifications
+
+**Key Changes:**
+1. **Dual Notification Strategy**: Try both E2EE and legacy notifications
+2. **Device Status Checking**: Check for both E2EE-capable and legacy devices
+3. **Graceful Fallback**: If E2EE fails, automatically try legacy notifications
+4. **Better Error Handling**: Separate error handling for each notification type
+
+**New Implementation:**
+```python
+def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None:
+    # Check device registration status
+    e2ee_devices = PushDevice.objects.filter(
+        user=recipient, 
+        bouncer_device_id__isnull=False
+    ).exists()
+    
+    legacy_devices = PushDeviceToken.objects.filter(user=recipient).exists()
+    
+    # Try E2EE push notifications first (for newer clients)
+    if e2ee_devices:
+        try:
+            send_push_notifications(recipient, payload_data_to_encrypt)
+        except Exception as e:
+            logger.warning(f"E2EE push notification failed: {e}")
+    
+    # Send legacy push notifications (for older clients or when E2EE fails)
+    if legacy_devices:
+        try:
+            send_push_notifications_legacy(recipient, apns_payload, gcm_payload, gcm_options)
+        except Exception as e:
+            logger.error(f"Legacy push notification failed: {e}")
+```
+
+### Technical Details
+
+**Device Registration States:**
+- ✅ **E2EE Ready**: `PushDevice` with `bouncer_device_id` set (successful bouncer registration)
+- ⚠️ **Legacy Only**: `PushDeviceToken` exists but `bouncer_device_id` is NULL (bouncer registration failed)
+- ❌ **No Devices**: No push device records exist
+
+**Bouncer 500 Error Scenarios:**
+- Network connectivity issues
+- Bouncer service downtime
+- Invalid server credentials
+- Configuration problems
+
+**Benefits of the Fix:**
+- ✅ **Reliability**: Works even when bouncer service has issues
+- ✅ **Backward Compatibility**: Supports both old and new mobile app versions
+- ✅ **Graceful Degradation**: Falls back to legacy notifications when E2EE fails
+- ✅ **Better Logging**: Clear distinction between E2EE and legacy notification attempts
+
+---
+
 ## ✅ FIXED: Realm.uri AttributeError (2025-09-17)
 
 ### Problem
