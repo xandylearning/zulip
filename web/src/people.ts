@@ -2050,3 +2050,55 @@ export async function initialize(
         }
     });
 }
+
+/**
+ * Check if the current user can communicate with another user based on role restrictions.
+ * 
+ * Communication rules:
+ * - Students cannot communicate with other students
+ * - Parents cannot communicate with other parents
+ * - Parents can communicate with mentors, faculty, and students
+ * - Students can communicate with mentors
+ * - Mentors can communicate with parents, faculty, and students
+ * - Faculty can communicate with everyone
+ * - Owners and administrators can communicate with everyone
+ */
+export function can_communicate_with(other_user: User): boolean {
+    // Owners and administrators can communicate with everyone
+    if (current_user.is_owner || current_user.is_admin) {
+        return true;
+    }
+        
+    // Faculty can communicate with everyone
+    if (current_user.is_faculty) {
+        return true;
+    }
+        
+    // Students cannot communicate with other students
+    if (current_user.is_student && other_user.is_student) {
+        return false;
+    }
+        
+    // Parents cannot communicate with other parents
+    if (current_user.is_parent && other_user.is_parent) {
+        return false;
+    }
+        
+    // Students can communicate with mentors
+    if (current_user.is_student && other_user.is_mentor) {
+        return true;
+    }
+        
+    // Parents can communicate with mentors, faculty, and students
+    if (current_user.is_parent && (other_user.is_mentor || other_user.is_faculty || other_user.is_student)) {
+        return true;
+    }
+        
+    // Mentors can communicate with parents, faculty, and students
+    if (current_user.is_mentor && (other_user.is_parent || other_user.is_faculty || other_user.is_student)) {
+        return true;
+    }
+        
+    // Default: allow communication
+    return true;
+}

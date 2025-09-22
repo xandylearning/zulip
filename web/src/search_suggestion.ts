@@ -299,6 +299,10 @@ function get_group_suggestions(last: NarrowTerm, terms: NarrowTerm[]): Suggestio
         if (parts.includes(person.email)) {
             return false;
         }
+        // Filter based on role-based communication restrictions
+        if (!people.can_communicate_with(person)) {
+            return false;
+        }
         return last_part === "" || person_matcher(person);
     });
 
@@ -383,7 +387,10 @@ function get_person_suggestions(
 
     const prefix = Filter.operator_to_prefix(autocomplete_operator, last.negated);
 
-    return persons.map((person) => {
+    // Filter persons based on role-based communication restrictions
+    const filtered_persons = persons.filter((person) => people.can_communicate_with(person));
+
+    return filtered_persons.map((person) => {
         const terms: NarrowTerm[] = [
             {
                 operator: autocomplete_operator,

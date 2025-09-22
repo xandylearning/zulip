@@ -658,16 +658,25 @@ export function get_person_suggestions(
 
         const user = people.get_from_unique_full_name(query);
         if (user !== undefined) {
-            return [
-                {
-                    type: "user",
-                    user,
-                },
-            ];
+            // Check if current user can communicate with this user
+            if (people.can_communicate_with(user)) {
+                return [
+                    {
+                        type: "user",
+                        user,
+                    },
+                ];
+            }
+            // If can't communicate, return empty array
+            return [];
         }
 
         // Exclude muted users from typeaheads.
         persons = muted_users.filter_muted_users(persons);
+        
+        // Filter users based on role-based communication restrictions
+        persons = persons.filter((person) => people.can_communicate_with(person));
+        
         let person_items: UserOrMentionPillData[] = persons.map((person) => ({
             type: "user",
             user: person,
