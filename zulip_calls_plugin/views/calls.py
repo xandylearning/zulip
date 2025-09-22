@@ -53,11 +53,14 @@ def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None
 
     try:
         # Enhanced call notification data - format for Zulip's push notification system
+        # Updated to support terminated app notifications with proper FCM format
         payload_data_to_encrypt = {
-            'type': 'call',
+            'event': 'call',  # Use 'event' for consistency with FCM notification detection
+            'type': 'call',   # Keep 'type' for backward compatibility
             'call_id': call_data.get('call_id'),
             'sender_id': call_data.get('sender_id'),
-            'sender_name': call_data.get('sender_name'),
+            'sender_full_name': call_data.get('sender_name'),  # Use 'sender_full_name' for FCM notification
+            'sender_name': call_data.get('sender_name'),       # Keep 'sender_name' for backward compatibility
             'sender_avatar_url': f"/avatar/{call_data.get('sender_id')}",
             'call_type': call_data.get('call_type'),
             'jitsi_url': call_data.get('jitsi_url'),
@@ -65,6 +68,9 @@ def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None
             'realm_uri': recipient.realm.url,
             'realm_name': recipient.realm.name,
             'realm_url': recipient.realm.url,
+            'server': recipient.realm.host,  # Add server info for FCM
+            'user_id': str(recipient.id),    # Add user ID for FCM
+            'time': str(int(timezone.now().timestamp())),  # Add timestamp for FCM
         }
 
         # Create legacy notification payloads for fallback
@@ -138,14 +144,19 @@ def send_call_response_notification(user_profile: UserProfile, call: Call, respo
     from zerver.lib.remote_server import PushNotificationBouncerRetryLaterError
     
     payload_data_to_encrypt = {
-        'type': 'call_response',
+        'event': 'call_response',  # Use 'event' for FCM notification detection
+        'type': 'call_response',   # Keep 'type' for backward compatibility
         'call_id': str(call.call_id),
         'response': response,
         'receiver_name': call.receiver.full_name,
+        'sender_full_name': call.receiver.full_name,  # Add for FCM notification
         'call_type': call.call_type,
         'realm_uri': user_profile.realm.url,
         'realm_name': user_profile.realm.name,
         'realm_url': user_profile.realm.url,
+        'server': user_profile.realm.host,  # Add server info for FCM
+        'user_id': str(user_profile.id),    # Add user ID for FCM
+        'time': str(int(timezone.now().timestamp())),  # Add timestamp for FCM
     }
 
     try:

@@ -453,6 +453,69 @@ def parse_fcm_options(options: dict[str, Any], data: dict[str, Any]) -> str:
     return priority  # when this grows a second option, can make it a tuple
 
 
+def _create_fcm_notification_content(data: dict[str, Any], options: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Create notification content for FCM messages to support terminated app notifications.
+    
+    Returns a dict with title, body, channel_id, and tag for the notification block,
+    or None if no notification should be shown.
+    """
+    event_type = data.get("event") or data.get("type")
+    
+    if event_type == "call":
+        # Call notifications - use calls-1 channel (MAX importance)
+        call_type = data.get("call_type", "call")
+        sender_name = data.get("sender_full_name", "Someone")
+        
+        return {
+            "title": f"Incoming {call_type} call",
+            "body": f"From {sender_name}",
+            "channel_id": "calls-1",
+            "tag": f"call:{data.get('call_id', 'unknown')}"
+        }
+    
+    elif event_type == "call_response":
+        # Call response notifications - use calls-1 channel (MAX importance)
+        response = data.get("response", "responded")
+        receiver_name = data.get("receiver_name", "Someone")
+        
+        response_text = "accepted" if response == "accept" else "declined"
+        
+        return {
+            "title": f"Call {response_text}",
+            "body": f"{receiver_name} {response_text} your call",
+            "channel_id": "calls-1",
+            "tag": f"call_response:{data.get('call_id', 'unknown')}"
+        }
+    
+    elif event_type == "message":
+        # Message notifications - use messages-4 channel (HIGH importance)
+        sender_name = data.get("sender_full_name", "Someone")
+        content = data.get("content", "")
+        
+        # Truncate content for notification
+        if len(content) > 100:
+            content = content[:97] + "..."
+        
+        return {
+            "title": sender_name,
+            "body": content,
+            "channel_id": "messages-4"
+        }
+    
+    elif event_type == "remove":
+        # Remove notifications don't need to show in terminated state
+        return None
+    
+    else:
+        # Default notification for other event types
+        return {
+            "title": "Zulip",
+            "body": "New notification",
+            "channel_id": "messages-4"
+        }
+
+
 def send_android_push_notification(
     user_identity: UserPushIdentityCompat,
     devices: Sequence[DeviceToken],
@@ -499,12 +562,46 @@ def send_android_push_notification(
     # things like an integer realm and user ids etc., so just convert everything
     # like that.
     data = {k: str(v) if not isinstance(v, str) else v for k, v in data.items()}
-    messages = [
-        firebase_messaging.Message(
-            data=data, token=token, android=firebase_messaging.AndroidConfig(priority=priority)
+    
+    # Create FCM messages with both data and notification blocks for terminated app support
+    messages = []
+    for token in token_list:
+        # Determine notification content based on data type
+        notification_content = _create_fcm_notification_content(data, options)
+        
+        # Create Android-specific notification configuration
+        android_notification = None
+        if notification_content:
+            android_notification = firebase_messaging.AndroidNotification(
+                title=notification_content.get("title"),
+                body=notification_content.get("body"),
+                channel_id=notification_content.get("channel_id", "messages-4"),
+                sound="default",
+                tag=notification_content.get("tag"),
+                click_action="android.intent.action.VIEW"
+            )
+        
+        # Create Android config with notification
+        android_config = firebase_messaging.AndroidConfig(
+            priority=priority,
+            notification=android_notification
         )
-        for token in token_list
-    ]
+        
+        # Create the message with both data and notification
+        message_kwargs = {
+            "data": data,
+            "token": token,
+            "android": android_config
+        }
+        
+        # Add notification block for cross-platform compatibility
+        if notification_content:
+            message_kwargs["notification"] = firebase_messaging.Notification(
+                title=notification_content.get("title"),
+                body=notification_content.get("body")
+            )
+        
+        messages.append(firebase_messaging.Message(**message_kwargs))
 
     try:
         batch_response = firebase_messaging.send_each(messages, app=fcm_app)
@@ -1213,6 +1310,10 @@ def get_message_payload_gcm(
             content=content,
             sender_full_name=sender_name,
             sender_avatar_url=sender_avatar_url,
+            # Add additional fields for terminated app FCM support
+            server=user_profile.realm.host,
+            user_id=str(user_profile.id),
+            realm_url=user_profile.realm.url,
         )
     gcm_options = {"priority": "high"}
     return data, gcm_options
