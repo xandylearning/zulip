@@ -419,6 +419,10 @@ def parse_fcm_options(options: dict[str, Any], data: dict[str, Any]) -> str:
         Zulip servers should always set this; when unset, we guess a value
         based on the behavior of old server versions.
 
+    `time_to_live`: Optional time in seconds for how long FCM should
+        attempt to deliver the message. Valid range: 0 to 2,419,200 seconds (28 days).
+        If not specified, FCM uses its default TTL.
+
     Including unrecognized options is an error.
 
     For details on options' semantics, see this FCM upstream doc:
@@ -439,6 +443,25 @@ def parse_fcm_options(options: dict[str, Any], data: dict[str, Any]) -> str:
                 "Invalid GCM option to bouncer: priority {priority!r}",
             ).format(priority=priority)
         )
+
+    # Validate time_to_live if present
+    time_to_live = options.pop("time_to_live", None)
+    if time_to_live is not None:
+        try:
+            ttl_value = int(time_to_live)
+            # FCM allows TTL from 0 to 2,419,200 seconds (28 days)
+            if not (0 <= ttl_value <= 2419200):
+                raise JsonableError(
+                    _(
+                        "Invalid GCM option to bouncer: time_to_live must be between 0 and 2419200 seconds",
+                    )
+                )
+        except (TypeError, ValueError):
+            raise JsonableError(
+                _(
+                    "Invalid GCM option to bouncer: time_to_live must be an integer",
+                )
+            )
 
     if options:
         # We're strict about the API; there is no use case for a newer Zulip
@@ -556,7 +579,10 @@ def send_android_push_notification(
         )
 
     token_list = [device.token for device in devices]
+    # Parse options and extract both priority and time_to_live
+    original_options = options.copy()  # Keep a copy since parse_fcm_options modifies the dict
     priority = parse_fcm_options(options, data)
+    time_to_live = original_options.get("time_to_live")
 
     # The API requires all values to be strings. Our data dict is going to have
     # things like an integer realm and user ids etc., so just convert everything
@@ -581,11 +607,15 @@ def send_android_push_notification(
                 click_action="android.intent.action.VIEW"
             )
         
-        # Create Android config with notification
-        android_config = firebase_messaging.AndroidConfig(
-            priority=priority,
-            notification=android_notification
-        )
+        # Create Android config with notification and TTL
+        android_config_kwargs = {
+            "priority": priority,
+            "notification": android_notification
+        }
+        if time_to_live is not None:
+            android_config_kwargs["ttl"] = f"{time_to_live}s"  # FCM expects TTL as string with "s" suffix
+
+        android_config = firebase_messaging.AndroidConfig(**android_config_kwargs)
         
         # Create the message with both data and notification
         message_kwargs = {

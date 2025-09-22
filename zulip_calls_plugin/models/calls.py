@@ -77,7 +77,9 @@ class Call(models.Model):
 
     def can_be_answered(self):
         """Check if call can still be answered"""
-        return self.state in ['calling', 'ringing']
+        # Allow answering calls that are calling, ringing, or even rejected
+        # (in case the user wants to change their mind quickly)
+        return self.state in ['calling', 'ringing', 'rejected']
 
     # Keep backward compatibility aliases
     @property
