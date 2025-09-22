@@ -11,5 +11,9 @@ Advanced setup <setup-advanced>
 Using the development environment <using>
 Developing remotely <remote>
 Authentication in the development environment <authentication>
+Modularity patterns <modularity-patterns>
+SaaS multi-tenant architecture <saas-architecture>
+SaaS database strategies <saas-database-strategies>
+SaaS infrastructure strategies <saas-infrastructure-strategies>
 Testing the installer <test-install>
 ```

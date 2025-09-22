@@ -132,7 +132,7 @@ class TestFullStack(ZulipTestCase):
                 is_active=True,
                 is_admin=False,
                 is_bot=False,
-                is_guest=False,
+                is_limited_access=False,
                 is_owner=False,
                 role=UserProfile.ROLE_MEMBER,
                 timezone="Etc/UTC",

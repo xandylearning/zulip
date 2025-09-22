@@ -507,7 +507,7 @@ export function update_settings_for_unsubscribed(slim_sub: StreamSubscription): 
     if (!stream_data.can_toggle_subscription(sub)) {
         stream_ui_updates.update_add_subscriptions_elements(sub);
     }
-    if (current_user.is_guest) {
+    if (current_user.is_limited_access) {
         stream_edit.open_edit_panel_empty();
     }
 
@@ -911,7 +911,7 @@ function setup_page(callback: () => void): void {
             const $toggler_elem = toggler.get();
             $("#channels_overlay_container .list-toggler-container").prepend($toggler_elem);
         }
-        if (current_user.is_guest) {
+        if (current_user.is_limited_access) {
             toggler.disable_tab("all-streams");
             toggler.disable_tab("not-subscribed");
         }
@@ -939,7 +939,7 @@ function setup_page(callback: () => void): void {
                 settings_data.user_can_create_private_streams() ||
                 settings_data.user_can_create_public_streams() ||
                 settings_data.user_can_create_web_public_streams(),
-            can_view_all_streams: !current_user.is_guest && should_list_all_streams(),
+            can_view_all_streams: !current_user.is_limited_access && should_list_all_streams(),
             max_stream_name_length: realm.max_stream_name_length,
             max_stream_description_length: realm.max_stream_description_length,
             is_owner: current_user.is_owner,

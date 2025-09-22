@@ -70,7 +70,7 @@
                 <span class="popover-menu-label">{{t 'Organization settings' }}</span>
             </a>
         </li>
-        {{#unless is_guest}}
+        {{#unless is_limited_access}}
         <li role="none" class="link-item popover-menu-list-item hidden-for-spectators">
             <a role="menuitem" href="#groups/your" class="navigate-link-on-enter popover-menu-link">
                 <i class="popover-menu-icon zulip-icon zulip-icon-user-group-cog" aria-hidden="true"></i>
@@ -84,7 +84,7 @@
                 <span class="popover-menu-label">{{t 'Personal settings' }}</span>
             </a>
         </li>
-        {{#unless is_guest}}
+        {{#unless is_limited_access}}
         <li role="none" class="link-item popover-menu-list-item hidden-for-spectators">
             <a role="menuitem" href="/stats" target="_blank" rel="noopener noreferrer" class="navigate-link-on-enter popover-menu-link">
                 <i class="popover-menu-icon zulip-icon zulip-icon-bar-chart" aria-hidden="true"></i>

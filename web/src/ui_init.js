@@ -222,7 +222,7 @@ function initialize_compose_box() {
 function initialize_message_feed_errors() {
     $("#message_feed_errors_container").html(
         render_message_feed_errors({
-            is_guest: current_user.is_guest,
+            is_limited_access: current_user.is_limited_access,
         }),
     );
 }

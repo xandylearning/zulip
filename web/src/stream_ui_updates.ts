@@ -496,7 +496,7 @@ export function update_stream_row_in_settings_tab(sub: StreamSubscription): void
             if (stream_settings_components.filter_includes_channel(sub)) {
                 $row.removeClass("notdisplayed");
             }
-        } else if (sub.invite_only || current_user.is_guest) {
+        } else if (sub.invite_only || current_user.is_limited_access) {
             $row.addClass("notdisplayed");
         }
     }
@@ -510,8 +510,8 @@ export function update_add_subscriptions_elements(sub: SettingsSubscription): vo
     // We are only concerned with the Subscribers tab for editing streams.
     const $add_subscribers_container = $(".edit_subscribers_for_stream .subscriber_list_settings");
 
-    if (current_user.is_guest || realm.realm_is_zephyr_mirror_realm) {
-        // For guest users, we just hide the add_subscribers feature.
+    if (current_user.is_limited_access || realm.realm_is_zephyr_mirror_realm) {
+        // For limited access users, we just hide the add_subscribers feature.
         $add_subscribers_container.hide();
         return;
     }

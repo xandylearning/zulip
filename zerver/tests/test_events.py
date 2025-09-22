@@ -3019,7 +3019,7 @@ class NormalActionsTest(BaseAction):
             ],
         )
 
-    def test_change_is_guest(self) -> None:
+    def test_change_is_limited_access(self) -> None:
         stream = Stream.objects.get(name="Denmark")
         do_add_default_stream(stream)
 

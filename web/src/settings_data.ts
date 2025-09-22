@@ -342,8 +342,8 @@ export function bot_type_id_to_string(type_id: number): string | undefined {
 }
 
 export function user_can_access_all_other_users(): boolean {
-    // While spectators have is_guest=true for convenience in some code
-    // paths, they do not currently use the guest user systems for
+    // While spectators have limited access for convenience in some code
+    // paths, they do not currently use the limited user systems for
     // limiting their user access to subscribers of web-public
     // channels, which is typically the entire user set for a server
     // anyway.

@@ -253,6 +253,7 @@ const current_user_schema = z.object({
     is_parent: z.boolean(),
     is_mentor: z.boolean(),
     is_owner: z.boolean(),
+    is_limited_access: z.boolean(),
     user_id: z.number(),
 });
 

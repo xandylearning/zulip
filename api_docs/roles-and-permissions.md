@@ -19,7 +19,9 @@ user's role in the Zulip organization. These roles are encoded as:
 
 * Member: 400
 
-* Guest: 600
+* Student: 500
+* Parent: 550
+* Mentor: 580
 
 User account data also include these boolean properties that duplicate
 the related roles above:
@@ -28,7 +30,10 @@ the related roles above:
 
 * `is_admin` specifying whether the user is an organization administrator.
 
-* `is_guest` specifying whether the user is a guest user.
+* `is_student` specifying whether the user is a student user.
+* `is_parent` specifying whether the user is a parent user.  
+* `is_mentor` specifying whether the user is a mentor user.
+* `is_faculty` specifying whether the user is a faculty user.
 
 These are intended as conveniences for simple clients, and clients
 should prefer using the `role` field, since only that one is updated

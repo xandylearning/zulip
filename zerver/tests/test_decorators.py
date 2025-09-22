@@ -1369,19 +1369,23 @@ class TestRequireDecorators(ZulipTestCase):
         self.assertEqual(result.status_code, 200)
 
     def test_require_non_guest_user_decorator(self) -> None:
-        guest_user = self.example_user("polonius")
-        self.login_user(guest_user)
-        result = self.subscribe_via_post(guest_user, ["Denmark"], allow_fail=True)
-        self.assert_json_error(result, "Not allowed for guest users")
+        # Test with a limited access user (student)
+        limited_user = self.example_user("polonius")
+        # Convert to student role
+        from zerver.actions.users import do_change_user_role
+        do_change_user_role(limited_user, UserProfile.ROLE_STUDENT, acting_user=None)
+        
+        self.login_user(limited_user)
+        result = self.subscribe_via_post(limited_user, ["Denmark"], allow_fail=True)
+        self.assert_json_error(result, "Not allowed for limited access users")
 
         outgoing_webhook_bot = self.example_user("outgoing_webhook_bot")
         result = self.api_get(outgoing_webhook_bot, "/api/v1/bots")
         self.assert_json_error(result, "This endpoint does not accept bot requests.")
 
-        guest_user = self.example_user("polonius")
-        self.login_user(guest_user)
+        self.login_user(limited_user)
         result = self.client_get("/json/bots")
-        self.assert_json_error(result, "Not allowed for guest users")
+        self.assert_json_error(result, "Not allowed for limited access users")
 
 
 class ReturnSuccessOnHeadRequestDecorator(ZulipTestCase):

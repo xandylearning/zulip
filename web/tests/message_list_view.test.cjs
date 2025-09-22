@@ -22,7 +22,7 @@ mock_esm("../src/timerender", {
 
 mock_esm("../src/people", {
     sender_is_bot: () => false,
-    sender_is_guest: () => false,
+    sender_is_limited_access: () => false,
     sender_is_deactivated: () => false,
     should_add_guest_user_indicator: () => false,
     small_avatar_url: () => "fake/small/avatar/url",

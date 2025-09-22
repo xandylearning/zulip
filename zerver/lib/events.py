@@ -720,12 +720,12 @@ def fetch_initial_state_data(
         state["is_owner"] = settings_user.is_realm_owner
         # is_moderator removed - use is_admin instead
         state["is_moderator"] = settings_user.is_realm_admin
-        # is_guest removed - no longer used
         # New custom role properties
         state["is_faculty"] = settings_user.is_faculty
         state["is_student"] = settings_user.is_student
         state["is_parent"] = settings_user.is_parent
         state["is_mentor"] = settings_user.is_mentor
+        state["is_limited_access"] = settings_user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]
         state["role"] = settings_user.role
         state["user_id"] = settings_user.id
         state["email"] = settings_user.email
@@ -939,8 +939,7 @@ def fetch_initial_state_data(
         # To ensure we have the correct user state set.
         assert state["is_admin"] is False
         assert state["is_owner"] is False
-        # is_guest removed - check role instead
-        # Ensure role is set for spectators
+        # Ensure role is set for spectators (use limited access role)
         if "role" not in state:
             state["role"] = UserProfile.ROLE_STUDENT
         assert state["role"] == UserProfile.ROLE_STUDENT
@@ -1189,13 +1188,12 @@ def apply_event(
                     state["is_owner"] = person["role"] == UserProfile.ROLE_REALM_OWNER
                     # is_moderator removed - use is_admin instead
                     state["is_moderator"] = is_administrator_role(person["role"])
-                    # is_guest removed - no longer used
                     # New custom role properties
                     state["is_faculty"] = person["role"] == UserProfile.ROLE_FACULTY
                     state["is_student"] = person["role"] == UserProfile.ROLE_STUDENT
                     state["is_parent"] = person["role"] == UserProfile.ROLE_PARENT
                     state["is_mentor"] = person["role"] == UserProfile.ROLE_MENTOR
-                    # Recompute properties based on is_admin/is_guest
+                    # Recompute properties based on role
                     state["can_create_private_streams"] = user_profile.can_create_private_streams()
                     state["can_create_public_streams"] = user_profile.can_create_public_streams()
                     state["can_create_web_public_streams"] = (
@@ -1208,7 +1206,7 @@ def apply_event(
                     )
                     state["can_invite_others_to_realm"] = user_profile.can_invite_users_by_email()
 
-                    # Check role instead of is_guest
+                    # Limited access users (students/parents) don't see default streams
                     if person["role"] in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
                         state["realm_default_streams"] = []
                     else:
@@ -1267,7 +1265,6 @@ def apply_event(
                 if "role" in person:
                     p["is_admin"] = is_administrator_role(person["role"])
                     p["is_owner"] = person["role"] == UserProfile.ROLE_REALM_OWNER
-                    # is_guest removed - no longer used
                     # New custom role properties
                     p["is_faculty"] = person["role"] == UserProfile.ROLE_FACULTY
                     p["is_student"] = person["role"] == UserProfile.ROLE_STUDENT

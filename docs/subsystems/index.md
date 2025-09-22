@@ -7,6 +7,7 @@ maxdepth: 3
 
 dependencies
 settings
+feature-organization
 html-css
 icons
 accessibility

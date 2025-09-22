@@ -1762,7 +1762,6 @@ class UserProfileTest(ZulipTestCase):
                 is_active=True,
                 is_admin=False,
                 is_bot=True,
-                # is_guest removed
                 is_owner=False,
                 is_system_bot=True,
                 role=400,
@@ -2825,7 +2824,6 @@ class GetProfileTest(ZulipTestCase):
         self.assertFalse(result["is_bot"])
         self.assertFalse(result["is_admin"])
         self.assertFalse(result["is_owner"])
-        # is_guest removed
         self.assertEqual(result["role"], UserProfile.ROLE_FACULTY)
         self.assertEqual(result["delivery_email"], hamlet.delivery_email)
         self.login("iago")
@@ -2835,7 +2833,6 @@ class GetProfileTest(ZulipTestCase):
         self.assertFalse(result["is_bot"])
         self.assertTrue(result["is_admin"])
         self.assertFalse(result["is_owner"])
-        # is_guest removed
         self.assertEqual(result["role"], UserProfile.ROLE_REALM_ADMINISTRATOR)
         self.login("desdemona")
         result = orjson.loads(self.client_get("/json/users/me").content)
@@ -2843,7 +2840,6 @@ class GetProfileTest(ZulipTestCase):
         self.assertFalse(result["is_bot"])
         self.assertTrue(result["is_admin"])
         self.assertTrue(result["is_owner"])
-        # is_guest removed
         self.assertEqual(result["role"], UserProfile.ROLE_REALM_OWNER)
         self.login("shiva")
         result = orjson.loads(self.client_get("/json/users/me").content)
@@ -2851,7 +2847,6 @@ class GetProfileTest(ZulipTestCase):
         self.assertFalse(result["is_bot"])
         self.assertFalse(result["is_admin"])
         self.assertFalse(result["is_owner"])
-        # is_guest removed
         self.assertEqual(result["role"], UserProfile.ROLE_MODERATOR)
 
         # Tests the GET ../users/{id} API endpoint.

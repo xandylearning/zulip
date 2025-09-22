@@ -118,7 +118,7 @@ export function toggle_user_group_info_popover(
                     group_name: user_groups.get_display_group_name(group.name),
                     group_description: group.description,
                     group_edit_url: hash_util.group_edit_url(group, "general"),
-                    is_guest: current_user.is_guest,
+                    is_limited_access: current_user.is_limited_access ,
                     is_system_group: group.is_system_group,
                     deactivated: group.deactivated,
                     members_count: all_individual_members.length,

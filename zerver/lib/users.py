@@ -582,6 +582,7 @@ class APIUserDict(TypedDict):
     is_student: bool
     is_parent: bool
     is_mentor: bool
+    is_limited_access: bool
     delivery_email: str | None
     bot_type: NotRequired[int | None]
     bot_owner_id: NotRequired[int | None]
@@ -606,7 +607,6 @@ def format_user_row(
 
     is_admin = is_administrator_role(row["role"])
     is_owner = row["role"] == UserProfile.ROLE_REALM_OWNER
-    # is_guest removed - no longer used
     is_bot = row["is_bot"]
     
     # New custom role properties
@@ -614,6 +614,7 @@ def format_user_row(
     is_student = row["role"] == UserProfile.ROLE_STUDENT
     is_parent = row["role"] == UserProfile.ROLE_PARENT
     is_mentor = row["role"] == UserProfile.ROLE_MENTOR
+    is_limited_access = row["role"] in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]
 
     delivery_email = None
     if acting_user is not None and can_access_delivery_email(
@@ -627,7 +628,6 @@ def format_user_row(
         avatar_version=row["avatar_version"],
         is_admin=is_admin,
         is_owner=is_owner,
-        # is_guest removed
         role=row["role"],
         is_bot=is_bot,
         full_name=row["full_name"],
@@ -643,6 +643,7 @@ def format_user_row(
         is_student=is_student,
         is_parent=is_parent,
         is_mentor=is_mentor,
+        is_limited_access=is_limited_access,
     )
 
     if acting_user is None:

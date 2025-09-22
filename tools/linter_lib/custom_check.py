@@ -464,7 +464,7 @@ python_rules = RuleList(
         },
         {
             "pattern": r"\.is_guest =",
-            "description": "Use do_change_user_role function rather than setting UserProfile's is_guest attribute directly.",
+            "description": "DEPRECATED: is_guest property has been removed from UserProfile. Use role-based checking instead.",
             "exclude": {
                 "zerver/migrations/0248_userprofile_role_start.py",
                 "zerver/tests/test_users.py",

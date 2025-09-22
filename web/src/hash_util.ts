@@ -305,7 +305,7 @@ export function validate_channels_settings_hash(hash: string): string {
         //    not be in sub_store).
         //
         // In both cases we redirect the user to 'subscribed' tab.
-        if (sub === undefined || (page_params.is_guest && !stream_data.is_subscribed(stream_id))) {
+        if (sub === undefined || (page_params.is_limited_access && !stream_data.is_subscribed(stream_id))) {
             return channels_settings_section_url();
         }
 

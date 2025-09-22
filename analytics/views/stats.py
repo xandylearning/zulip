@@ -103,10 +103,10 @@ def render_stats(
 def stats(request: HttpRequest) -> HttpResponse:
     assert request.user.is_authenticated
     realm = request.user.realm
-    if request.user.is_guest:
+    if request.user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
         # TODO: Make @zulip_login_required pass the UserProfile so we
         # can use @require_member_or_admin
-        raise JsonableError(_("Not allowed for guest users"))
+        raise JsonableError(_("Not allowed for limited access users"))
     return render_stats(request, "", realm, analytics_ready=is_analytics_ready(realm))
 
 

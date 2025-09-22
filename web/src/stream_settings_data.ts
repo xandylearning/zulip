@@ -80,8 +80,8 @@ function get_subs_for_settings(subs: StreamSubscription[]): SettingsSubscription
 export function get_updated_unsorted_subs(): SettingsSubscription[] {
     let all_subs = stream_data.get_unsorted_subs();
 
-    // We don't display unsubscribed streams to guest users.
-    if (current_user.is_guest) {
+    // We don't display unsubscribed streams to limited access users.
+    if (current_user.is_limited_access) {
         all_subs = all_subs.filter((sub) => sub.subscribed);
     }
 

@@ -280,7 +280,7 @@ export function sub_or_unsub(
         // TODO: This next line should allow guests to access web-public streams.
         if (
             (sub.invite_only && !stream_data.has_content_access_via_group_permissions(sub)) ||
-            current_user.is_guest
+            current_user.is_limited_access
         ) {
             unsubscribe_from_private_stream(sub);
             return;

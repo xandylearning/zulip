@@ -85,7 +85,7 @@ type VisibilityChangePopoverContext = {
 type PersonalMenuContext = {
     user_id: number;
     invisible_mode: boolean;
-    user_is_guest: boolean;
+    user_is_limited_access: boolean;
     spectator_view: boolean;
     user_avatar?: string | undefined | null;
     is_active: boolean;
@@ -125,7 +125,7 @@ type GearMenuContext = {
     apps_page_url: string;
     can_create_multiuse_invite: boolean;
     can_invite_users_by_email: boolean;
-    is_guest: boolean;
+    is_limited_access: boolean;
     login_link: string;
     promote_sponsoring_zulip: boolean;
     show_billing: boolean;

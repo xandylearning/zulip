@@ -157,8 +157,8 @@ function update_add_members_elements(group: UserGroup): void {
         ".edit_members_for_user_group .add_members_container",
     );
 
-    if (current_user.is_guest || realm.realm_is_zephyr_mirror_realm) {
-        // For guest users, we just hide the add_members feature.
+    if (current_user.is_limited_access || realm.realm_is_zephyr_mirror_realm) {
+        // For limited access users, we just hide the add_members feature.
         $add_members_container.hide();
         return;
     }

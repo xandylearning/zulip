@@ -256,7 +256,7 @@ run_test("compute_placeholder_text", ({override}) => {
         $t({defaultMessage: "Message Alice and Bob"}),
     );
 
-    alice.is_guest = true;
+    alice.is_student = true;
     override(realm, "realm_enable_guest_user_indicator", true);
     assert.equal(
         compose_ui.compute_placeholder_text(opts),

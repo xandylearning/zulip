@@ -858,6 +858,10 @@ class UserProfile(AbstractBaseUser, PermissionsMixin, UserBaseSettings):
     def is_mentor(self) -> bool:
         return self.role == UserProfile.ROLE_MENTOR
 
+    @property
+    def user_is_limited_access(self) -> bool:
+        return self.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]
+
     @is_mentor.setter
     def is_mentor(self, value: bool) -> None:
         if value:
@@ -1268,12 +1272,9 @@ def active_user_ids(realm_id: int) -> list[int]:
 
 @cache_with_key(active_non_guest_user_ids_cache_key, timeout=3600 * 24 * 7)
 def active_non_guest_user_ids(realm_id: int) -> list[int]:
-    # Since we removed the GUEST role, this now returns all active users
-    query = UserProfile.objects.filter(
-        realm_id=realm_id,
-        is_active=True,
-    ).values_list("id", flat=True)
-    return list(query)
+    # Since we removed the GUEST role, this function is kept for backwards compatibility
+    # but now simply returns all active users
+    return active_user_ids(realm_id)
 
 
 def bot_owner_user_ids(user_profile: UserProfile) -> set[int]:

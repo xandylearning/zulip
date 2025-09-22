@@ -190,7 +190,7 @@ def upgrade_page(
     user = request.user
     assert user.is_authenticated
 
-    if not settings.BILLING_ENABLED or user.is_guest:
+    if not settings.BILLING_ENABLED or user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
         return render(request, "404.html", status=404)
 
     billing_modality = "charge_automatically"

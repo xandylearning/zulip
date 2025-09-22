@@ -678,8 +678,9 @@ def require_non_guest_user(
         *args: ParamT.args,
         **kwargs: ParamT.kwargs,
     ) -> HttpResponse:
+        # Since we removed guest users, only restrict students and parents who have limited permissions
         if user_profile.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
-            raise JsonableError(_("Not allowed for guest users"))
+            raise JsonableError(_("Not allowed for limited access users"))
         return view_func(request, user_profile, *args, **kwargs)
 
     return _wrapped_view_func
@@ -697,7 +698,7 @@ def require_member_or_admin(
         **kwargs: ParamT.kwargs,
     ) -> HttpResponse:
         if user_profile.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
-            raise JsonableError(_("Not allowed for guest users"))
+            raise JsonableError(_("Not allowed for limited access users"))
         # Check bot_type here, rather than is_bot, because  the
         # narrow user cache only has that (nullable) type
         if user_profile.bot_type is not None:

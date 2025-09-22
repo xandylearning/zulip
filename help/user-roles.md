@@ -21,10 +21,8 @@ You can also manage permissions with [custom user groups](/help/user-groups).
   and **full members**, which is especially useful for [moderating open
   organizations](/help/moderating-open-organizations). New members automatically
   become full members after a configurable waiting period.
-* **Guest**: Can view and send messages in channels they have been subscribed to.
-  Guests cannot see other channels, unless they have been specifically subscribed
-  to the channel. See [guest users documentation](/help/guest-users) for additional
-  details and configuration options.
+* **Student**: Can view and send messages in channels they have been subscribed to.
+  Students have limited communication permissions and can only chat with mentors.
 * **Billing administrator**: The user who upgrades the organization to
   a paid plan is, in addition to their normal role, a billing
   administrator.  Billing administrators can manage billing for the organization.
