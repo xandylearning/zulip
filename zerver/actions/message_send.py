@@ -1260,44 +1260,78 @@ def do_send_messages(
                 )
 
     # AI Agent Integration: Check for potential AI mentor responses
-    for send_request in send_message_requests:
-        try:
-            # Only process if this is a student-to-mentor direct message
-            message = send_request.message
+    # Only attempt if AI agent system is enabled and available
+    ai_integration_enabled = getattr(settings, 'USE_LANGGRAPH_AGENTS', False)
 
-            # Safety checks: ensure message and required attributes exist
-            if (hasattr(message, 'recipient') and hasattr(message, 'sender') and
-                hasattr(message.recipient, 'type') and hasattr(message.recipient, 'type_id') and
-                hasattr(message.sender, 'role') and hasattr(message, 'content') and
-                message.recipient.type == Recipient.PERSONAL and
-                message.sender.role == UserProfile.ROLE_STUDENT):
+    if ai_integration_enabled:
+        for send_request in send_message_requests:
+            try:
+                # Only process if this is a student-to-mentor direct message
+                message = send_request.message
 
-                # Check if recipient is a mentor (for 1:1 direct messages)
-                # For PERSONAL messages, the recipient ID is stored in type_id
-                try:
-                    recipient = UserProfile.objects.get(id=message.recipient.type_id)
-                    if (hasattr(recipient, 'role') and
-                        recipient.role == UserProfile.ROLE_MENTOR):
-                        # Trigger AI agent conversation processing via event system
-                        from zerver.actions.ai_mentor_events import trigger_ai_agent_conversation
+                # Comprehensive safety checks: ensure message and required attributes exist
+                if (hasattr(message, 'recipient') and hasattr(message, 'sender') and
+                    hasattr(message.recipient, 'type') and hasattr(message.recipient, 'type_id') and
+                    hasattr(message.sender, 'role') and hasattr(message, 'content') and
+                    hasattr(message, 'id') and
+                    message.recipient.type == Recipient.PERSONAL and
+                    message.sender.role == UserProfile.ROLE_STUDENT and
+                    message.recipient.type_id is not None):
 
-                        trigger_ai_agent_conversation(
-                            mentor=recipient,
-                            student=message.sender,
-                            original_message=message.content,
-                            original_message_id=message.id,
+                    # Validate type_id is a valid integer
+                    try:
+                        recipient_id = int(message.recipient.type_id)
+                        if recipient_id <= 0:
+                            continue  # Invalid ID
+                    except (ValueError, TypeError):
+                        continue  # type_id is not a valid integer
+
+                    # Check if recipient is a mentor (for 1:1 direct messages)
+                    # For PERSONAL messages, the recipient ID is stored in type_id
+                    try:
+                        recipient = UserProfile.objects.select_related('realm').get(
+                            id=recipient_id,
+                            is_active=True  # Only process for active users
                         )
 
-                except UserProfile.DoesNotExist:
-                    pass  # Recipient not found, skip AI processing
-                except Exception as e:
-                    # Log error but don't fail message sending
-                    logging.getLogger(__name__).warning(f"AI agent processing failed: {e}")
+                        # Ensure both users are in the same realm (security check)
+                        if (hasattr(recipient, 'role') and hasattr(recipient, 'realm') and
+                            recipient.role == UserProfile.ROLE_MENTOR and
+                            message.sender.realm_id == recipient.realm_id):
 
-        except Exception as e:
-            # Don't fail message sending if AI processing fails
-            logging.getLogger(__name__).warning(f"AI agent integration error: {e}")
-            continue
+                            # Import AI function only when needed to avoid circular imports
+                            try:
+                                from zerver.actions.ai_mentor_events import trigger_ai_agent_conversation
+                            except ImportError as import_err:
+                                logging.getLogger(__name__).warning(f"AI agent module not available: {import_err}")
+                                continue
+
+                            # Validate message content is not empty and not too long
+                            content = str(message.content).strip()
+                            if not content or len(content) > 10000:  # Reasonable content length limit
+                                continue
+
+                            # Trigger AI agent conversation processing via event system
+                            trigger_ai_agent_conversation(
+                                mentor=recipient,
+                                student=message.sender,
+                                original_message=content,
+                                original_message_id=message.id,
+                            )
+
+                    except UserProfile.DoesNotExist:
+                        pass  # Recipient not found or inactive, skip AI processing
+                    except UserProfile.MultipleObjectsReturned:
+                        logging.getLogger(__name__).warning(f"Multiple users found for ID {recipient_id}")
+                        continue
+                    except Exception as e:
+                        # Log specific error but don't fail message sending
+                        logging.getLogger(__name__).warning(f"AI agent processing failed for message {message.id}: {e}")
+
+            except Exception as e:
+                # Don't fail message sending if AI processing fails
+                logging.getLogger(__name__).warning(f"AI agent integration error: {e}")
+                continue
 
     sent_message_results = [
         SentMessageResult(
