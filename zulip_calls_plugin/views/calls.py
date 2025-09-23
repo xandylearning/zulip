@@ -132,9 +132,90 @@ def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None
                 logger.error(f"Legacy push notification failed for user {recipient.id}: {e}")
         
         logger.info(f"Call push notification processing completed for user {recipient.id} for call {call_data.get('call_id')}")
-        
+
     except Exception as e:
         logger.error(f"Failed to send call push notification: {e}")
+
+
+def send_fcm_call_notification(recipient: UserProfile, call_data: dict) -> None:
+    """
+    Send FCM call notification using the specialized call notification format.
+
+    This function sends FCM notifications in the exact format specified:
+    {
+      "to": "<device_fcm_token>",
+      "priority": "high",
+      "data": {
+        "event": "call",
+        "server": "your-org.example.com",
+        "realm_url": "https://your-org.example.com",
+        "user_id": "123",
+        "call_id": "abc123",
+        "sender_id": "456",
+        "sender_full_name": "Alice",
+        "call_type": "video",
+        "time": "1726930000"
+      },
+      "android": {
+        "priority": "high",
+        "notification": {
+          "channel_id": "calls-1",
+          "tag": "call:abc123",
+          "title": "Incoming video call",
+          "body": "From Alice",
+          "sound": "default",
+          "click_action": "android.intent.action.VIEW"
+        }
+      },
+      "notification": {
+        "title": "Incoming video call",
+        "body": "From Alice"
+      }
+    }
+    """
+    from django.conf import settings
+    from zerver.models import PushDeviceToken
+    from zerver.lib.push_notifications import send_fcm_call_notifications
+
+    if not getattr(settings, 'CALL_PUSH_NOTIFICATION_ENABLED', True):
+        return
+
+    try:
+        # Get FCM devices for the recipient
+        fcm_devices = PushDeviceToken.objects.filter(
+            user=recipient,
+            kind=PushDeviceToken.FCM
+        )
+
+        if not fcm_devices.exists():
+            logger.info(f"No FCM devices registered for user {recipient.id}")
+            return
+
+        # Prepare call data with all required fields
+        enhanced_call_data = {
+            'call_id': call_data.get('call_id'),
+            'sender_id': call_data.get('sender_id'),
+            'sender_full_name': call_data.get('sender_name'),
+            'call_type': call_data.get('call_type', 'voice'),
+            'user_id': str(recipient.id),
+            'time': str(int(timezone.now().timestamp())),
+        }
+
+        # Send specialized FCM call notifications
+        success_count = send_fcm_call_notifications(
+            devices=list(fcm_devices),
+            call_data=enhanced_call_data,
+            realm_host=recipient.realm.host,
+            realm_url=recipient.realm.url,
+        )
+
+        logger.info(
+            f"FCM call notification sent to {success_count}/{len(fcm_devices)} devices "
+            f"for user {recipient.id} and call {call_data.get('call_id')}"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to send FCM call notification: {e}")
 
 
 def send_call_response_notification(user_profile: UserProfile, call: Call, response: str) -> None:
@@ -599,7 +680,18 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                 "room_name": call.jitsi_room_name,
             }
 
+            # Send legacy push notification (for compatibility)
             send_call_push_notification(recipient, push_data)
+
+            # Send specialized FCM call notification in exact format specified
+            fcm_call_data = {
+                "call_id": str(call.call_id),
+                "sender_id": str(user_profile.id),
+                "sender_name": user_profile.full_name,
+                "call_type": call.call_type,
+                "jitsi_url": participant_url,
+            }
+            send_fcm_call_notification(recipient, fcm_call_data)
 
             return JsonResponse({
                 "result": "success",
@@ -1029,7 +1121,18 @@ def create_embedded_call(request: HttpRequest) -> JsonResponse:
                 "embedded_url": f"/calls/embed/{call.call_id}",
             }
 
+            # Send legacy push notification (for compatibility)
             send_call_push_notification(recipient, push_data)
+
+            # Send specialized FCM call notification in exact format specified
+            fcm_call_data = {
+                "call_id": str(call.call_id),
+                "sender_id": str(user_profile.id),
+                "sender_name": user_profile.full_name,
+                "call_type": call.call_type,
+                "jitsi_url": participant_url,
+            }
+            send_fcm_call_notification(recipient, fcm_call_data)
 
             # Return response with moderator URL for the initiator
             response_data = {

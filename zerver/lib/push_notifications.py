@@ -538,6 +538,166 @@ def _create_fcm_notification_content(data: dict[str, Any], options: dict[str, An
             "channel_id": "messages-4"
         }
 
+def create_fcm_call_notification_message(
+    token: str,
+    call_data: dict[str, Any],
+    realm_host: str,
+    realm_url: str,
+) -> firebase_messaging.Message:
+    """
+    Create FCM call notification message in the exact format specified.
+
+    Args:
+        token: FCM device token
+        call_data: Call information dictionary
+        realm_host: Realm hostname
+        realm_url: Full realm URL
+
+    Returns:
+        Firebase messaging Message object with call notification format
+    """
+    # Extract call information
+    call_id = call_data.get("call_id", "unknown")
+    sender_id = str(call_data.get("sender_id", ""))
+    sender_name = call_data.get("sender_full_name", "Someone")
+    call_type = call_data.get("call_type", "voice")
+    user_id = str(call_data.get("user_id", ""))
+    timestamp = str(call_data.get("time", int(timezone_now().timestamp())))
+
+    # Create data payload exactly as specified
+    data_payload = {
+        "event": "call",
+        "server": realm_host,
+        "realm_url": realm_url,
+        "user_id": user_id,
+        "call_id": call_id,
+        "sender_id": sender_id,
+        "sender_full_name": sender_name,
+        "call_type": call_type,
+        "time": timestamp
+    }
+
+    # Convert all values to strings as required by FCM
+    data_payload = {k: str(v) for k, v in data_payload.items()}
+
+    # Create Android notification configuration exactly as specified
+    android_notification = firebase_messaging.AndroidNotification(
+        channel_id="calls-1",
+        tag=f"call:{call_id}",
+        title=f"Incoming {call_type} call",
+        body=f"From {sender_name}",
+        sound="default",
+        click_action="android.intent.action.VIEW"
+    )
+
+    # Create Android config with high priority
+    android_config = firebase_messaging.AndroidConfig(
+        priority="high",
+        notification=android_notification
+    )
+
+    # Create cross-platform notification
+    notification = firebase_messaging.Notification(
+        title=f"Incoming {call_type} call",
+        body=f"From {sender_name}"
+    )
+
+    # Create the complete FCM message
+    return firebase_messaging.Message(
+        token=token,
+        data=data_payload,
+        android=android_config,
+        notification=notification
+    )
+
+
+def send_fcm_call_notifications(
+    devices: Sequence[DeviceToken],
+    call_data: dict[str, Any],
+    realm_host: str,
+    realm_url: str,
+    remote: Optional["RemoteZulipServer"] = None,
+) -> int:
+    """
+    Send FCM call notifications using the specialized call notification format.
+
+    Args:
+        devices: List of device tokens to send to
+        call_data: Call information dictionary
+        realm_host: Realm hostname
+        realm_url: Full realm URL
+        remote: Optional remote server for bouncer
+
+    Returns:
+        Number of successfully sent notifications
+    """
+    if not devices or not fcm_app:
+        return 0
+
+    # Create call notification messages for each device
+    messages = []
+    token_list = []
+
+    for device in devices:
+        try:
+            message = create_fcm_call_notification_message(
+                token=device.token,
+                call_data=call_data,
+                realm_host=realm_host,
+                realm_url=realm_url
+            )
+            messages.append(message)
+            token_list.append(device.token)
+        except Exception as e:
+            logger.warning(f"Failed to create call notification for device {device.token}: {e}")
+            continue
+
+    if not messages:
+        return 0
+
+    # Send batch of call notifications
+    try:
+        batch_response = firebase_messaging.send_each(messages, app=fcm_app)
+    except firebase_exceptions.FirebaseError:
+        logger.warning("Error while sending FCM call notifications", exc_info=True)
+        return 0
+
+    # Process responses and handle token management
+    if remote:
+        assert settings.ZILENCER_ENABLED
+        DeviceTokenClass: type[AbstractPushDeviceToken] = RemotePushDeviceToken
+    else:
+        DeviceTokenClass = PushDeviceToken
+
+    successfully_sent_count = 0
+    for idx, response in enumerate(batch_response.responses):
+        token = token_list[idx]
+
+        if response.success:
+            successfully_sent_count += 1
+            logger.info(f"FCM Call: Sent notification with ID {response.message_id} to {token}")
+        else:
+            error = response.exception
+            logger.warning(f"FCM Call: Failed to send to {token}: {error}")
+
+            # Handle token cleanup for unregistered devices
+            if isinstance(error, FCMUnregisteredError):
+                logger.info(f"FCM Call: Removing unregistered token {token}")
+                if remote:
+                    device = DeviceTokenClass.objects.filter(
+                        user_id=remote.uuid, user_uuid=call_data.get("user_id"), token=token
+                    ).first()
+                else:
+                    device = DeviceTokenClass.objects.filter(
+                        user_id=call_data.get("user_id"), token=token
+                    ).first()
+
+                if device:
+                    device.delete()
+
+    logger.info(f"FCM Call: Successfully sent {successfully_sent_count}/{len(messages)} call notifications")
+    return successfully_sent_count
+
 
 def send_android_push_notification(
     user_identity: UserPushIdentityCompat,
