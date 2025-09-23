@@ -199,6 +199,13 @@ def generate_secrets(development: bool = False) -> None:
             "push_registration_encryption_keys", json.dumps({public_key_str: private_key_str})
         )
 
+    # AI Agent System Secrets
+    # These are placeholders that need to be filled with actual API keys
+    if need_secret("portkey_api_key"):
+        add_secret("portkey_api_key", "")
+    if need_secret("topic_summarization_api_key"):
+        add_secret("topic_summarization_api_key", "")
+
     if len(lines) == 0:
         print("generate_secrets: No new secrets to generate.")
         return

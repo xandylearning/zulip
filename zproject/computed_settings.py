@@ -1324,3 +1324,34 @@ TOPIC_SUMMARIZATION_API_KEY = get_secret("topic_summarization_api_key", None)
 PARTIAL_USERS = bool(os.environ.get("PARTIAL_USERS"))
 
 # Zulip Calls Plugin - Added via EXTRA_INSTALLED_APPS in dev_settings.py
+
+########################################################################
+# AI AGENT SETTINGS
+########################################################################
+
+# Import AI agent settings
+try:
+    from .ai_agent_settings import *  # noqa: F403
+
+    # Override with any production-specific AI agent settings
+    if PRODUCTION:
+        # Production-specific AI agent overrides can go here
+        pass
+    else:
+        # Development-specific AI agent overrides
+        if os.environ.get('DJANGO_ENVIRONMENT') == 'development':
+            # Development settings already configured in ai_agent_settings.py
+            pass
+
+    # Validate AI agent settings if enabled
+    if globals().get('USE_LANGGRAPH_AGENTS', False):
+        validation_warnings = globals().get('validate_ai_agent_settings', lambda: [])()
+        if validation_warnings:
+            import logging
+            logger = logging.getLogger('zulip.ai_agents')
+            for warning in validation_warnings:
+                logger.warning(f"AI Agent Configuration Warning: {warning}")
+
+except ImportError:
+    # AI agent settings not available - disable features
+    USE_LANGGRAPH_AGENTS = False

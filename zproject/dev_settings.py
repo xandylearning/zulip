@@ -273,3 +273,43 @@ OUTPUT_COST_PER_GIGATOKEN = 590
 INPUT_COST_PER_GIGATOKEN = 790
 MAX_PER_USER_MONTHLY_AI_COST = 1
 MAX_WEB_DATA_IMPORT_SIZE_MB = 1024
+
+# AI Agent System Configuration (Development)
+USE_LANGGRAPH_AGENTS = True
+
+# Portkey AI Gateway Configuration
+PORTKEY_API_KEY = os.environ.get('PORTKEY_API_KEY', '')
+
+# AI Model Configuration
+AI_MENTOR_MODEL = "gpt-4"
+AI_MENTOR_TEMPERATURE = 0.7
+AI_MENTOR_MAX_TOKENS = 1000
+AI_MENTOR_MAX_RETRIES = 3
+AI_MENTOR_TIMEOUT = 30
+
+# Development-friendly thresholds (shorter delays, lower thresholds)
+AI_MENTOR_MIN_ABSENCE_MINUTES = 5  # 5 minutes for testing
+AI_MENTOR_MAX_DAILY_RESPONSES = 10  # More responses for testing
+AI_MENTOR_URGENCY_THRESHOLD = 0.3  # Lower threshold for testing
+AI_MENTOR_CONFIDENCE_THRESHOLD = 0.3  # Lower threshold for testing
+
+# State Persistence
+AI_AGENT_STATE_DB_PATH = "/tmp/ai_agent_state.db"
+
+# Feature Flags (all enabled for development)
+AI_ENABLE_STYLE_ANALYSIS = True
+AI_ENABLE_CONTEXT_ANALYSIS = True
+AI_ENABLE_RESPONSE_GEN = True
+AI_ENABLE_SUGGESTIONS = True
+AI_ENABLE_AUTO_RESPONSES = True
+
+# Logging and Monitoring
+AI_LOG_INTERACTIONS = True
+AI_LOG_LEVEL = "DEBUG"  # More verbose logging for development
+AI_LOG_PERFORMANCE = True
+AI_LOG_DECISIONS = True
+
+# Security and Privacy (relaxed for development)
+AI_REQUIRE_CONSENT = False  # Disabled for easier testing
+AI_ANONYMIZE_LOGS = False  # Disabled for easier debugging
+AI_MAX_CONTEXT_DAYS = 7  # Shorter retention for development

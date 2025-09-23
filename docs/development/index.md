@@ -15,5 +15,6 @@ Modularity patterns <modularity-patterns>
 SaaS multi-tenant architecture <saas-architecture>
 SaaS database strategies <saas-database-strategies>
 SaaS infrastructure strategies <saas-infrastructure-strategies>
+AI messaging feasibility study <ai-messaging-feasibility-study>
 Testing the installer <test-install>
 ```

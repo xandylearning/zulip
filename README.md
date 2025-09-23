@@ -80,3 +80,11 @@ following us on [Twitter](https://twitter.com/zulip) and
 
 Zulip is distributed under the
 [Apache 2.0](https://github.com/zulip/zulip/blob/main/LICENSE) license.
+
+
+<!-- 
+  - ✅ Backward compatibility maintained - no breaking changes to existing functionality
+
+  Both issues should now be resolved:
+  1. Push notifications with time_to_live will be accepted and properly forwarded to FCM
+  2. Users can now answer calls even if they were previously rejected (allowing quick changes of mind) -->

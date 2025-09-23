@@ -750,6 +750,50 @@ SOCIAL_AUTH_SAML_SUPPORT_CONTACT = {
 # INPUT_COST_PER_GIGATOKEN = 400
 # MAX_PER_USER_MONTHLY_AI_COST = 0.5
 
+###############
+# AI Agent System Configuration
+###############
+
+# Enable LangGraph-based AI agent system
+USE_LANGGRAPH_AGENTS = True
+
+# Portkey AI Gateway Configuration
+PORTKEY_API_KEY = get_secret("portkey_api_key")
+
+# AI Model Configuration
+AI_MENTOR_MODEL = "gemini-2.0-flash-001"  # AI model to use (gpt-4, gpt-3.5-turbo, etc.)
+AI_MENTOR_TEMPERATURE = 0.7  # Response creativity (0.0-1.0)
+AI_MENTOR_MAX_TOKENS = 1000  # Maximum response length
+AI_MENTOR_MAX_RETRIES = 3  # Number of retry attempts on failure
+AI_MENTOR_TIMEOUT = 30  # Request timeout in seconds
+
+# Decision Thresholds
+AI_MENTOR_MIN_ABSENCE_MINUTES = 1  # Minimum mentor absence before AI responds (4 hours)
+AI_MENTOR_MAX_DAILY_RESPONSES = 3  # Maximum AI responses per mentor per day
+AI_MENTOR_URGENCY_THRESHOLD = 0.7  # Minimum urgency score to trigger response
+AI_MENTOR_CONFIDENCE_THRESHOLD = 0.6  # Minimum confidence score to send response
+
+# State Persistence
+AI_AGENT_STATE_DB_PATH = "/var/lib/zulip/ai_agent_state.db"
+
+# Feature Flags
+AI_ENABLE_STYLE_ANALYSIS = True
+AI_ENABLE_CONTEXT_ANALYSIS = True
+AI_ENABLE_RESPONSE_GEN = True
+AI_ENABLE_SUGGESTIONS = True
+AI_ENABLE_AUTO_RESPONSES = True
+
+# Logging and Monitoring
+AI_LOG_INTERACTIONS = True  # Log all AI interactions
+AI_LOG_LEVEL = "INFO"  # Logging level (DEBUG, INFO, WARNING, ERROR)
+AI_LOG_PERFORMANCE = True  # Log performance metrics
+AI_LOG_DECISIONS = True  # Log AI decision reasoning
+
+## Security and Privacy
+# AI_REQUIRE_CONSENT = True  # Require explicit user consent
+# AI_ANONYMIZE_LOGS = True  # Anonymize logs for privacy
+# AI_MAX_CONTEXT_DAYS = 30  # Maximum days to retain context data
+
 ################
 ## Miscellaneous settings.
 

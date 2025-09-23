@@ -40,4 +40,5 @@ billing
 widgets
 slash-commands
 thumbnailing
+ai-messaging-integration
 ```
