@@ -1264,7 +1264,7 @@ def do_send_messages(
         try:
             # Only process if this is a student-to-mentor direct message
             message = send_request.message
-            if (message.recipient.type == Recipient.PRIVATE_MESSAGE and
+            if (message.recipient.type == Recipient.PERSONAL and
                 message.sender.role == UserProfile.ROLE_STUDENT):
 
                 # Check if recipient is a mentor
