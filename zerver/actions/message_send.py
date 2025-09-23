@@ -1264,32 +1264,35 @@ def do_send_messages(
         try:
             # Only process if this is a student-to-mentor direct message
             message = send_request.message
-            if (message.recipient.type == Recipient.PERSONAL and
+
+            # Safety checks: ensure message and required attributes exist
+            if (hasattr(message, 'recipient') and hasattr(message, 'sender') and
+                hasattr(message.recipient, 'type') and hasattr(message.recipient, 'type_id') and
+                hasattr(message.sender, 'role') and hasattr(message, 'content') and
+                message.recipient.type == Recipient.PERSONAL and
                 message.sender.role == UserProfile.ROLE_STUDENT):
 
-                # Check if recipient is a mentor
-                recipient_ids = [um.user_profile_id for um in message.recipient.usermessage_set.all()]
-                for recipient_id in recipient_ids:
-                    if recipient_id != message.sender.id:  # Not the sender
-                        try:
-                            recipient = UserProfile.objects.get(id=recipient_id)
-                            if recipient.role == UserProfile.ROLE_MENTOR:
-                                # Trigger AI agent conversation processing via event system
-                                from zerver.actions.ai_mentor_events import trigger_ai_agent_conversation
+                # Check if recipient is a mentor (for 1:1 direct messages)
+                # For PERSONAL messages, the recipient ID is stored in type_id
+                try:
+                    recipient = UserProfile.objects.get(id=message.recipient.type_id)
+                    if (hasattr(recipient, 'role') and
+                        recipient.role == UserProfile.ROLE_MENTOR):
+                        # Trigger AI agent conversation processing via event system
+                        from zerver.actions.ai_mentor_events import trigger_ai_agent_conversation
 
-                                trigger_ai_agent_conversation(
-                                    mentor=recipient,
-                                    student=message.sender,
-                                    original_message=message.content,
-                                    original_message_id=message.id,
-                                )
+                        trigger_ai_agent_conversation(
+                            mentor=recipient,
+                            student=message.sender,
+                            original_message=message.content,
+                            original_message_id=message.id,
+                        )
 
-                        except UserProfile.DoesNotExist:
-                            continue
-                        except Exception as e:
-                            # Log error but don't fail message sending
-                            logging.getLogger(__name__).warning(f"AI agent processing failed: {e}")
-                            continue
+                except UserProfile.DoesNotExist:
+                    pass  # Recipient not found, skip AI processing
+                except Exception as e:
+                    # Log error but don't fail message sending
+                    logging.getLogger(__name__).warning(f"AI agent processing failed: {e}")
 
         except Exception as e:
             # Don't fail message sending if AI processing fails
