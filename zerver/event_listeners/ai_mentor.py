@@ -45,13 +45,36 @@ class AIMentorEventHandler(BaseEventHandler):
             # Extract event data
             mentor_data = event.get("mentor", {})
             student_data = event.get("student", {})
-            original_message = event.get("original_message", "")
+            message_data = event.get("message_data", {})
 
-            mentor_id = mentor_data.get("id")
-            student_id = student_data.get("id")
+            # Get original message from message_data or fallback to old structure
+            original_message = message_data.get("content", event.get("original_message", ""))
 
-            if not mentor_id or not student_id:
-                logger.warning("AI mentor event missing mentor or student ID")
+            # Validate message content
+            if not original_message or not isinstance(original_message, str):
+                logger.warning(f"AI mentor event missing or invalid message content: {type(original_message)}")
+                return False
+
+            mentor_id = mentor_data.get("user_id") or mentor_data.get("id")
+            student_id = student_data.get("user_id") or student_data.get("id")
+
+            # Validate IDs are present and are valid integers
+            try:
+                mentor_id = int(mentor_id) if mentor_id else None
+                student_id = int(student_id) if student_id else None
+            except (ValueError, TypeError):
+                logger.warning(
+                    f"AI mentor event has invalid ID format: "
+                    f"mentor_id={mentor_id}, student_id={student_id}"
+                )
+                return False
+
+            if not mentor_id or not student_id or mentor_id <= 0 or student_id <= 0:
+                logger.warning(
+                    f"AI mentor event missing or invalid mentor/student ID: "
+                    f"mentor_id={mentor_id}, student_id={student_id}, "
+                    f"mentor_data={mentor_data}, student_data={student_data}"
+                )
                 return False
 
             logger.info(
@@ -88,17 +111,44 @@ class AIMentorEventHandler(BaseEventHandler):
             # Extract data from event
             mentor_data = event.get("mentor", {})
             student_data = event.get("student", {})
-            original_message = event.get("original_message", "")
-            original_message_id = event.get("original_message_id", 0)
+            message_data = event.get("message_data", {})
+
+            # Get original message and ID from message_data or fallback to old structure
+            original_message = message_data.get("content", event.get("original_message", ""))
+            original_message_id = message_data.get("message_id", event.get("original_message_id", 0))
+
+            # Validate message content
+            if not original_message or not isinstance(original_message, str):
+                logger.error(f"AI conversation missing or invalid message content: {type(original_message)}")
+                return False
+
+            # Get user IDs with fallback to old structure
+            mentor_id = mentor_data.get("user_id") or mentor_data.get("id")
+            student_id = student_data.get("user_id") or student_data.get("id")
+
+            # Validate IDs
+            try:
+                mentor_id = int(mentor_id) if mentor_id else None
+                student_id = int(student_id) if student_id else None
+            except (ValueError, TypeError):
+                logger.error(f"Invalid ID format in AI conversation: mentor_id={mentor_id}, student_id={student_id}")
+                return False
+
+            if not mentor_id or not student_id or mentor_id <= 0 or student_id <= 0:
+                logger.error(f"Missing or invalid IDs in AI conversation: mentor_id={mentor_id}, student_id={student_id}")
+                return False
 
             # Get user profiles
             from zerver.models import UserProfile
 
             try:
-                mentor = UserProfile.objects.get(id=mentor_data.get("id"))
-                student = UserProfile.objects.get(id=student_data.get("id"))
+                mentor = UserProfile.objects.get(id=mentor_id)
+                student = UserProfile.objects.get(id=student_id)
             except UserProfile.DoesNotExist as e:
-                logger.error(f"User not found for AI conversation: {e}")
+                logger.error(
+                    f"User not found for AI conversation: {e} "
+                    f"(mentor_id={mentor_id}, student_id={student_id})"
+                )
                 return False
 
             # Create AI agent orchestrator and process
