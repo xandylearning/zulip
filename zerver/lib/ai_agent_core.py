@@ -48,7 +48,7 @@ class PortkeyConfig:
     api_key: str
     base_url: str = "https://api.portkey.ai/v1"
     provider: str = "google"
-    model: str = "gemini-2.0-flash-001"
+    model: str = "@gemini/gemini-2.0-flash-001"
     max_retries: int = 3
     timeout: int = 30
 
@@ -1176,7 +1176,7 @@ def create_ai_agent_orchestrator() -> AIAgentOrchestrator:
     """Create and configure the AI agent orchestrator"""
     portkey_config = PortkeyConfig(
         api_key=getattr(settings, 'PORTKEY_API_KEY', ''),
-        model=getattr(settings, 'AI_MENTOR_MODEL', 'gemini-2.0-flash-001'),
+        model=getattr(settings, 'AI_MENTOR_MODEL', '@gemini/gemini-2.0-flash-001'),
         max_retries=getattr(settings, 'AI_MENTOR_MAX_RETRIES', 3),
         timeout=getattr(settings, 'AI_MENTOR_TIMEOUT', 30)
     )
