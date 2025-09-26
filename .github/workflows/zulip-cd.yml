@@ -169,52 +169,6 @@ jobs:
           
           echo "✅ Full deployment completed"
 
-      - name: Install AI dependencies
-        if: steps.changes.outputs.skip_deployment != 'true'
-        run: |
-          echo "🤖 Installing AI agent dependencies..."
-          
-          # Create requirements file for AI dependencies
-          cat > /tmp/ai-requirements.txt << 'EOF'
-          langgraph>=0.2.16
-          langchain-core>=0.3.0
-          langchain-openai>=0.2.0
-          portkey-ai>=1.8.0
-          langsmith>=0.4.0
-          langgraph-checkpoint>=2.1.0
-          langgraph-checkpoint-sqlite>=2.0.0
-          langgraph-prebuilt>=0.6.0
-          langgraph-sdk>=0.2.2
-          jsonpatch>=1.33,<2.0
-          tenacity>=8.1.0,!=8.4.0,<10.0.0
-          xxhash>=3.5.0
-          openai>=1.104.2,<2.0.0
-          aiosqlite>=0.20
-          EOF
-          
-          # Install AI dependencies using the requirements file
-          pip3 install -r /tmp/ai-requirements.txt
-          
-          # Verify installation
-          python3 -c "
-          try:
-              import langgraph
-              import langgraph.checkpoint.sqlite
-              import langchain_core
-              import portkey_ai
-              import langsmith
-              import openai
-              print('✅ All AI dependencies installed successfully')
-          except ImportError as e:
-              print('❌ Missing dependency:', e)
-              exit(1)
-          "
-          
-          # Clean up requirements file
-          rm -f /tmp/ai-requirements.txt
-          
-          echo "✅ AI dependencies installation completed"
-
       - name: Restart services (if needed)
         if: steps.changes.outputs.deployment_type == 'full' && steps.changes.outputs.skip_deployment != 'true'
         run: |
