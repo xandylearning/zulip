@@ -264,7 +264,7 @@ ROOT_DOMAIN_LANDING_PAGE = True
 
 # Enable ALTCHA, so that we test this flow; we can only do this on localhost.
 if external_host_env is None and not IS_DEV_DROPLET:
-    USING_CAPTCHA = True
+    USING_CAPTCHA = False
 
 TOPIC_SUMMARIZATION_MODEL = "groq/llama-3.3-70b-versatile"
 # Defaults based on groq's pricing for Llama 3.3 70B Versatile 128k.
@@ -279,16 +279,17 @@ USE_LANGGRAPH_AGENTS = True
 
 # Portkey AI Gateway Configuration
 PORTKEY_API_KEY = os.environ.get('PORTKEY_API_KEY', '')
+PORTKEY_PROVIDER = 'google'
 
 # AI Model Configuration
-AI_MENTOR_MODEL = "gpt-4"
+AI_MENTOR_MODEL = "gemini-1.5-flash"
 AI_MENTOR_TEMPERATURE = 0.7
 AI_MENTOR_MAX_TOKENS = 1000
 AI_MENTOR_MAX_RETRIES = 3
 AI_MENTOR_TIMEOUT = 30
 
 # Development-friendly thresholds (shorter delays, lower thresholds)
-AI_MENTOR_MIN_ABSENCE_MINUTES = 5  # 5 minutes for testing
+AI_MENTOR_MIN_ABSENCE_MINUTES = 1 # 5 minutes for testing
 AI_MENTOR_MAX_DAILY_RESPONSES = 10  # More responses for testing
 AI_MENTOR_URGENCY_THRESHOLD = 0.3  # Lower threshold for testing
 AI_MENTOR_CONFIDENCE_THRESHOLD = 0.3  # Lower threshold for testing

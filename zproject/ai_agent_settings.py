@@ -9,14 +9,15 @@ import os
 from typing import Dict, Any
 
 # Core agent system settings
-USE_LANGGRAPH_AGENTS = os.environ.get('USE_LANGGRAPH_AGENTS', 'False').lower() == 'true'
+USE_LANGGRAPH_AGENTS = os.environ.get('USE_LANGGRAPH_AGENTS', 'True').lower() == 'true'
 
 # Portkey AI configuration
 PORTKEY_API_KEY = os.environ.get('PORTKEY_API_KEY', '')
 PORTKEY_BASE_URL = os.environ.get('PORTKEY_BASE_URL', 'https://api.portkey.ai/v1')
+PORTKEY_PROVIDER = os.environ.get('PORTKEY_PROVIDER', 'google')
 
 # AI model configuration
-AI_MENTOR_MODEL = os.environ.get('AI_MENTOR_MODEL', 'gpt-4')
+AI_MENTOR_MODEL = os.environ.get('AI_MENTOR_MODEL', 'gemini-1.5-flash')
 AI_MENTOR_TEMPERATURE = float(os.environ.get('AI_MENTOR_TEMPERATURE', '0.7'))
 AI_MENTOR_MAX_TOKENS = int(os.environ.get('AI_MENTOR_MAX_TOKENS', '1000'))
 
@@ -27,8 +28,8 @@ AI_MENTOR_TIMEOUT = int(os.environ.get('AI_MENTOR_TIMEOUT', '30'))
 # Decision thresholds - SET TO MINIMUM FOR IMMEDIATE TESTING
 AI_MENTOR_MIN_ABSENCE_MINUTES = int(os.environ.get('AI_MENTOR_MIN_ABSENCE_MINUTES', '1'))  # 1 minute for instant testing
 AI_MENTOR_MAX_DAILY_RESPONSES = int(os.environ.get('AI_MENTOR_MAX_DAILY_RESPONSES', '100'))  # High limit for testing
-AI_MENTOR_URGENCY_THRESHOLD = float(os.environ.get('AI_MENTOR_URGENCY_THRESHOLD', '0.1'))  # Very low threshold
-AI_MENTOR_CONFIDENCE_THRESHOLD = float(os.environ.get('AI_MENTOR_CONFIDENCE_THRESHOLD', '0.1'))  # Very low threshold
+AI_MENTOR_URGENCY_THRESHOLD = float(os.environ.get('AI_MENTOR_URGENCY_THRESHOLD', '0.0'))  # No urgency threshold for testing
+AI_MENTOR_CONFIDENCE_THRESHOLD = float(os.environ.get('AI_MENTOR_CONFIDENCE_THRESHOLD', '0.01'))  # Extremely low threshold for testing
 
 # State persistence
 AI_AGENT_STATE_DB_PATH = os.environ.get('AI_AGENT_STATE_DB_PATH', '/tmp/ai_agent_state.db')
@@ -99,8 +100,8 @@ if os.environ.get('DJANGO_ENVIRONMENT') == 'development':
     # Use shorter timeouts and lower thresholds for development
     AI_MENTOR_MIN_ABSENCE_MINUTES = 1  # 1 minute for instant testing
     AI_MENTOR_MAX_DAILY_RESPONSES = 100  # High limit for testing
-    AI_MENTOR_URGENCY_THRESHOLD = 0.1  # Very low threshold for testing
-    AI_MENTOR_CONFIDENCE_THRESHOLD = 0.1  # Very low threshold for testing
+    AI_MENTOR_URGENCY_THRESHOLD = 0.0  # No urgency threshold for testing
+    AI_MENTOR_CONFIDENCE_THRESHOLD = 0.01  # Extremely low threshold for testing
 
     # Enable all features for development
     AI_AGENT_FEATURE_FLAGS.update({key: True for key in AI_AGENT_FEATURE_FLAGS})

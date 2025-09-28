@@ -1,0 +1,108 @@
+#!/bin/bash
+# AI Dependencies Installation Script for Zulip
+# This script ensures all AI agent dependencies are properly installed
+
+set -e  # Exit on any error
+
+echo "🤖 Installing AI agent dependencies for Zulip..."
+
+# Configuration
+ZULIP_DEPLOYMENT_PATH="/home/zulip/deployments/current"
+REQUIREMENTS_FILE="/tmp/ai-requirements.txt"
+VENV_PYTHON="$ZULIP_DEPLOYMENT_PATH/.venv/bin/python"
+VENV_PIP="$ZULIP_DEPLOYMENT_PATH/.venv/bin/pip"
+
+# Check if we're running as root
+if [ "$EUID" -ne 0 ]; then
+    echo "❌ This script must be run as root"
+    exit 1
+fi
+
+# Check if Zulip deployment exists
+if [ ! -d "$ZULIP_DEPLOYMENT_PATH" ]; then
+    echo "❌ Zulip deployment not found at $ZULIP_DEPLOYMENT_PATH"
+    exit 1
+fi
+
+# Check if virtual environment exists
+if [ ! -f "$VENV_PYTHON" ]; then
+    echo "❌ Zulip virtual environment not found at $VENV_PYTHON"
+    exit 1
+fi
+
+# Create requirements file
+echo "📦 Creating AI dependencies requirements file..."
+cat > "$REQUIREMENTS_FILE" << 'EOF'
+# AI Agent Dependencies for Zulip
+# Core LangGraph packages
+langgraph>=0.2.16
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+
+# LangGraph checkpoint packages
+langgraph-checkpoint>=2.1.0
+langgraph-checkpoint-sqlite>=2.0.0
+
+# Additional LangGraph packages
+langgraph-prebuilt>=0.6.0
+langgraph-sdk>=0.2.2
+
+# AI/LLM integration
+portkey-ai>=1.8.0
+langsmith>=0.4.0
+openai>=1.104.2,<2.0.0
+
+# Utility packages
+jsonpatch>=1.33,<2.0
+tenacity>=8.1.0,!=8.4.0,<10.0.0
+xxhash>=3.5.0
+aiosqlite>=0.20
+EOF
+
+# Install dependencies
+echo "📥 Installing AI dependencies..."
+"$VENV_PIP" install -r "$REQUIREMENTS_FILE"
+
+# Verify installation
+echo "🔍 Verifying AI dependencies installation..."
+"$VENV_PYTHON" -c "
+import sys
+missing = []
+
+# Test all required imports
+imports_to_test = [
+    'langgraph',
+    'langgraph.checkpoint.sqlite',
+    'langchain_core',
+    'portkey_ai',
+    'langsmith',
+    'openai',
+    'jsonpatch',
+    'tenacity',
+    'xxhash',
+    'aiosqlite'
+]
+
+for module in imports_to_test:
+    try:
+        __import__(module)
+        print(f'✅ {module}')
+    except ImportError as e:
+        missing.append(f'{module}: {e}')
+        print(f'❌ {module}: {e}')
+
+if missing:
+    print(f'\\n❌ {len(missing)} dependencies failed to import:')
+    for m in missing:
+        print(f'  - {m}')
+    sys.exit(1)
+else:
+    print('\\n✅ All AI dependencies installed and verified successfully!')
+"
+
+# Clean up
+rm -f "$REQUIREMENTS_FILE"
+
+echo "🎉 AI dependencies installation completed successfully!"
+echo "💡 You may need to restart Zulip services: sudo $ZULIP_DEPLOYMENT_PATH/scripts/restart-server"
+

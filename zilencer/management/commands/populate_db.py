@@ -426,6 +426,10 @@ class Command(ZulipBaseCommand):
                 ("Polonius", "polonius@zulip.com"),
                 ("Desdemona", "desdemona@zulip.com"),
                 ("शिव", "shiva@zulip.com"),
+                ("Test Student", "student@zulip.com"),
+                ("Test Mentor", "mentor@zulip.com"),
+                ("Test Parent", "parent@zulip.com"),
+                ("Test Faculty", "faculty@zulip.com"),
             ]
 
             # For testing really large batches:
@@ -583,6 +587,19 @@ class Command(ZulipBaseCommand):
             polonius = get_user_by_delivery_email("polonius@zulip.com", zulip_realm)
             do_change_user_role(polonius, UserProfile.ROLE_STUDENT, acting_user=None)
 
+            # Add custom role users for testing
+            student = get_user_by_delivery_email("student@zulip.com", zulip_realm)
+            do_change_user_role(student, UserProfile.ROLE_STUDENT, acting_user=None)
+
+            mentor = get_user_by_delivery_email("mentor@zulip.com", zulip_realm)
+            do_change_user_role(mentor, UserProfile.ROLE_MENTOR, acting_user=None)
+
+            parent = get_user_by_delivery_email("parent@zulip.com", zulip_realm)
+            do_change_user_role(parent, UserProfile.ROLE_PARENT, acting_user=None)
+
+            faculty = get_user_by_delivery_email("faculty@zulip.com", zulip_realm)
+            do_change_user_role(faculty, UserProfile.ROLE_FACULTY, acting_user=None)
+
             # These bots are directly referenced from code and thus
             # are needed for the test suite.
             zulip_realm_bots = [
@@ -708,6 +725,10 @@ class Command(ZulipBaseCommand):
                         zulip_sandbox_channel_name,
                     ],
                     "shiva@zulip.com": ["Verona", "Denmark", "Scotland"],
+                    "student@zulip.com": ["Verona"],
+                    "mentor@zulip.com": ["Verona", "Denmark", "Scotland", "Venice"],
+                    "parent@zulip.com": ["Verona", "Denmark"],
+                    "faculty@zulip.com": ["Verona", "Denmark", "Scotland", "Venice", "Rome"],
                 }
 
                 for profile in profiles:

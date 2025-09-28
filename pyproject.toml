@@ -188,10 +188,10 @@ prod = [
   "litellm",
 
   # For LangGraph AI agent workflows and Portkey integration
-  "langgraph>=0.2.16",
-  "langchain-core>=0.3.0",
+  "langgraph>=0.6.7",
+  "langchain-core>=0.3.76",
   "langchain-openai>=0.2.0",
-  "portkey-ai>=1.8.0",
+  "portkey-ai>=1.15.1",
   "langsmith>=0.4.0",
   "langgraph-checkpoint>=2.1.0",
   "langgraph-checkpoint-sqlite>=2.0.0",

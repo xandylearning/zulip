@@ -203,6 +203,9 @@ class zulip::app_frontend_base {
 
   $tusd_server_listen = zulipconf('application_server', 'tusd_server_listen', '127.0.0.1')
 
+  # AI Mentor Worker configuration
+  $ai_mentor_worker_enabled = zulipconf('application_server', 'ai_mentor_worker_enabled', false)
+
   if $proxy_host != '' and $proxy_port != '' {
     $proxy = "http://${proxy_host}:${proxy_port}"
   } else {

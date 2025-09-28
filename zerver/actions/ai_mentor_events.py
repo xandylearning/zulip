@@ -19,6 +19,65 @@ from zerver.tornado.django_api import send_event_on_commit
 logger = logging.getLogger(__name__)
 
 
+def send_async_ai_response(event_data: Dict[str, Any]) -> None:
+    """
+    Asynchronously send AI-generated response to student
+    
+    This function is called by the queue worker to send AI responses
+    without blocking the main request processing.
+    """
+    try:
+        from zerver.actions.message_send import check_send_message
+        from zerver.models.clients import get_client
+        
+        mentor_id = event_data["mentor_id"]
+        student_id = event_data["student_id"]
+        ai_response = event_data["ai_response"]
+        response_metadata = event_data.get("response_metadata", {})
+        
+        # Get user profiles
+        mentor = UserProfile.objects.get(id=mentor_id)
+        student = UserProfile.objects.get(id=student_id)
+        
+        # Add natural delay to make response feel more authentic
+        # import time
+        # import random
+        # delay = random.uniform(2, 8)  # 2-8 second delay
+        # time.sleep(delay)
+        
+        # Send the AI response
+        ai_message_id = check_send_message(
+            sender=mentor,
+            client=get_client("AI Agent"),
+            recipient_type_name='private',
+            message_to=[student.email],
+            topic_name=None,
+            message_content=ai_response,
+            realm=mentor.realm,
+            forwarder_user_profile=None,
+            local_id=None,
+            sender_queue_id=None,
+            widget_content=None,
+        )
+        
+        logger.info(f"Async AI response sent: message_id={ai_message_id}, mentor={mentor_id}, student={student_id}")
+        
+        # Send notification events
+        send_ai_mentor_response_event(
+            realm=mentor.realm,
+            mentor=mentor,
+            student=student,
+            original_message="",  # Not available in async context
+            ai_response=ai_response,
+            style_confidence=response_metadata.get("confidence", 0.0),
+            decision_reason="auto_response_generated",
+            message_id=ai_message_id.message_id,
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to send async AI response: {e}", exc_info=True)
+
+
 def send_ai_mentor_response_event(
     realm: Realm,
     mentor: UserProfile,
@@ -266,9 +325,10 @@ def send_ai_agent_conversation_event(
     ai_response_data: Dict[str, Any],
 ) -> None:
     """
-    Send event to trigger AI agent conversation processing
+    Send event to trigger AI agent conversation processing ASYNCHRONOUSLY
 
-    This event initiates the AI agent workflow for generating mentor responses.
+    This event initiates the AI agent workflow for generating mentor responses
+    without blocking the main message sending process.
     """
     event = {
         "type": "ai_agent_conversation",
@@ -298,22 +358,28 @@ def send_ai_agent_conversation_event(
         "realm_id": realm.id,
     }
 
-    # Send to specialized AI agent event handler (not general users)
-    # This will be processed by the AI agent event listener
-    send_event_on_commit(realm, event, [])
-
-    # Dispatch to AI agent event listener immediately for processing
+    # Queue the AI processing for async execution to avoid blocking message sending
     try:
-        from zerver.event_listeners.ai_mentor import handle_ai_agent_conversation
-        handle_ai_agent_conversation(event)
+        from zerver.lib.queue import queue_json_publish_rollback_unsafe
+        
+        # Queue AI processing for async execution using the same queue as responses
+        queue_json_publish_rollback_unsafe(
+            "ai_mentor_responses",
+            {
+                "type": "ai_agent_conversation",
+                "event_data": event,
+                "timestamp": timezone_now().isoformat(),
+            }
+        )
+        
+        logger.info(
+            f"AI agent conversation queued for async processing: mentor={mentor.id}, student={student.id}, "
+            f"message_id={ai_response_data.get('original_message_id')}"
+        )
+        
     except Exception as e:
-        logger.error(f"Failed to dispatch AI agent conversation event: {e}", exc_info=True)
-
-    # Log the conversation trigger
-    logger.info(
-        f"AI agent conversation event triggered: mentor={mentor.id}, student={student.id}, "
-        f"message_id={ai_response_data.get('original_message_id')}"
-    )
+        logger.error(f"Failed to queue AI agent conversation for async processing: {e}", exc_info=True)
+        # Don't fail message sending if AI queuing fails
 
 
 def send_ai_mentor_feedback_event(

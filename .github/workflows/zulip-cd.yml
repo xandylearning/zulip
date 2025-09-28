@@ -164,7 +164,6 @@ jobs:
           # Run official Zulip upgrade script (requires root privileges)
           sudo ${{ env.DEPLOYMENT_PATH }}/scripts/upgrade-zulip-from-git \
             --remote-url "${ZULIP_GIT_REPO_URL}" \
-            --skip-puppet \
             "${ZULIP_GIT_BRANCH}"
           
           echo "✅ Full deployment completed"

@@ -153,14 +153,18 @@ class AIMentorEventHandler(BaseEventHandler):
 
             # Create AI agent orchestrator and process
             try:
+                logger.info(f"Creating AI agent orchestrator for mentor={mentor.id}, student={student.id}")
                 orchestrator = create_ai_agent_orchestrator()
+                logger.info(f"AI agent orchestrator created successfully with model: {orchestrator.portkey_config.model}")
 
                 # Process the student message through the AI agent system
+                logger.info(f"Processing student message: '{original_message[:50]}...' (length: {len(original_message)})")
                 result = orchestrator.process_student_message(
                     student_id=student.id,
                     mentor_id=mentor.id,
                     message_content=original_message
                 )
+                logger.info(f"AI agent processing result: {result}")
 
                 if result.get("success"):
                     logger.info(
@@ -168,6 +172,28 @@ class AIMentorEventHandler(BaseEventHandler):
                         f"auto_response={result.get('should_auto_respond', False)}, "
                         f"decision={result.get('decision_reason', 'unknown')}"
                     )
+                    
+                    # Send AI response asynchronously if the agent decided to auto-respond
+                    if result.get("should_auto_respond") and result.get("final_response"):
+                        # Schedule async message sending
+                        from zerver.lib.queue import queue_json_publish_rollback_unsafe
+                        from django.utils.timezone import now as timezone_now
+                        
+                        # Queue the message sending for async processing
+                        queue_json_publish_rollback_unsafe(
+                            "ai_mentor_responses",
+                            {
+                                "type": "send_ai_response",
+                                "mentor_id": mentor.id,
+                                "student_id": student.id,
+                                "ai_response": result["final_response"],
+                                "response_metadata": result.get("response_metadata", {}),
+                                "timestamp": timezone_now().isoformat(),
+                            }
+                        )
+                        
+                        logger.info(f"AI response queued for async delivery: mentor={mentor.id}, student={student.id}")
+                    
                     return True
                 else:
                     logger.warning(

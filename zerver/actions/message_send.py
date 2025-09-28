@@ -120,6 +120,8 @@ from zerver.models.streams import (
 from zerver.models.users import get_system_bot, get_user_by_delivery_email, is_cross_realm_bot_email
 from zerver.tornado.django_api import send_event_on_commit
 
+logger = logging.getLogger(__name__)
+
 
 def compute_irc_user_fullname(email: str) -> str:
     return Address(addr_spec=email).username + " (IRC)"
@@ -1261,9 +1263,12 @@ def do_send_messages(
 
     # AI Agent Integration: Check for potential AI mentor responses
     # Only attempt if AI agent system is enabled and available
+    # NOTE: AI processing is now completely asynchronous and will NOT block message sending
     ai_integration_enabled = getattr(settings, 'USE_LANGGRAPH_AGENTS', False)
+    logging.getLogger(__name__).info(f"AI agent integration enabled: {ai_integration_enabled}")
 
     if ai_integration_enabled:
+        logging.getLogger(__name__).info("AI agent integration enabled, queuing AI mentor responses for async processing")
         for send_request in send_message_requests:
             try:
                 # Only process if this is a student-to-mentor direct message
@@ -1277,7 +1282,7 @@ def do_send_messages(
                     message.recipient.type == Recipient.PERSONAL and
                     message.sender.role == UserProfile.ROLE_STUDENT and
                     message.recipient.type_id is not None):
-
+                    logger.info("Message is a student-to-mentor direct message, checking for potential AI mentor responses")
                     # Validate type_id is a valid integer
                     try:
                         recipient_id = int(message.recipient.type_id)
