@@ -17,7 +17,7 @@ PORTKEY_BASE_URL = os.environ.get('PORTKEY_BASE_URL', 'https://api.portkey.ai/v1
 PORTKEY_PROVIDER = os.environ.get('PORTKEY_PROVIDER', 'google')
 
 # AI model configuration
-AI_MENTOR_MODEL = os.environ.get('AI_MENTOR_MODEL', 'gemini-1.5-flash')
+AI_MENTOR_MODEL = os.environ.get('AI_MENTOR_MODEL', 'gemini-2.0-flash-lite')
 AI_MENTOR_TEMPERATURE = float(os.environ.get('AI_MENTOR_TEMPERATURE', '0.7'))
 AI_MENTOR_MAX_TOKENS = int(os.environ.get('AI_MENTOR_MAX_TOKENS', '1000'))
 

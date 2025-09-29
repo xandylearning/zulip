@@ -282,7 +282,7 @@ PORTKEY_API_KEY = os.environ.get('PORTKEY_API_KEY', '')
 PORTKEY_PROVIDER = 'google'
 
 # AI Model Configuration
-AI_MENTOR_MODEL = "gemini-1.5-flash"
+AI_MENTOR_MODEL = "gemini-2.0-flash-lite"
 AI_MENTOR_TEMPERATURE = 0.7
 AI_MENTOR_MAX_TOKENS = 1000
 AI_MENTOR_MAX_RETRIES = 3

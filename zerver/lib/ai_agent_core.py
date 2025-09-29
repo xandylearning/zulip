@@ -172,7 +172,7 @@ class PortkeyConfig:
     """Configuration for Portkey AI integration"""
     api_key: str
     base_url: str = "https://api.portkey.ai/v1"
-    model: str = "gemini-1.5-flash"  # Use a stable, available model
+    model: str = "gemini-2.0-flash-lite"  # Use a stable, available model
     max_retries: int = 2  # Reduced from 3
     timeout: int = 10  # Reduced from 30 seconds
 
