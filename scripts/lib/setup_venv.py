@@ -25,21 +25,21 @@ VENV_DEPENDENCIES = [
     "libvips",  # For thumbnailing
     "libvips-tools",
 
-      # For LangGraph AI agent workflows and Portkey integration
-  "langgraph>=0.6.7",
-  "langchain-core>=0.3.76",
-  "langchain-openai>=0.2.0",
-  "portkey-ai>=1.15.1",
-  "langsmith>=0.4.0",
-  "langgraph-checkpoint>=2.1.0",
-  "langgraph-checkpoint-sqlite>=2.0.0",
-  "langgraph-prebuilt>=0.6.0",
-  "langgraph-sdk>=0.2.2",
-  "jsonpatch>=1.33,<2.0",
-  "tenacity>=8.1.0,!=8.4.0,<10.0.0",
-  "xxhash>=3.5.0",
-  "openai>=1.104.2,<2.0.0",
-  "aiosqlite>=0.20",
+#       # For LangGraph AI agent workflows and Portkey integration
+#   "langgraph>=0.6.7",
+#   "langchain-core>=0.3.76",
+#   "langchain-openai>=0.2.0",
+#   "portkey-ai>=1.15.1",
+#   "langsmith>=0.4.0",
+#   "langgraph-checkpoint>=2.1.0",
+#   "langgraph-checkpoint-sqlite>=2.0.0",
+#   "langgraph-prebuilt>=0.6.0",
+#   "langgraph-sdk>=0.2.2",
+#   "jsonpatch>=1.33,<2.0",
+#   "tenacity>=8.1.0,!=8.4.0,<10.0.0",
+#   "xxhash>=3.5.0",
+#   "openai>=1.104.2,<2.0.0",
+#   "aiosqlite>=0.20",
 ]
 
 COMMON_YUM_VENV_DEPENDENCIES = [
