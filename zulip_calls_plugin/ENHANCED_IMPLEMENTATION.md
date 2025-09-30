@@ -1,17 +1,27 @@
 # Zulip Calls Plugin - Enhanced Jitsi Backend Implementation
 
-This document describes the enhanced backend implementation for comprehensive Jitsi video/audio calling functionality in the Zulip Calls Plugin.
+This document describes the enhanced backend implementation for comprehensive Jitsi video/audio calling functionality in the Zulip Calls Plugin with **complete WebSocket integration**.
 
 ## Overview
 
 The enhanced implementation provides:
-- Complete call lifecycle management
-- Enhanced push notifications
-- Real-time event system
-- Call history tracking
-- Automatic call cleanup
-- Robust error handling
-- Security features
+- Complete call lifecycle management with real-time WebSocket events
+- **NEW**: Call acknowledgment system (ringing status)
+- **NEW**: Real-time status updates during active calls
+- **NEW**: Full WebSocket integration using Zulip's event system
+- Enhanced push notifications with FCM support
+- Call history tracking with detailed events
+- Automatic call cleanup and timeout handling
+- Robust error handling and validation
+- Security features and authentication
+
+## Recent Updates (WebSocket Integration)
+
+### ✅ **Complete Sequence Diagram Implementation**
+The plugin now **100% matches** the provided sequence diagram with:
+- All 5 required API endpoints implemented
+- Real-time WebSocket events for live call status
+- Complete call flow from initiation → acknowledgment → response → status updates → termination
 
 ## Key Changes Made
 
@@ -27,18 +37,31 @@ The enhanced implementation provides:
 
 ### 2. New API Endpoints (`views/calls.py`)
 
+**Core Endpoints (Sequence Diagram Compliant):**
+- `POST /api/v1/calls/initiate` - Quick call initiation with WebSocket events
+- `POST /api/v1/calls/acknowledge` - **NEW**: Acknowledge call receipt (ringing status)
+- `POST /api/v1/calls/respond` - Accept/reject calls with real-time events
+- `POST /api/v1/calls/status` - **NEW**: Update call status during active calls
+- `POST /api/v1/calls/end` - End active calls with notifications
+
 **Enhanced Endpoints:**
 - `POST /api/v1/calls/start` - Start a new call with full validation
-- `POST /api/v1/calls/respond` - Accept/reject calls with real-time events
-- `POST /api/v1/calls/end` - End active calls
+- `POST /api/v1/calls/create` - Full call creation with database tracking
 - `GET /api/v1/calls/history` - Enhanced call history with pagination
+- `GET /api/v1/calls/active` - Get user's active calls
+- `POST /api/v1/calls/end-all` - End all user's active calls
+
+**WebSocket Integration:**
+- **Real-time events**: `participant_ringing`, `call_accepted`, `call_rejected`, `call_ended`, `call_status_update`
+- **Event system**: Uses Zulip's native `send_event_on_commit()` for reliable delivery
+- **Comprehensive data**: Events include full call context and participant information
 
 **Features:**
 - Comprehensive validation and error handling
-- Push notification integration
-- Real-time event system using Zulip's event framework
-- Transaction safety
-- Detailed logging
+- Enhanced push notification integration (FCM + legacy)
+- **NEW**: Real-time WebSocket event system using Zulip's event framework
+- Transaction safety with atomic operations
+- Detailed logging and event tracking
 
 ### 3. Call Cleanup Management (`management/commands/cleanup_calls.py`)
 

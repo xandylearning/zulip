@@ -22,6 +22,8 @@ from ..views.calls import (
     end_all_user_calls,
     cleanup_stale_calls_endpoint,
     get_user_active_calls,
+    acknowledge_call,
+    update_call_status,
 )
 
 # Plugin URL patterns for call functionality
@@ -54,4 +56,8 @@ urlpatterns = [
     path("api/v1/calls/end-all", end_all_user_calls, name="end_all_user_calls"),
     path("api/v1/calls/cleanup", cleanup_stale_calls_endpoint, name="cleanup_stale_calls"),
     path("api/v1/calls/active", get_user_active_calls, name="get_user_active_calls"),
+
+    # New endpoints to match sequence diagram
+    path("api/v1/calls/acknowledge", acknowledge_call, name="acknowledge_call"),
+    path("api/v1/calls/status", update_call_status, name="update_call_status"),
 ]

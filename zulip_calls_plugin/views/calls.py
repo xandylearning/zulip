@@ -24,6 +24,7 @@ from zerver.models.users import get_user_by_delivery_email
 from zerver.lib.push_notifications import send_push_notifications
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.response import json_success
+from zerver.tornado.django_api import send_event_on_commit
 
 # Import plugin models
 from ..models import Call, CallEvent
@@ -307,11 +308,42 @@ def send_call_response_notification(user_profile: UserProfile, call: Call, respo
         logger.error(f"Failed to send call response notification: {str(e)}")
 
 
-def send_call_event(user_profile: UserProfile, call: Call, event_type: str) -> None:
-    """Send real-time event about call status - simplified version"""
-    # For now, just log the event. In a full implementation, this would integrate
-    # with Zulip's real-time event system
-    logger.info(f"Call event {event_type} for call {call.call_id} to user {user_profile.id}")
+def send_call_event(user_profile: UserProfile, call: Call, event_type: str, extra_data: dict = None) -> None:
+    """Send real-time WebSocket event about call status using Zulip's event system"""
+    try:
+        # Prepare event data for WebSocket
+        event_data = {
+            'type': 'call_event',
+            'event_type': event_type,
+            'call_id': str(call.call_id),
+            'call_type': call.call_type,
+            'sender_id': call.sender.id,
+            'sender_name': call.sender.full_name,
+            'receiver_id': call.receiver.id,
+            'receiver_name': call.receiver.full_name,
+            'jitsi_url': call.jitsi_room_url,
+            'state': call.state,
+            'created_at': call.created_at.isoformat(),
+            'timestamp': timezone.now().isoformat(),
+        }
+
+        # Add extra data if provided
+        if extra_data:
+            event_data.update(extra_data)
+
+        # Send WebSocket event to the user
+        send_event_on_commit(
+            realm=user_profile.realm,
+            event=event_data,
+            users=[user_profile.id]
+        )
+
+        logger.info(f"WebSocket call event {event_type} sent to user {user_profile.id} for call {call.call_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to send call event: {str(e)}")
+        # Fallback to logging
+        logger.info(f"Call event {event_type} for call {call.call_id} to user {user_profile.id}")
 
 
 def cleanup_stale_calls() -> int:
@@ -1685,8 +1717,8 @@ def start_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
         }
         send_call_push_notification(receiver, notification_data)
 
-        # Send real-time event to receiver
-        send_call_event(receiver, call, 'call_started')
+        # Send real-time WebSocket event to receiver
+        send_call_event(receiver, call, 'participant_ringing')
 
         logger.info(f"Call started: {call_id} from {user_profile.id} to {receiver.id}")
 
@@ -1737,10 +1769,12 @@ def respond_to_call(request: HttpRequest, user_profile: UserProfile) -> JsonResp
         # Send notification to sender
         send_call_response_notification(call.sender, call, response)
 
-        # Send real-time events
-        send_call_event(call.sender, call, f'call_{response}d')
+        # Send real-time WebSocket events
         if response == 'accept':
+            send_call_event(call.sender, call, 'call_accepted')
             send_call_event(call.receiver, call, 'call_accepted')
+        else:
+            send_call_event(call.sender, call, 'call_rejected')
 
         logger.info(f"Call {call_id} {response}ed by {user_profile.id}")
 
@@ -1785,9 +1819,10 @@ def end_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
             call.ended_at = timezone.now()
             call.save()
 
-        # Notify other participant
+        # Send WebSocket event to other participant
         other_user = call.receiver if call.sender == user_profile else call.sender
         send_call_event(other_user, call, 'call_ended')
+        send_call_event(user_profile, call, 'call_ended')
 
         logger.info(f"Call {call_id} ended by {user_profile.id}")
 
@@ -1976,4 +2011,125 @@ def get_user_active_calls(request: HttpRequest, user_profile: UserProfile) -> Js
 
     except Exception as e:
         logger.error(f"Error getting active calls: {str(e)}")
+        raise
+
+
+@csrf_exempt
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def acknowledge_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """
+    Acknowledge receipt of call notification (sets status to 'ringing')
+    """
+    try:
+        call_id = (request.POST.get("call_id") or request.GET.get("call_id") or "").strip()
+        status = (request.POST.get("status") or request.GET.get("status") or "").strip()
+
+        if not call_id:
+            raise JsonableError("Missing required parameter: call_id")
+        if status not in ['ringing']:
+            raise JsonableError("Invalid status. Must be 'ringing'")
+
+        # Get call
+        try:
+            call = Call.objects.get(call_id=call_id, receiver=user_profile)
+        except Call.DoesNotExist:
+            raise JsonableError("Call not found or you're not the receiver")
+
+        # Check if call can be acknowledged
+        if call.state not in ['calling', 'initiated']:
+            raise JsonableError(f"Call cannot be acknowledged. Current status: {call.state}")
+
+        # Update call state to ringing
+        with transaction.atomic():
+            call.state = 'ringing'
+            call.save()
+
+            # Create acknowledgment event
+            CallEvent.objects.create(
+                call=call,
+                event_type='acknowledged',
+                user=user_profile,
+                metadata={'status': status}
+            )
+
+        # Send WebSocket event to sender (participant_ringing)
+        send_call_event(call.sender, call, 'participant_ringing', {
+            'receiver_name': user_profile.full_name,
+            'receiver_id': user_profile.id
+        })
+
+        logger.info(f"Call {call_id} acknowledged by {user_profile.id}")
+
+        return JsonResponse({
+            'result': 'success',
+            'call_status': call.state,
+            'message': 'Call acknowledged successfully'
+        })
+
+    except Exception as e:
+        logger.error(f"Error acknowledging call: {str(e)}")
+        raise
+
+
+@csrf_exempt
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def update_call_status(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """
+    Update call status during active call (connected, on_hold, etc.)
+    """
+    try:
+        call_id = (request.POST.get("call_id") or request.GET.get("call_id") or "").strip()
+        status = (request.POST.get("status") or request.GET.get("status") or "").strip()
+
+        if not call_id:
+            raise JsonableError("Missing required parameter: call_id")
+        if status not in ['connected', 'on_hold', 'muted', 'video_disabled', 'screen_sharing']:
+            raise JsonableError("Invalid status. Must be one of: connected, on_hold, muted, video_disabled, screen_sharing")
+
+        # Get call where user is either sender or receiver
+        try:
+            call = Call.objects.get(
+                models.Q(call_id=call_id) &
+                (models.Q(sender=user_profile) | models.Q(receiver=user_profile))
+            )
+        except Call.DoesNotExist:
+            raise JsonableError("Call not found")
+
+        # Only update status if call is active
+        if call.state not in ['accepted', 'active']:
+            raise JsonableError(f"Call is not active. Current status: {call.state}")
+
+        # Create status update event
+        with transaction.atomic():
+            CallEvent.objects.create(
+                call=call,
+                event_type='status_update',
+                user=user_profile,
+                metadata={'status': status, 'previous_state': call.state}
+            )
+
+            # Update call state to connected if this is the first status update
+            if status == 'connected' and call.state != 'connected':
+                call.state = 'connected'
+                call.save()
+
+        # Send WebSocket event to other participant
+        other_user = call.receiver if call.sender == user_profile else call.sender
+        send_call_event(other_user, call, 'call_status_update', {
+            'status': status,
+            'updated_by_id': user_profile.id,
+            'updated_by_name': user_profile.full_name
+        })
+
+        logger.info(f"Call {call_id} status updated to {status} by {user_profile.id}")
+
+        return JsonResponse({
+            'result': 'success',
+            'call_status': call.state,
+            'status': status,
+            'message': 'Call status updated successfully'
+        })
+
+    except Exception as e:
+        logger.error(f"Error updating call status: {str(e)}")
         raise

@@ -11,6 +11,8 @@ from .calls import (
     embedded_call_view,
     get_embedded_calls_script,
     get_calls_override_script,
+    acknowledge_call,
+    update_call_status,
 )
 
 __all__ = [
@@ -24,4 +26,6 @@ __all__ = [
     "embedded_call_view",
     "get_embedded_calls_script",
     "get_calls_override_script",
+    "acknowledge_call",
+    "update_call_status",
 ]
