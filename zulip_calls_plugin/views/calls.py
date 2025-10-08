@@ -567,30 +567,42 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                     "message": "recipient_email is required"
                 }, status=400)
 
-            # Find recipient with domain flexibility
+            # Alternative implementation: Use a more robust user lookup approach
             recipient = None
             tried_emails = []
-
-            # Try the email as provided - use email field for API compatibility
-            try:
-                recipient = get_user_by_delivery_email(recipient_email, user_profile.realm)
-            except UserProfile.DoesNotExist:
-                # Fallback: try to find by the public email field
+            
+            # Method 1: Direct lookup by user ID if recipient_email is numeric
+            if recipient_email.isdigit():
                 try:
-                    recipient = UserProfile.objects.get(email=recipient_email, realm=user_profile.realm)
-                    logger.info(f"Found user by public email field: '{recipient_email}'")
+                    recipient = UserProfile.objects.get(id=int(recipient_email), realm=user_profile.realm)
+                    logger.info(f"Found user by ID: {recipient_email}")
+                except UserProfile.DoesNotExist:
+                    tried_emails.append(f"ID:{recipient_email}")
+            
+            # Method 2: Lookup by delivery email
+            if not recipient:
+                try:
+                    recipient = get_user_by_delivery_email(recipient_email, user_profile.realm)
+                    logger.info(f"Found user by delivery_email: '{recipient_email}'")
                 except UserProfile.DoesNotExist:
                     tried_emails.append(recipient_email)
-
-                # Try multiple domain variations
+            
+            # Method 3: Lookup by public email field
+            if not recipient:
+                try:
+                    recipient = UserProfile.objects.get(email=recipient_email, realm=user_profile.realm)
+                    logger.info(f"Found user by public email: '{recipient_email}'")
+                except UserProfile.DoesNotExist:
+                    tried_emails.append(recipient_email)
+            
+            # Method 4: Try domain variations
+            if not recipient:
                 domain_variations = []
-
                 if "@dev.zulip.xandylearning.in" in recipient_email:
-                    # Try Gmail for dev.zulip.xandylearning.in users
                     username = recipient_email.split('@')[0]
                     domain_variations = [
                         f"{username}@gmail.com",
-                        f"{username}@zulip.com",
+                        f"{username}@zulip.com", 
                         f"{username}@zulipdev.com"
                     ]
                 elif "@zulipdev.com" in recipient_email:
@@ -601,7 +613,14 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                 for alternative_email in domain_variations:
                     try:
                         recipient = get_user_by_delivery_email(alternative_email, user_profile.realm)
-                        logger.info(f"Found user with alternative email: '{alternative_email}' instead of '{recipient_email}'")
+                        logger.info(f"Found user with alternative delivery email: '{alternative_email}'")
+                        break
+                    except UserProfile.DoesNotExist:
+                        pass
+                    
+                    try:
+                        recipient = UserProfile.objects.get(email=alternative_email, realm=user_profile.realm)
+                        logger.info(f"Found user with alternative public email: '{alternative_email}'")
                         break
                     except UserProfile.DoesNotExist:
                         tried_emails.append(alternative_email)
