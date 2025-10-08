@@ -640,8 +640,8 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
 
             # Check for existing active calls
             existing_call = Call.objects.filter(
-                models.Q(initiator=user_profile, recipient=recipient) |
-                models.Q(initiator=recipient, recipient=user_profile),
+                models.Q(sender=user_profile, receiver=recipient) |
+                models.Q(sender=recipient, receiver=user_profile),
                 state__in=["initiated", "ringing", "active"]
             ).first()
 
@@ -655,8 +655,8 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
             # Create call record
             call = Call.objects.create(
                 call_type="video" if is_video_call else "audio",
-                initiator=user_profile,
-                recipient=recipient,
+                sender=user_profile,
+                receiver=recipient,
                 jitsi_room_name=f"zulip-call-{uuid.uuid4().hex[:12]}",
                 realm=user_profile.realm
             )
@@ -962,21 +962,21 @@ def get_call_history(request: HttpRequest, user_profile: UserProfile) -> JsonRes
         limit = min(int(request.GET.get("limit", 50)), 100)
         offset = int(request.GET.get("offset", 0))
 
-        # Get calls where user was initiator or recipient
+        # Get calls where user was sender or receiver
         calls = Call.objects.filter(
-            models.Q(initiator=user_profile) | models.Q(recipient=user_profile),
+            models.Q(sender=user_profile) | models.Q(receiver=user_profile),
             realm=user_profile.realm
         ).order_by("-created_at")[offset:offset + limit]
 
         call_list = []
         for call in calls:
-            other_user = call.recipient if call.initiator.id == user_profile.id else call.initiator
+            other_user = call.receiver if call.sender.id == user_profile.id else call.sender
 
             call_list.append({
                 "call_id": str(call.call_id),
                 "call_type": call.call_type,
                 "state": call.state,
-                "was_initiator": call.initiator.id == user_profile.id,
+                "was_initiator": call.sender.id == user_profile.id,
                 "other_user": {
                     "user_id": other_user.id,
                     "full_name": other_user.full_name,
