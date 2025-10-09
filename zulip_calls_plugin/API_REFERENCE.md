@@ -136,8 +136,8 @@ curl -X POST "https://your-zulip.com/api/v1/calls/acknowledge" \
 
 **Notes**:
 - Only the call recipient can acknowledge
-- Call must be in 'calling' or 'initiated' state
-- Creates a 'acknowledged' event in call history
+- Call must be in 'calling' state
+- Creates an 'acknowledged' event in call history
 
 ---
 
@@ -175,8 +175,8 @@ curl -X POST "https://your-zulip.com/api/v1/calls/acknowledge" \
 ```
 
 **WebSocket Events**:
-- Accept: Sends `call_accepted` to both participants
-- Reject: Sends `call_rejected` to caller
+- Accept: Sends `accepted` to both participants
+- Reject: Sends `declined` to caller
 
 **Example**:
 ```bash
@@ -293,7 +293,7 @@ curl -X POST "https://your-zulip.com/api/v1/calls/status" \
 }
 ```
 
-**WebSocket Event**: Sends `call_ended` to both participants
+**WebSocket Event**: Sends `ended` to both participants
 
 **Example**:
 ```bash
@@ -340,12 +340,12 @@ curl -X POST "https://your-zulip.com/api/v1/calls/end" \
     "created_at": "2024-01-01T12:00:00Z",
     "started_at": "2024-01-01T12:00:30Z",
     "ended_at": null,
-    "initiator": {
+    "sender": {
       "user_id": 123,
       "full_name": "John Doe",
       "email": "caller@example.com"
     },
-    "recipient": {
+    "receiver": {
       "user_id": 456,
       "full_name": "Jane Smith",
       "email": "recipient@example.com"
@@ -443,7 +443,7 @@ The plugin sends real-time WebSocket events through Zulip's event system. Connec
 ```json
 {
   "type": "call_event",
-  "event_type": "participant_ringing|call_accepted|call_rejected|call_ended|call_status_update",
+  "event_type": "participant_ringing|accepted|declined|ended|cancelled|missed|timeout|call_status_update",
   "call_id": "abc123-def456-ghi789",
   "call_type": "video",
   "sender_id": 123,
@@ -451,7 +451,7 @@ The plugin sends real-time WebSocket events through Zulip's event system. Connec
   "receiver_id": 456,
   "receiver_name": "Jane Smith",
   "jitsi_url": "https://meet.jit.si/zulip-call-abc123",
-  "state": "calling|ringing|accepted|connected|ended",
+  "state": "calling|ringing|accepted|missed|timeout|cancelled|ended",
   "created_at": "2024-01-01T12:00:00Z",
   "timestamp": "2024-01-01T12:00:30Z"
 }
@@ -464,7 +464,10 @@ The plugin sends real-time WebSocket events through Zulip's event system. Connec
 | `participant_ringing` | Call acknowledged by recipient | `/acknowledge` | Caller |
 | `call_accepted` | Call accepted by recipient | `/respond` (accept) | Both participants |
 | `call_rejected` | Call rejected by recipient | `/respond` (reject) | Caller |
-| `call_ended` | Call terminated | `/end` | Both participants |
+| `ended` | Call terminated | `/end` | Both participants |
+| `cancelled` | Call cancelled by sender | `/cancel` | Both participants |
+| `missed` | Call missed by recipient (no answer) | cleanup | Both participants |
+| `timeout` | Call timed out (stuck active) | cleanup | Both participants |
 | `call_status_update` | Status changed during call | `/status` | Other participant |
 
 ### WebSocket Connection

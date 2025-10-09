@@ -40,7 +40,7 @@ class CallsPluginConfig:
         """Get default Jitsi integration settings"""
         return {
             # Jitsi Integration Settings
-            'JITSI_SERVER_URL': "https://meet.jit.si",  # Replace with your Jitsi server
+            'JITSI_SERVER_URL': "https://dev.meet.xandylearning.in",  # Custom Jitsi server
             'JITSI_MEETING_PREFIX': "zulip-call-",
             'JITSI_API_ENABLED': True,
 

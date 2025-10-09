@@ -77,9 +77,10 @@ Ensure your Zulip server has FCM configured for mobile push notifications. The p
 |----------|--------|-------------|------------------|
 | `/api/v1/calls/initiate` | POST | Quick call creation and notification | `participant_ringing` |
 | `/api/v1/calls/acknowledge` | POST | **NEW**: Acknowledge call receipt | `participant_ringing` |
-| `/api/v1/calls/respond` | POST | Accept/decline call invitation | `call_accepted`, `call_rejected` |
+| `/api/v1/calls/respond` | POST | Accept/decline call invitation | `accepted`, `declined` |
 | `/api/v1/calls/status` | POST | **NEW**: Update call status during call | `call_status_update` |
-| `/api/v1/calls/end` | POST | End ongoing call | `call_ended` |
+| `/api/v1/calls/end` | POST | End ongoing call | `ended` |
+| `/api/v1/calls/{id}/cancel` | POST | Cancel an outgoing call while calling/ringing | `cancelled` |
 | `/api/v1/calls/create` | POST | Full call creation with tracking | `participant_ringing` |
 | `/api/v1/calls/create-embedded` | POST | Create embedded call for web UI | `participant_ringing` |
 | `/api/v1/calls/{id}/status` | GET | Get current call status | - |
@@ -211,7 +212,7 @@ This plugin is designed to work with the Zulip Flutter mobile app. The Flutter a
 ```json
 {
   "type": "call_event",
-  "event_type": "participant_ringing|call_accepted|call_rejected|call_ended|call_status_update",
+  "event_type": "participant_ringing|accepted|declined|ended|cancelled|missed|timeout|call_status_update",
   "call_id": "uuid-string",
   "call_type": "video",
   "sender_id": 123,
@@ -219,7 +220,7 @@ This plugin is designed to work with the Zulip Flutter mobile app. The Flutter a
   "receiver_id": 456,
   "receiver_name": "Jane Smith",
   "jitsi_url": "https://meet.jit.si/zulip-call-abc123",
-  "state": "calling|ringing|accepted|connected|ended",
+  "state": "calling|ringing|accepted|missed|timeout|cancelled|ended",
   "timestamp": "2024-01-01T12:00:00Z"
 }
 ```
@@ -243,12 +244,12 @@ This plugin is designed to work with the Zulip Flutter mobile app. The Flutter a
 ### Call Model
 - `call_id`: UUID primary key
 - `call_type`: "video" or "audio"
-- `state`: Current call state (initiated, active, ended, etc.)
-- `initiator`: Foreign key to UserProfile
-- `recipient`: Foreign key to UserProfile
+- `state`: Current call state (`calling`, `ringing`, `accepted`, `rejected`, `missed`, `timeout`, `cancelled`, `ended`)
+- `sender`: Foreign key to UserProfile
+- `receiver`: Foreign key to UserProfile
 - `jitsi_room_name`: Jitsi meeting room name
 - `jitsi_room_url`: Full Jitsi meeting URL
-- `created_at`, `started_at`, `ended_at`: Timestamps
+- `created_at`, `answered_at`, `ended_at`: Timestamps
 - `realm`: Foreign key to Realm
 
 ### CallEvent Model
