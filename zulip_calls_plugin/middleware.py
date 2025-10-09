@@ -59,12 +59,12 @@ class ZulipCallsMiddleware:
                 # Zoom request format
                 is_video_call = request.POST.get('is_video_call', 'true').lower() == 'true'
 
-            # Get recipient email from the current compose context
+            # Get recipient user_id from the current compose context
             # Since we don't have direct access to the compose state from the middleware,
             # we'll need the frontend to pass this information
-            recipient_email = request.POST.get('recipient_email')
+            recipient_user_id = request.POST.get('user_id')
 
-            if not recipient_email:
+            if not recipient_user_id:
                 # If no recipient provided, return error asking user to specify
                 return JsonResponse({
                     'result': 'error',
@@ -75,7 +75,7 @@ class ZulipCallsMiddleware:
             # Create a new request object for our embedded call
             from django.http import QueryDict
             new_post_data = QueryDict('', mutable=True)
-            new_post_data['recipient_email'] = recipient_email
+            new_post_data['user_id'] = recipient_user_id
             new_post_data['is_video_call'] = str(is_video_call)
             new_post_data['redirect_to_meeting'] = 'true'  # Enable direct redirect
 

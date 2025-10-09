@@ -465,77 +465,24 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
     try:
         with transaction.atomic():
             # Get request parameters
-            recipient_email = request.POST.get("recipient_email")
+            recipient_user_id = request.POST.get("user_id")
             is_video_call = request.POST.get("is_video_call", "true").lower() == "true"
 
-            if not recipient_email:
+            # Validate that user_id is provided
+            if not recipient_user_id:
                 return JsonResponse({
                     "result": "error",
-                    "message": "recipient_email is required"
+                    "message": "user_id is required"
                 }, status=400)
 
-            # Alternative implementation: Use a more robust user lookup approach
-            recipient = None
-            tried_emails = []
-
-            # Method 1: Direct lookup by user ID if recipient_email is numeric
-            if recipient_email.isdigit():
-                try:
-                    recipient = UserProfile.objects.get(id=int(recipient_email), realm=user_profile.realm)
-                    logger.info(f"Found user by ID: {recipient_email}")
-                except UserProfile.DoesNotExist:
-                    tried_emails.append(f"ID:{recipient_email}")
-            
-            # Method 2: Lookup by delivery email
-            if not recipient:
-                try:
-                    recipient = get_user_by_delivery_email(recipient_email, user_profile.realm)
-                    logger.info(f"Found user by delivery_email: '{recipient_email}'")
-                except UserProfile.DoesNotExist:
-                    tried_emails.append(recipient_email)
-            
-            # Method 3: Lookup by public email field
-            if not recipient:
-                try:
-                    recipient = UserProfile.objects.get(email=recipient_email, realm=user_profile.realm)
-                    logger.info(f"Found user by public email: '{recipient_email}'")
-                except UserProfile.DoesNotExist:
-                    tried_emails.append(recipient_email)
-
-            # Method 4: Try domain variations
-            if not recipient:
-                domain_variations = []
-                if "@dev.zulip.xandylearning.in" in recipient_email:
-                    username = recipient_email.split('@')[0]
-                    domain_variations = [
-                        f"{username}@gmail.com",
-                        f"{username}@zulip.com",
-                        f"{username}@zulipdev.com"
-                    ]
-                elif "@zulipdev.com" in recipient_email:
-                    domain_variations = [recipient_email.replace("@zulipdev.com", "@zulip.com")]
-                elif "@zulip.com" in recipient_email:
-                    domain_variations = [recipient_email.replace("@zulip.com", "@zulipdev.com")]
-
-                for alternative_email in domain_variations:
-                    try:
-                        recipient = get_user_by_delivery_email(alternative_email, user_profile.realm)
-                        logger.info(f"Found user with alternative delivery email: '{alternative_email}'")
-                        break
-                    except UserProfile.DoesNotExist:
-                        pass
-                    
-                    try:
-                        recipient = UserProfile.objects.get(email=alternative_email, realm=user_profile.realm)
-                        logger.info(f"Found user with alternative public email: '{alternative_email}'")
-                        break
-                    except UserProfile.DoesNotExist:
-                        tried_emails.append(alternative_email)
-
-            if not recipient:
+            # Direct lookup by user_id
+            try:
+                recipient = UserProfile.objects.get(id=int(recipient_user_id), realm=user_profile.realm)
+                logger.info(f"Found user by user_id: {recipient_user_id}")
+            except (UserProfile.DoesNotExist, ValueError) as e:
                 return JsonResponse({
                     "result": "error",
-                    "message": f"Recipient not found. Tried: {', '.join(tried_emails)}"
+                    "message": f"User not found with user_id: {recipient_user_id}"
                 }, status=404)
 
             # Check if users are the same
@@ -654,7 +601,7 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                 event_type="initiated",
                 user=user_profile,
                 metadata={
-                    "recipient_email": recipient_email,
+                    "recipient_user_id": recipient_user_id,
                     "is_video_call": is_video_call
                 }
             )
@@ -1043,14 +990,15 @@ def create_embedded_call(request: HttpRequest, user_profile: UserProfile) -> Jso
     """
     try:
         # Extract parameters
-        recipient_email = request.POST.get("recipient_email")
+        recipient_user_id = request.POST.get("user_id")
         is_video_call = request.POST.get("is_video_call", "true").lower() == "true"
         redirect_to_meeting = request.POST.get("redirect_to_meeting", "false").lower() == "true"
 
-        if not recipient_email:
+        # Validate that user_id is provided
+        if not recipient_user_id:
             return JsonResponse({
                 "result": "error",
-                "message": "recipient_email is required"
+                "message": "user_id is required"
             }, status=400)
 
         # Use the existing create_call function

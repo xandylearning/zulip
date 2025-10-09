@@ -35,7 +35,7 @@ Use Zulip's session authentication for web requests.
 **Parameters**:
 ```json
 {
-  "recipient_email": "string (required)",
+  "user_id": "integer (required)",
   "is_video_call": "boolean (optional, default: true)"
 }
 ```
@@ -72,7 +72,7 @@ curl -X POST "https://your-zulip.com/api/v1/calls/initiate" \
 **Parameters**:
 ```json
 {
-  "recipient_email": "string (required)",
+  "user_id": "integer (required)",
   "is_video_call": "boolean (optional, default: true)"
 }
 ```
