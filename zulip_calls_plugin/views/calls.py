@@ -1,5 +1,6 @@
 import uuid
 import logging
+import json
 from datetime import timedelta
 from typing import Dict, Any
 
@@ -1032,6 +1033,53 @@ def get_call_history(request: HttpRequest, user_profile: UserProfile) -> JsonRes
 
 
 # Essential API Endpoints for Flutter Integration
+
+@require_http_methods(["POST"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def create_embedded_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """
+    Create an embedded call for integration with Zulip's compose functionality.
+    This is a wrapper around create_call that provides embedded integration.
+    """
+    try:
+        # Extract parameters
+        recipient_email = request.POST.get("recipient_email")
+        is_video_call = request.POST.get("is_video_call", "true").lower() == "true"
+        redirect_to_meeting = request.POST.get("redirect_to_meeting", "false").lower() == "true"
+
+        if not recipient_email:
+            return JsonResponse({
+                "result": "error",
+                "message": "recipient_email is required"
+            }, status=400)
+
+        # Use the existing create_call function
+        response = create_call(request, user_profile)
+        
+        if response.status_code == 200:
+            data = json.loads(response.content)
+            if data.get('result') == 'success':
+                # If redirect is requested, return redirect format
+                if redirect_to_meeting:
+                    return JsonResponse({
+                        "result": "success",
+                        "action": "redirect",
+                        "redirect_url": data.get('call_url'),
+                        "call_id": data.get('call_id'),
+                        "message": "Call created successfully"
+                    })
+                else:
+                    return response
+        
+        return response
+
+    except Exception as e:
+        logger.error(f"Failed to create embedded call: {e}")
+        return JsonResponse({
+            "result": "error",
+            "message": f"Failed to create embedded call: {str(e)}"
+        }, status=500)
+
 
 @require_http_methods(["POST"])
 @authenticated_rest_api_view(webhook_client_name="Zulip")
