@@ -349,55 +349,83 @@ def send_call_event(user_profile: UserProfile, call: Call, event_type: str, extr
 
 
 def cleanup_stale_calls() -> int:
-    """Clean up stale calls that are stuck in active states"""
-    from django.conf import settings
+    """Clean up stale calls with multiple timeout scenarios"""
     from datetime import timedelta
     
-    # Get timeout settings
-    call_timeout_minutes = getattr(settings, 'CALL_TIMEOUT_MINUTES', 30)
-    stale_threshold = timezone.now() - timedelta(minutes=call_timeout_minutes)
+    now = timezone.now()
+    count = 0
     
-    # Find calls that are stuck in active states for too long
+    # Scenario 1: 60-second timeout for unanswered calls (ringing state)
+    unanswered_threshold = now - timedelta(seconds=60)
+    unanswered_calls = Call.objects.filter(
+        state='ringing',
+        answered_at__isnull=True,
+        created_at__lt=unanswered_threshold
+    )
+    
+    for call in unanswered_calls:
+        call.state = 'timeout'
+        call.ended_at = now
+        call.save()
+        CallEvent.objects.create(
+            call=call,
+            event_type='timeout',
+            user=call.sender,
+            metadata={'reason': 'unanswered_timeout', 'timeout_seconds': 60}
+        )
+        send_call_event(call.sender, call, 'timeout', {'reason': 'unanswered'})
+        send_call_event(call.receiver, call, 'timeout', {'reason': 'unanswered'})
+        count += 1
+    
+    # Scenario 2: Network failure - 15 seconds no heartbeat
+    network_threshold = now - timedelta(seconds=15)
+    active_calls = Call.objects.filter(state__in=['calling', 'ringing', 'accepted'])
+    
+    for call in active_calls:
+        # Check if both participants have sent heartbeat
+        sender_inactive = (
+            call.last_heartbeat_sender is None or 
+            call.last_heartbeat_sender < network_threshold
+        )
+        receiver_inactive = (
+            call.last_heartbeat_receiver is None or 
+            call.last_heartbeat_receiver < network_threshold
+        )
+        
+        # End call if either participant has no heartbeat for 15 seconds
+        if sender_inactive or receiver_inactive:
+            call.state = 'network_failure'
+            call.ended_at = now
+            call.save()
+            CallEvent.objects.create(
+                call=call,
+                event_type='ended',
+                user=call.sender if sender_inactive else call.receiver,
+                metadata={'reason': 'network_failure', 'timeout_seconds': 15}
+            )
+            send_call_event(call.sender, call, 'ended', {'reason': 'network_failure'})
+            send_call_event(call.receiver, call, 'ended', {'reason': 'network_failure'})
+            count += 1
+    
+    # Scenario 3: Fallback - extremely stale calls (5 minutes)
+    stale_threshold = now - timedelta(minutes=5)
     stale_calls = Call.objects.filter(
         state__in=['calling', 'ringing', 'accepted'],
         created_at__lt=stale_threshold
     )
     
-    count = 0
     for call in stale_calls:
-        # Update call state with finer semantics
-        now_ts = timezone.now()
-        if call.state == 'ringing':
-            call.state = 'missed'
-            call.ended_at = now_ts
-        elif call.state in ['calling', 'accepted']:
-            call.state = 'timeout'
-            call.ended_at = now_ts
-        else:
-            call.state = 'timeout'
-            call.ended_at = now_ts
+        call.state = 'timeout'
+        call.ended_at = now
         call.save()
-        
-        # Create timeout event
-        event_type = 'missed' if call.state == 'missed' else 'timeout'
         CallEvent.objects.create(
             call=call,
-            event_type=event_type,
+            event_type='timeout',
             user=call.sender,
-            metadata={'reason': 'automatic_cleanup', 'timeout_minutes': call_timeout_minutes}
+            metadata={'reason': 'stale_cleanup', 'timeout_minutes': 5}
         )
-
-        # Emit WebSocket events to both participants
-        try:
-            send_call_event(call.sender, call, event_type, {'auto': True})
-        except Exception:
-            pass
-        try:
-            send_call_event(call.receiver, call, event_type, {'auto': True})
-        except Exception:
-            pass
-        
-        logger.info(f"Cleaned up stale call {call.call_id} (timeout after {call_timeout_minutes} minutes)")
+        send_call_event(call.sender, call, 'timeout', {'reason': 'stale'})
+        send_call_event(call.receiver, call, 'timeout', {'reason': 'stale'})
         count += 1
     
     if count > 0:
@@ -463,6 +491,9 @@ def check_and_cleanup_user_calls(user_profile: UserProfile) -> bool:
 def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
     """Create a new call with full database tracking"""
     try:
+        # Clean up stale calls before processing
+        cleanup_stale_calls()
+        
         with transaction.atomic():
             # Get request parameters
             recipient_user_id = request.POST.get("user_id")
@@ -594,6 +625,10 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
             participant_url = f"{base_room_url}{participant_params}#config.prejoinPageEnabled=false"
 
             call.save()
+            
+            # Initialize sender heartbeat
+            call.last_heartbeat_sender = timezone.now()
+            call.save(update_fields=['last_heartbeat_sender'])
 
             # Create initial call event
             CallEvent.objects.create(
@@ -657,6 +692,9 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
 def respond_to_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
     """Accept or decline a call invitation with full tracking"""
     try:
+        # Clean up stale calls before processing
+        cleanup_stale_calls()
+        
         with transaction.atomic():
             try:
                 call = Call.objects.select_for_update().get(
@@ -873,6 +911,8 @@ def cancel_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -
 def get_call_status(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
     """Get current status of a call"""
     try:
+        # Clean up stale calls before processing
+        cleanup_stale_calls()
         try:
             call = Call.objects.get(
                 call_id=call_id,
@@ -1036,6 +1076,8 @@ def acknowledge_call(request: HttpRequest, user_profile: UserProfile) -> JsonRes
     Acknowledge receipt of call notification (sets status to 'ringing')
     """
     try:
+        # Clean up stale calls before processing
+        cleanup_stale_calls()
         call_id = (request.POST.get("call_id") or request.GET.get("call_id") or "").strip()
         status = (request.POST.get("status") or request.GET.get("status") or "").strip()
 
@@ -1057,7 +1099,8 @@ def acknowledge_call(request: HttpRequest, user_profile: UserProfile) -> JsonRes
         # Update call state to ringing
         with transaction.atomic():
             call.state = 'ringing'
-            call.save()
+            call.last_heartbeat_receiver = timezone.now()
+            call.save(update_fields=['state', 'last_heartbeat_receiver'])
 
             # Create acknowledgment event
             CallEvent.objects.create(
@@ -1083,4 +1126,37 @@ def acknowledge_call(request: HttpRequest, user_profile: UserProfile) -> JsonRes
 
     except Exception as e:
         logger.error(f"Error acknowledging call: {str(e)}")
+        raise
+
+
+@require_http_methods(["POST"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def heartbeat(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """Update heartbeat timestamp for active call"""
+    try:
+        call_id = request.POST.get("call_id")
+        if not call_id:
+            raise JsonableError("call_id is required")
+        
+        call = Call.objects.get(call_id=call_id)
+        
+        # Check if user is participant
+        if call.sender.id == user_profile.id:
+            call.last_heartbeat_sender = timezone.now()
+        elif call.receiver.id == user_profile.id:
+            call.last_heartbeat_receiver = timezone.now()
+        else:
+            raise JsonableError("Not a participant in this call")
+        
+        # Update background state if provided
+        is_backgrounded = request.POST.get("is_backgrounded", "false").lower() == "true"
+        call.is_backgrounded = is_backgrounded
+        
+        call.save(update_fields=['last_heartbeat_sender', 'last_heartbeat_receiver', 'is_backgrounded'])
+        
+        return JsonResponse({"result": "success", "call_state": call.state})
+    except Call.DoesNotExist:
+        raise JsonableError("Call not found")
+    except Exception as e:
+        logger.error(f"Heartbeat error: {e}")
         raise

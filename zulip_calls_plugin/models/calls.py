@@ -24,6 +24,7 @@ class Call(models.Model):
         ("ended", "Ended"),
         ("missed", "Missed"),
         ("cancelled", "Cancelled"),
+        ("network_failure", "Network Failure"),
     ]
 
     call_id = models.UUIDField(primary_key=True, default=uuid.uuid4, db_index=True)
@@ -47,6 +48,11 @@ class Call(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     answered_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
+    
+    # Heartbeat tracking
+    last_heartbeat_sender = models.DateTimeField(null=True, blank=True)
+    last_heartbeat_receiver = models.DateTimeField(null=True, blank=True)
+    is_backgrounded = models.BooleanField(default=False)
 
     # Metadata
     realm = models.ForeignKey(Realm, on_delete=models.CASCADE)

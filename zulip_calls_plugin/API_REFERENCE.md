@@ -141,6 +141,49 @@ curl -X POST "https://your-zulip.com/api/v1/calls/acknowledge" \
 
 ---
 
+## Call Heartbeat
+
+### POST /api/v1/calls/heartbeat
+
+**Description**: Send heartbeat to indicate app is alive and call is active.
+
+**Parameters**:
+```json
+{
+  "call_id": "string (required)",
+  "is_backgrounded": "boolean (optional, default: false)"
+}
+```
+
+**Response**:
+```json
+{
+  "result": "success",
+  "call_state": "accepted"
+}
+```
+
+**Usage**: Client should send heartbeat every 5 seconds while in an active call.
+
+**Example**:
+```bash
+curl -X POST "https://your-zulip.com/api/v1/calls/heartbeat" \
+  -u "user@example.com:api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "call_id": "abc123-def456-ghi789",
+    "is_backgrounded": "false"
+  }'
+```
+
+**Notes**:
+- Only call participants can send heartbeat
+- Heartbeat is used for network failure detection (15-second timeout)
+- Background state is tracked but doesn't affect call flow
+- Missing heartbeat for 15 seconds will end the call
+
+---
+
 ## Call Response
 
 ### POST /api/v1/calls/respond

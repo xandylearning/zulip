@@ -9,6 +9,7 @@ from .calls import (
     get_call_history,
     create_embedded_call,
     acknowledge_call,
+    heartbeat,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "get_call_history",
     "create_embedded_call",
     "acknowledge_call",
+    "heartbeat",
 ]

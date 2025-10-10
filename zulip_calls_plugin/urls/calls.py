@@ -8,6 +8,7 @@ from ..views import (
     get_call_status,
     get_call_history,
     acknowledge_call,
+    heartbeat,
 )
 
 # Essential API endpoints for Flutter integration
@@ -22,4 +23,5 @@ urlpatterns = [
     
     # Flutter-specific endpoints
     path("api/v1/calls/acknowledge", acknowledge_call, name="acknowledge_call"),
+    path("api/v1/calls/heartbeat", heartbeat, name="heartbeat"),
 ]
