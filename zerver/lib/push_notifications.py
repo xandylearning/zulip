@@ -543,6 +543,7 @@ def create_fcm_call_notification_message(
     call_data: dict[str, Any],
     realm_host: str,
     realm_url: str,
+    realm_id: int | None = None,
 ) -> firebase_messaging.Message:
     """
     Create FCM call notification message in the exact format specified.
@@ -569,6 +570,7 @@ def create_fcm_call_notification_message(
         "event": "call",
         "server": realm_host,
         "realm_url": realm_url,
+        "realm_id": str(realm_id) if realm_id is not None else "",
         "user_id": user_id,
         "call_id": call_id,
         "sender_id": sender_id,
@@ -616,6 +618,7 @@ def send_fcm_call_notifications(
     call_data: dict[str, Any],
     realm_host: str,
     realm_url: str,
+    realm_id: int | None = None,
     remote: Optional["RemoteZulipServer"] = None,
 ) -> int:
     """
@@ -644,7 +647,8 @@ def send_fcm_call_notifications(
                 token=device.token,
                 call_data=call_data,
                 realm_host=realm_host,
-                realm_url=realm_url
+                realm_url=realm_url,
+                realm_id=realm_id
             )
             messages.append(message)
             token_list.append(device.token)

@@ -154,6 +154,7 @@ def send_fcm_call_notification(recipient: UserProfile, call_data: dict) -> None:
         "event": "call",
         "server": "your-org.example.com",
         "realm_url": "https://your-org.example.com",
+        "realm_id": "1",
         "user_id": "123",
         "call_id": "abc123",
         "sender_id": "456",
@@ -212,6 +213,7 @@ def send_fcm_call_notification(recipient: UserProfile, call_data: dict) -> None:
             call_data=enhanced_call_data,
             realm_host=recipient.realm.host,
             realm_url=recipient.realm.url,
+            realm_id=recipient.realm.id,
         )
 
         logger.info(
