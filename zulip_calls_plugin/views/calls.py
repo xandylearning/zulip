@@ -645,10 +645,10 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
             push_data = {
                 "type": "call_invitation",
                 "call_id": str(call.call_id),
-                "call_url": participant_url,  # Participant URL for the recipient
+                "jitsi_url": participant_url,  # Participant URL for the recipient
                 "call_type": call.call_type,
-                "caller_name": user_profile.full_name,
-                "caller_id": user_profile.id,
+                "sender_name": user_profile.full_name,
+                "sender_id": str(user_profile.id),
                 "room_name": call.jitsi_room_name,
             }
 
