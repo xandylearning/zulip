@@ -748,12 +748,18 @@ def respond_to_call(request: HttpRequest, user_profile: UserProfile, call_id: st
                 call.answered_at = timezone.now()
                 event_type = "accepted"
 
-                # Notify caller
+                # Notify caller with complete call data
                 notification_data = {
                     "type": "call_accepted",
                     "call_id": str(call.call_id),
                     "call_url": call.jitsi_room_url,
+                    "jitsi_url": call.jitsi_room_url,  # Add jitsi_url for FCM
                     "accepter_name": user_profile.full_name,
+                    "sender_id": str(user_profile.id),  # Add sender info
+                    "sender_name": user_profile.full_name,
+                    "sender_full_name": user_profile.full_name,
+                    "sender_avatar_url": f"/avatar/{user_profile.id}",
+                    "call_type": call.call_type,
                 }
                 send_call_push_notification(call.sender, notification_data)
 
