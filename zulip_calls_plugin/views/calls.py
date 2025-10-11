@@ -353,18 +353,19 @@ def send_call_event(user_profile: UserProfile, call: Call, event_type: str, extr
 def cleanup_stale_calls() -> int:
     """Clean up stale calls with multiple timeout scenarios"""
     from datetime import timedelta
-    
+
     now = timezone.now()
     count = 0
-    
-    # Scenario 1: 60-second timeout for unanswered calls (ringing state)
-    unanswered_threshold = now - timedelta(seconds=60)
+
+    # Scenario 1: 90-second timeout for unanswered calls in ringing/calling state
+    # This gives users plenty of time to acknowledge and respond
+    unanswered_threshold = now - timedelta(seconds=90)
     unanswered_calls = Call.objects.filter(
-        state='ringing',
+        state__in=['calling', 'ringing'],  # Include both calling and ringing
         answered_at__isnull=True,
         created_at__lt=unanswered_threshold
     )
-    
+
     for call in unanswered_calls:
         call.state = 'timeout'
         call.ended_at = now
@@ -373,28 +374,29 @@ def cleanup_stale_calls() -> int:
             call=call,
             event_type='timeout',
             user=call.sender,
-            metadata={'reason': 'unanswered_timeout', 'timeout_seconds': 60}
+            metadata={'reason': 'unanswered_timeout', 'timeout_seconds': 90}
         )
         send_call_event(call.sender, call, 'timeout', {'reason': 'unanswered'})
         send_call_event(call.receiver, call, 'timeout', {'reason': 'unanswered'})
         count += 1
-    
-    # Scenario 2: Network failure - 15 seconds no heartbeat
-    network_threshold = now - timedelta(seconds=15)
-    active_calls = Call.objects.filter(state__in=['calling', 'ringing', 'accepted'])
-    
+
+    # Scenario 2: Network failure - 30 seconds no heartbeat for ACCEPTED calls only
+    # Only check heartbeat for accepted calls to avoid ending calls during setup
+    network_threshold = now - timedelta(seconds=30)
+    active_calls = Call.objects.filter(state='accepted')  # Only check accepted calls
+
     for call in active_calls:
         # Check if both participants have sent heartbeat
         sender_inactive = (
-            call.last_heartbeat_sender is None or 
+            call.last_heartbeat_sender is None or
             call.last_heartbeat_sender < network_threshold
         )
         receiver_inactive = (
-            call.last_heartbeat_receiver is None or 
+            call.last_heartbeat_receiver is None or
             call.last_heartbeat_receiver < network_threshold
         )
-        
-        # End call if either participant has no heartbeat for 15 seconds
+
+        # End call if either participant has no heartbeat for 30 seconds
         if sender_inactive or receiver_inactive:
             call.state = 'network_failure'
             call.ended_at = now
@@ -403,19 +405,20 @@ def cleanup_stale_calls() -> int:
                 call=call,
                 event_type='ended',
                 user=call.sender if sender_inactive else call.receiver,
-                metadata={'reason': 'network_failure', 'timeout_seconds': 15}
+                metadata={'reason': 'network_failure', 'timeout_seconds': 30}
             )
             send_call_event(call.sender, call, 'ended', {'reason': 'network_failure'})
             send_call_event(call.receiver, call, 'ended', {'reason': 'network_failure'})
             count += 1
-    
-    # Scenario 3: Fallback - extremely stale calls (5 minutes)
-    stale_threshold = now - timedelta(minutes=5)
+
+    # Scenario 3: Fallback - extremely stale calls (10 minutes)
+    # Increased from 5 to 10 minutes for more safety
+    stale_threshold = now - timedelta(minutes=10)
     stale_calls = Call.objects.filter(
         state__in=['calling', 'ringing', 'accepted'],
         created_at__lt=stale_threshold
     )
-    
+
     for call in stale_calls:
         call.state = 'timeout'
         call.ended_at = now
@@ -424,15 +427,15 @@ def cleanup_stale_calls() -> int:
             call=call,
             event_type='timeout',
             user=call.sender,
-            metadata={'reason': 'stale_cleanup', 'timeout_minutes': 5}
+            metadata={'reason': 'stale_cleanup', 'timeout_minutes': 10}
         )
         send_call_event(call.sender, call, 'timeout', {'reason': 'stale'})
         send_call_event(call.receiver, call, 'timeout', {'reason': 'stale'})
         count += 1
-    
+
     if count > 0:
         logger.info(f"Cleaned up {count} stale calls")
-    
+
     return count
 
 
@@ -694,9 +697,8 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
 def respond_to_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
     """Accept or decline a call invitation with full tracking"""
     try:
-        # Clean up stale calls before processing
-        cleanup_stale_calls()
-        
+        # Don't run cleanup here - respond to call should work even if the call is recent
+
         with transaction.atomic():
             try:
                 call = Call.objects.select_for_update().get(
@@ -913,8 +915,8 @@ def cancel_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -
 def get_call_status(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
     """Get current status of a call"""
     try:
-        # Clean up stale calls before processing
-        cleanup_stale_calls()
+        # Don't run cleanup_stale_calls() here - it can cause race conditions
+        # where calls are ended immediately after creation
         try:
             call = Call.objects.get(
                 call_id=call_id,
@@ -934,13 +936,37 @@ def get_call_status(request: HttpRequest, user_profile: UserProfile, call_id: st
                 "message": "Not authorized to view this call"
             }, status=403)
 
+        # Map internal state to client-expected status values
+        # The client expects: created, ringing, accepted, declined, ended, cancelled
+        status_mapping = {
+            'calling': 'created',      # Map 'calling' to 'created' for client
+            'ringing': 'ringing',
+            'accepted': 'accepted',
+            'rejected': 'declined',    # Map 'rejected' to 'declined' for client
+            'ended': 'ended',
+            'cancelled': 'cancelled',
+            'timeout': 'ended',        # Map 'timeout' to 'ended' for client
+            'missed': 'ended',         # Map 'missed' to 'ended' for client
+            'network_failure': 'ended', # Map 'network_failure' to 'ended' for client
+        }
+
+        # Get mapped status, default to 'ended' if state is not in mapping
+        client_status = status_mapping.get(call.state, 'ended')
+
         return JsonResponse({
             "result": "success",
             "call": {
                 "call_id": str(call.call_id),
+                "caller_id": call.sender.id,      # Use caller_id as expected by client
+                "recipient_id": call.receiver.id,  # Use recipient_id as expected by client
+                "call_type": call.call_type,
+                "status": client_status,           # Use 'status' field name as expected by client
+                "jitsi_url": call.jitsi_room_url,
+                "timestamp": int(call.created_at.timestamp()),  # Unix timestamp
+                "duration": int(call.duration.total_seconds()) if call.duration else None,
+                # Keep additional fields for backward compatibility
                 "state": call.state,
                 "call_url": call.jitsi_room_url,
-                "call_type": call.call_type,
                 "created_at": call.created_at.isoformat(),
                 "started_at": call.answered_at.isoformat() if call.answered_at else None,
                 "ended_at": call.ended_at.isoformat() if call.ended_at else None,
@@ -1078,8 +1104,7 @@ def acknowledge_call(request: HttpRequest, user_profile: UserProfile) -> JsonRes
     Acknowledge receipt of call notification (sets status to 'ringing')
     """
     try:
-        # Clean up stale calls before processing
-        cleanup_stale_calls()
+        # Don't run cleanup here - acknowledgment should work for recent calls
         call_id = (request.POST.get("call_id") or request.GET.get("call_id") or "").strip()
         status = (request.POST.get("status") or request.GET.get("status") or "").strip()
 
@@ -1094,8 +1119,9 @@ def acknowledge_call(request: HttpRequest, user_profile: UserProfile) -> JsonRes
         except Call.DoesNotExist:
             raise JsonableError("Call not found or you're not the receiver")
 
-        # Check if call can be acknowledged
-        if call.state not in ['calling']:
+        # Check if call can be acknowledged - accept both 'calling' and 'ringing' states
+        # This fixes the race condition where the call might already be in 'ringing' state
+        if call.state not in ['calling', 'ringing']:
             raise JsonableError(f"Call cannot be acknowledged. Current status: {call.state}")
 
         # Update call state to ringing
