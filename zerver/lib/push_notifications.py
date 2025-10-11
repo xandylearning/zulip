@@ -561,9 +561,12 @@ def create_fcm_call_notification_message(
     call_id = call_data.get("call_id", "unknown")
     sender_id = str(call_data.get("sender_id", ""))
     sender_name = call_data.get("sender_full_name", "Someone")
+    sender_name_alt = call_data.get("sender_name", sender_name)  # Alternative field name
     call_type = call_data.get("call_type", "voice")
     user_id = str(call_data.get("user_id", ""))
     timestamp = str(call_data.get("time", int(timezone_now().timestamp())))
+    jitsi_url = call_data.get("jitsi_url", "")
+    sender_avatar_url = call_data.get("sender_avatar_url", "")
 
     # Create data payload exactly as specified
     data_payload = {
@@ -575,7 +578,10 @@ def create_fcm_call_notification_message(
         "call_id": call_id,
         "sender_id": sender_id,
         "sender_full_name": sender_name,
+        "sender_name": sender_name_alt,  # Add sender_name for backward compatibility
         "call_type": call_type,
+        "jitsi_url": jitsi_url,  # Include Jitsi URL
+        "sender_avatar_url": sender_avatar_url,  # Include sender avatar URL
         "time": timestamp
     }
 

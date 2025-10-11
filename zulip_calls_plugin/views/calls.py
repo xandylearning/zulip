@@ -202,10 +202,19 @@ def send_fcm_call_notification(recipient: UserProfile, call_data: dict) -> None:
             'call_id': call_data.get('call_id'),
             'sender_id': call_data.get('sender_id'),
             'sender_full_name': call_data.get('sender_name'),
+            'sender_name': call_data.get('sender_name'),  # Add for backward compatibility
             'call_type': call_data.get('call_type', 'voice'),
+            'jitsi_url': call_data.get('jitsi_url'),  # Include Jitsi URL
             'user_id': str(recipient.id),
             'time': str(int(timezone.now().timestamp())),
         }
+        
+        # Generate sender avatar URL if sender_id is available
+        sender_id = call_data.get('sender_id')
+        if sender_id:
+            enhanced_call_data['sender_avatar_url'] = f"/avatar/{sender_id}"
+        else:
+            enhanced_call_data['sender_avatar_url'] = ""
 
         # Send specialized FCM call notifications
         success_count = send_fcm_call_notifications(
@@ -665,8 +674,10 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                 "call_id": str(call.call_id),
                 "sender_id": str(user_profile.id),
                 "sender_name": user_profile.full_name,
+                "sender_full_name": user_profile.full_name,  # Add for consistency
                 "call_type": call.call_type,
                 "jitsi_url": participant_url,
+                "sender_avatar_url": f"/avatar/{user_profile.id}",  # Include avatar URL
             }
             send_fcm_call_notification(recipient, fcm_call_data)
 
