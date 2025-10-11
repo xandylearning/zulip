@@ -391,8 +391,14 @@ def cleanup_stale_calls() -> int:
 
     # Scenario 2: Network failure - 30 seconds no heartbeat for ACCEPTED calls only
     # Only check heartbeat for accepted calls to avoid ending calls during setup
+    # Give participants 60 seconds to start sending heartbeats after acceptance
     network_threshold = now - timedelta(seconds=30)
-    active_calls = Call.objects.filter(state='accepted')  # Only check accepted calls
+    heartbeat_grace_period = now - timedelta(seconds=60)  # 60 seconds grace period
+    
+    active_calls = Call.objects.filter(
+        state='accepted',
+        answered_at__lt=heartbeat_grace_period  # Only check calls accepted more than 60 seconds ago
+    )
 
     for call in active_calls:
         # Check if both participants have sent heartbeat
@@ -747,21 +753,6 @@ def respond_to_call(request: HttpRequest, user_profile: UserProfile, call_id: st
                 call.state = "accepted"
                 call.answered_at = timezone.now()
                 event_type = "accepted"
-
-                # Notify caller with complete call data
-                notification_data = {
-                    "type": "call_accepted",
-                    "call_id": str(call.call_id),
-                    "call_url": call.jitsi_room_url,
-                    "jitsi_url": call.jitsi_room_url,  # Add jitsi_url for FCM
-                    "accepter_name": user_profile.full_name,
-                    "sender_id": str(user_profile.id),  # Add sender info
-                    "sender_name": user_profile.full_name,
-                    "sender_full_name": user_profile.full_name,
-                    "sender_avatar_url": f"/avatar/{user_profile.id}",
-                    "call_type": call.call_type,
-                }
-                send_call_push_notification(call.sender, notification_data)
 
             else:
                 call.state = "rejected"
