@@ -1,8 +1,8 @@
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from datetime import timedelta
-from zulip_calls_plugin.models import Call, CallEvent
-from zulip_calls_plugin.views.calls import cleanup_stale_calls
+from zulip_calls_plugin.models import Call, CallEvent, CallQueue
+from zulip_calls_plugin.views.calls import cleanup_stale_calls, cleanup_expired_queue_entries
 import logging
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,14 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(f"Successfully cleaned up {timeout_count} stale calls")
         )
+        
+        # Cleanup expired queue entries
+        queue_count = cleanup_expired_queue_entries()
+        
+        if queue_count > 0:
+            self.stdout.write(
+                self.style.SUCCESS(f"Successfully cleaned up {queue_count} expired queue entries")
+            )
 
         # Cleanup old ended calls if requested
         if cleanup_old:
@@ -61,5 +69,12 @@ class Command(BaseCommand):
         active_calls = Call.objects.filter(
             state__in=['calling', 'ringing', 'accepted']
         ).count()
+        
+        # Report pending queue entries
+        pending_queue = CallQueue.objects.filter(
+            status='pending',
+            expires_at__gt=timezone.now()
+        ).count()
 
         self.stdout.write(f"Current active calls: {active_calls}")
+        self.stdout.write(f"Pending queue entries: {pending_queue}")

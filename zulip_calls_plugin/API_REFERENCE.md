@@ -3,6 +3,21 @@
 ## Overview
 Complete API reference for the Zulip Calls Plugin with WebSocket integration. This document covers all endpoints, request/response formats, WebSocket events, and error handling.
 
+## New Features in v2.0
+
+### Enhanced Call Management
+- **Missed Call Notifications**: Automatic push notifications for missed calls
+- **Cursor-Based Pagination**: Efficient pagination for call history with filtering
+- **Call Queue System**: Automatic queueing when calling busy users
+- **Moderator Privileges**: Call initiators can end calls for everyone
+- **Network Resilience**: Extended heartbeat timeouts (60s) for slow networks
+
+### API Improvements
+- **Queue Management**: View and cancel queued calls
+- **Leave vs End**: Participants can leave without ending call for others
+- **Race Condition Prevention**: 5-second cooldown between calls
+- **Enhanced Filtering**: Filter call history by type and status
+
 ## Table of Contents
 1. [Authentication](#authentication)
 2. [Call Initiation](#call-initiation)
@@ -67,7 +82,7 @@ curl -X POST "https://your-zulip.com/api/v1/calls/initiate" \
 
 ### POST /api/v1/calls/create
 
-**Description**: Create a call with full database tracking.
+**Description**: Create a call with full database tracking. If recipient is busy, call is automatically queued.
 
 **Parameters**:
 ```json
@@ -77,7 +92,7 @@ curl -X POST "https://your-zulip.com/api/v1/calls/initiate" \
 }
 ```
 
-**Response**:
+**Response (Call Created)**:
 ```json
 {
   "result": "success",
@@ -94,7 +109,23 @@ curl -X POST "https://your-zulip.com/api/v1/calls/initiate" \
 }
 ```
 
-**WebSocket Event**: Sends `participant_ringing` to recipient
+**Response (Call Queued - HTTP 202)**:
+```json
+{
+  "result": "queued",
+  "queue_id": "queue-uuid",
+  "message": "Jane Smith is currently in another call. You'll be notified when they're available.",
+  "expires_at": "2024-01-01T12:10:00Z",
+  "position": "next"
+}
+```
+
+**WebSocket Event**: Sends `participant_ringing` to recipient (if not queued)
+
+**Notes**:
+- Call initiator becomes the moderator
+- Queue automatically processes when recipient becomes available
+- Queue expires after 5 minutes
 
 ---
 
@@ -401,11 +432,13 @@ curl -X POST "https://your-zulip.com/api/v1/calls/end" \
 
 ### GET /api/v1/calls/history
 
-**Description**: Get call history for the authenticated user.
+**Description**: Get call history for the authenticated user with cursor-based pagination.
 
 **Query Parameters**:
 - `limit` (optional): Number of calls to return (max 100, default 50)
-- `offset` (optional): Number of calls to skip (default 0)
+- `cursor` (optional): Base64-encoded cursor for pagination
+- `call_type` (optional): Filter by call type ('video' or 'audio')
+- `status` (optional): Filter by status ('missed', 'answered', or 'all')
 
 **Response**:
 ```json
@@ -428,9 +461,15 @@ curl -X POST "https://your-zulip.com/api/v1/calls/end" \
       "duration_seconds": 915
     }
   ],
-  "has_more": false
+  "next_cursor": "MjAyNC0wMS0wMVQxMjowMDowMFpfYWJjMTIzLWRlZjQ1Ni1naGk3ODk=",
+  "has_more": true
 }
 ```
+
+**Notes**:
+- Use `next_cursor` value for subsequent requests to get the next page
+- Cursor-based pagination is more efficient than offset-based for large datasets
+- Filters can be combined (e.g., `?call_type=video&status=missed`)
 
 ---
 
@@ -477,6 +516,87 @@ curl -X POST "https://your-zulip.com/api/v1/calls/end" \
 
 ---
 
+### GET /api/v1/calls/queue
+
+**Description**: Get pending queued calls for the current user.
+
+**Response**:
+```json
+{
+  "result": "success",
+  "queue": [
+    {
+      "queue_id": "queue-uuid-123",
+      "caller": {
+        "user_id": 789,
+        "full_name": "Alice Johnson",
+        "email": "alice@example.com"
+      },
+      "call_type": "video",
+      "created_at": "2024-01-01T12:05:00Z",
+      "expires_at": "2024-01-01T12:10:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+**Notes**:
+- Shows calls waiting for the user to become available
+- Queue entries automatically expire after 5 minutes
+- User will be notified when queue is processed
+
+---
+
+### POST /api/v1/calls/queue/{queue_id}/cancel
+
+**Description**: Cancel a queued call before it's processed.
+
+**Path Parameter**: `queue_id` - The queue entry ID
+
+**Response**:
+```json
+{
+  "result": "success",
+  "message": "Queued call cancelled successfully"
+}
+```
+
+**Notes**:
+- Only the caller can cancel their queued call
+- Cannot cancel if already processed or expired
+
+---
+
+### POST /api/v1/calls/{call_id}/leave
+
+**Description**: Leave a call (for non-moderators). Moderators use this to end the call for everyone.
+
+**Path Parameter**: `call_id` - The call ID
+
+**Response (Non-Moderator)**:
+```json
+{
+  "result": "success",
+  "message": "You have left the call"
+}
+```
+
+**Response (Moderator)**:
+```json
+{
+  "result": "success",
+  "message": "Call ended successfully"
+}
+```
+
+**Notes**:
+- Call initiator (moderator) ends call for everyone
+- Other participants only leave, call continues for remaining participant
+- Triggers queue processing for the user who left/ended
+
+---
+
 ## WebSocket Events
 
 The plugin sends real-time WebSocket events through Zulip's event system. Connect to Zulip's WebSocket endpoint and listen for `call_event` types.
@@ -507,11 +627,13 @@ The plugin sends real-time WebSocket events through Zulip's event system. Connec
 | `participant_ringing` | Call acknowledged by recipient | `/acknowledge` | Caller |
 | `call_accepted` | Call accepted by recipient | `/respond` (accept) | Both participants |
 | `call_rejected` | Call rejected by recipient | `/respond` (reject) | Caller |
-| `ended` | Call terminated | `/end` | Both participants |
+| `ended` | Call terminated | `/end` (by moderator) | Both participants |
 | `cancelled` | Call cancelled by sender | `/cancel` | Both participants |
-| `missed` | Call missed by recipient (no answer) | cleanup | Both participants |
+| `missed` | Call missed by recipient (no answer) | cleanup (90s timeout) | Both participants |
 | `timeout` | Call timed out (stuck active) | cleanup | Both participants |
 | `call_status_update` | Status changed during call | `/status` | Other participant |
+| `participant_left` | Non-moderator left call | `/end` (by participant) | Other participant |
+| `network_failure` | Network disconnection detected | cleanup (60s no heartbeat) | Both participants |
 
 ### WebSocket Connection
 

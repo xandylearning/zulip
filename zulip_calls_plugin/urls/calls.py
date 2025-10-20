@@ -9,6 +9,9 @@ from ..views import (
     get_call_history,
     acknowledge_call,
     heartbeat,
+    get_call_queue,
+    cancel_queued_call,
+    leave_call,
 )
 
 # Essential API endpoints for Flutter integration
@@ -17,9 +20,14 @@ urlpatterns = [
     path("api/v1/calls/create", create_call, name="create_call"),
     path("api/v1/calls/<str:call_id>/respond", respond_to_call, name="respond_to_call"),
     path("api/v1/calls/<str:call_id>/end", end_call, name="end_call"),
+    path("api/v1/calls/<str:call_id>/leave", leave_call, name="leave_call"),
     path("api/v1/calls/<str:call_id>/cancel", cancel_call, name="cancel_call"),
     path("api/v1/calls/<str:call_id>/status", get_call_status, name="get_call_status"),
     path("api/v1/calls/history", get_call_history, name="get_call_history"),
+    
+    # Queue management endpoints
+    path("api/v1/calls/queue", get_call_queue, name="get_call_queue"),
+    path("api/v1/calls/queue/<str:queue_id>/cancel", cancel_queued_call, name="cancel_queued_call"),
     
     # Flutter-specific endpoints
     path("api/v1/calls/acknowledge", acknowledge_call, name="acknowledge_call"),

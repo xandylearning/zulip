@@ -29,7 +29,7 @@ from zerver.lib.response import json_success
 from zerver.tornado.django_api import send_event_on_commit
 
 # Import plugin models
-from ..models import Call, CallEvent
+from ..models import Call, CallEvent, CallQueue
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +140,99 @@ def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None
 
     except Exception as e:
         logger.error(f"Failed to send call push notification: {e}")
+
+
+def send_missed_call_notification(recipient: UserProfile, call: Call) -> None:
+    """Send push notification for missed call"""
+    from django.conf import settings
+    from zerver.models import PushDevice, PushDeviceToken
+    from zerver.lib.push_notifications import send_push_notifications, send_push_notifications_legacy
+    from zerver.lib.remote_server import PushNotificationBouncerRetryLaterError
+
+    if not getattr(settings, 'CALL_PUSH_NOTIFICATION_ENABLED', True):
+        return
+
+    try:
+        # Prepare missed call notification data
+        payload_data_to_encrypt = {
+            'event': 'missed_call',
+            'type': 'missed_call',
+            'call_id': str(call.call_id),
+            'sender_id': call.sender.id,
+            'sender_full_name': call.sender.full_name,
+            'sender_name': call.sender.full_name,
+            'sender_avatar_url': f"/avatar/{call.sender.id}",
+            'call_type': call.call_type,
+            'timestamp': call.created_at.isoformat(),
+            'time': str(int(call.created_at.timestamp())),
+            'realm_uri': recipient.realm.url,
+            'realm_name': recipient.realm.name,
+            'realm_url': recipient.realm.url,
+            'server': recipient.realm.host,
+            'user_id': str(recipient.id),
+        }
+
+        # Create legacy notification payloads for fallback
+        call_type = call.call_type
+        sender_name = call.sender.full_name
+        
+        apns_payload = {
+            "alert": {
+                "title": "Missed call",
+                "body": f"Missed {call_type} call from {sender_name}"
+            },
+            "badge": 1,
+            "sound": "default",
+            "custom": payload_data_to_encrypt
+        }
+        
+        gcm_payload = {
+            "title": "Missed call",
+            "content": f"Missed {call_type} call from {sender_name}",
+            "custom": payload_data_to_encrypt
+        }
+        
+        gcm_options = {
+            "priority": "high"
+        }
+
+        # Check device registration status
+        e2ee_devices = PushDevice.objects.filter(
+            user=recipient, 
+            bouncer_device_id__isnull=False
+        ).exists()
+        
+        legacy_devices = PushDeviceToken.objects.filter(user=recipient).exists()
+        
+        if not e2ee_devices and not legacy_devices:
+            logger.info(f"No registered devices for user {recipient.id}")
+            return
+
+        # Try E2EE push notifications first
+        if e2ee_devices:
+            try:
+                send_push_notifications(recipient, payload_data_to_encrypt)
+                logger.info(f"E2EE missed call notification sent to user {recipient.id} for call {call.call_id}")
+                return
+            except PushNotificationBouncerRetryLaterError as e:
+                logger.warning(f"E2EE push notification bouncer retry error for user {recipient.id}: {e}")
+            except Exception as e:
+                logger.warning(f"E2EE push notification failed for user {recipient.id}: {e}")
+        
+        # Send legacy push notifications
+        if legacy_devices:
+            try:
+                send_push_notifications_legacy(recipient, apns_payload, gcm_payload, gcm_options)
+                logger.info(f"Legacy missed call notification sent to user {recipient.id} for call {call.call_id}")
+            except PushNotificationBouncerRetryLaterError as e:
+                logger.warning(f"Legacy push notification bouncer retry error for user {recipient.id}: {e}")
+            except Exception as e:
+                logger.error(f"Legacy push notification failed for user {recipient.id}: {e}")
+        
+        logger.info(f"Missed call notification processing completed for user {recipient.id} for call {call.call_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to send missed call notification: {e}")
 
 
 def send_fcm_call_notification(recipient: UserProfile, call_data: dict) -> None:
@@ -376,24 +469,32 @@ def cleanup_stale_calls() -> int:
     )
 
     for call in unanswered_calls:
-        call.state = 'timeout'
+        call.state = 'missed'
         call.ended_at = now
         call.save()
+        
+        # Send missed call notification if not already sent
+        if not call.is_missed_notified:
+            send_missed_call_notification(call.receiver, call)
+            call.is_missed_notified = True
+            call.save(update_fields=['is_missed_notified'])
+        
         CallEvent.objects.create(
             call=call,
-            event_type='timeout',
+            event_type='missed',
             user=call.sender,
             metadata={'reason': 'unanswered_timeout', 'timeout_seconds': 90}
         )
-        send_call_event(call.sender, call, 'timeout', {'reason': 'unanswered'})
-        send_call_event(call.receiver, call, 'timeout', {'reason': 'unanswered'})
+        send_call_event(call.sender, call, 'missed', {'reason': 'unanswered'})
+        send_call_event(call.receiver, call, 'missed', {'reason': 'unanswered'})
         count += 1
 
-    # Scenario 2: Network failure - 30 seconds no heartbeat for ACCEPTED calls only
+    # Scenario 2: Network failure - 60 seconds no heartbeat for ACCEPTED calls only
     # Only check heartbeat for accepted calls to avoid ending calls during setup
-    # Give participants 60 seconds to start sending heartbeats after acceptance
-    network_threshold = now - timedelta(seconds=30)
-    heartbeat_grace_period = now - timedelta(seconds=60)  # 60 seconds grace period
+    # Give participants 90 seconds to start sending heartbeats after acceptance
+    # Extended timeouts to handle slow networks better
+    network_threshold = now - timedelta(seconds=60)
+    heartbeat_grace_period = now - timedelta(seconds=90)  # 90 seconds grace period
     
     active_calls = Call.objects.filter(
         state='accepted',
@@ -411,7 +512,7 @@ def cleanup_stale_calls() -> int:
             call.last_heartbeat_receiver < network_threshold
         )
 
-        # End call if either participant has no heartbeat for 30 seconds
+        # End call if either participant has no heartbeat for 60 seconds
         if sender_inactive or receiver_inactive:
             call.state = 'network_failure'
             call.ended_at = now
@@ -504,6 +605,148 @@ def check_and_cleanup_user_calls(user_profile: UserProfile) -> bool:
     return False
 
 
+def process_call_queue(user_profile: UserProfile) -> int:
+    """Process pending queued calls for a user who just became available"""
+    from datetime import timedelta
+    
+    try:
+        # Check if user is still in an active call
+        active_call = Call.objects.filter(
+            models.Q(sender=user_profile) | models.Q(receiver=user_profile),
+            state__in=['calling', 'ringing', 'accepted']
+        ).exists()
+        
+        if active_call:
+            logger.info(f"User {user_profile.id} still in active call, not processing queue")
+            return 0
+        
+        # Get oldest pending queue entry for this user
+        queue_entry = CallQueue.objects.filter(
+            busy_user=user_profile,
+            status='pending',
+            expires_at__gt=timezone.now()
+        ).order_by('created_at').first()
+        
+        if not queue_entry:
+            return 0
+        
+        # Check if caller is still available (not in another call)
+        caller_in_call = Call.objects.filter(
+            models.Q(sender=queue_entry.caller) | models.Q(receiver=queue_entry.caller),
+            state__in=['calling', 'ringing', 'accepted']
+        ).exists()
+        
+        if caller_in_call:
+            # Caller is busy, mark queue as expired
+            queue_entry.status = 'expired'
+            queue_entry.save()
+            logger.info(f"Queue entry {queue_entry.queue_id} expired - caller now busy")
+            return 0
+        
+        # Create the actual call
+        with transaction.atomic():
+            call = Call.objects.create(
+                call_type=queue_entry.call_type,
+                sender=queue_entry.caller,
+                receiver=user_profile,
+                moderator=queue_entry.caller,
+                jitsi_room_name=f"zulip-call-{uuid.uuid4().hex[:12]}",
+                realm=user_profile.realm
+            )
+            
+            # Generate Jitsi URLs
+            jitsi_server = getattr(settings, 'JITSI_SERVER_URL', 'https://dev.meet.xandylearning.in')
+            base_room_url = f"{jitsi_server}/{call.jitsi_room_name}"
+            call.jitsi_room_url = base_room_url
+            call.last_heartbeat_sender = timezone.now()
+            call.save()
+            
+            # Mark queue entry as converted
+            queue_entry.status = 'converted'
+            queue_entry.converted_to_call_id = call.call_id
+            queue_entry.save()
+            
+            # Create call event
+            CallEvent.objects.create(
+                call=call,
+                event_type="initiated",
+                user=queue_entry.caller,
+                metadata={"from_queue": True, "queue_id": str(queue_entry.queue_id)}
+            )
+            
+            # Send notification to caller that user is now available
+            available_notification = {
+                "call_id": str(call.call_id),
+                "jitsi_url": call.jitsi_room_url,
+                "call_type": call.call_type,
+                "sender_name": user_profile.full_name,
+                "sender_id": str(user_profile.id),
+                "room_name": call.jitsi_room_name,
+            }
+            send_call_push_notification(queue_entry.caller, available_notification)
+            
+            # Send call notification to the now-available user
+            call_notification = {
+                "call_id": str(call.call_id),
+                "jitsi_url": call.jitsi_room_url,
+                "call_type": call.call_type,
+                "sender_name": queue_entry.caller.full_name,
+                "sender_id": str(queue_entry.caller.id),
+                "room_name": call.jitsi_room_name,
+            }
+            send_call_push_notification(user_profile, call_notification)
+            
+            logger.info(f"Processed queue entry {queue_entry.queue_id}, created call {call.call_id}")
+            return 1
+    
+    except Exception as e:
+        logger.error(f"Failed to process call queue for user {user_profile.id}: {e}")
+        return 0
+
+
+def cleanup_expired_queue_entries() -> int:
+    """Clean up expired queue entries and notify callers"""
+    now = timezone.now()
+    count = 0
+    
+    # Find expired queue entries
+    expired_entries = CallQueue.objects.filter(
+        status='pending',
+        expires_at__lte=now
+    )
+    
+    for entry in expired_entries:
+        entry.status = 'expired'
+        entry.save()
+        
+        # Send notification to caller that user is still busy
+        try:
+            payload_data = {
+                'event': 'call_queue_expired',
+                'type': 'call_queue_expired',
+                'queue_id': str(entry.queue_id),
+                'busy_user_name': entry.busy_user.full_name,
+                'busy_user_id': entry.busy_user.id,
+                'call_type': entry.call_type,
+            }
+            
+            from zerver.models import PushDevice, PushDeviceToken
+            from zerver.lib.push_notifications import send_push_notifications
+            
+            if PushDevice.objects.filter(user=entry.caller, bouncer_device_id__isnull=False).exists():
+                send_push_notifications(entry.caller, payload_data)
+                logger.info(f"Sent queue expired notification to user {entry.caller.id}")
+        except Exception as e:
+            logger.error(f"Failed to send queue expired notification: {e}")
+        
+        count += 1
+    
+    if count > 0:
+        logger.info(f"Cleaned up {count} expired queue entries")
+    
+    return count
+
+
 
 
 @require_http_methods(["POST"])
@@ -547,13 +790,21 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
             check_and_cleanup_user_calls(user_profile)
             check_and_cleanup_user_calls(recipient)
 
-            # Check if caller is already in an active call
+            # Check if caller is already in an active call OR recently ended call (prevent race conditions)
+            recent_threshold = timezone.now() - timedelta(seconds=5)
             caller_in_call = Call.objects.filter(
                 models.Q(sender=user_profile) | models.Q(receiver=user_profile),
-                state__in=["calling", "ringing", "accepted"]
+                models.Q(state__in=["calling", "ringing", "accepted"]) |
+                models.Q(state="ended", ended_at__gt=recent_threshold)
             ).first()
 
             if caller_in_call:
+                if caller_in_call.state == "ended":
+                    return JsonResponse({
+                        "result": "error",
+                        "message": "Please wait a moment before making another call",
+                        "existing_call_id": str(caller_in_call.call_id)
+                    }, status=429)  # Too Many Requests
                 return JsonResponse({
                     "result": "error",
                     "message": "You are already in a call",
@@ -567,11 +818,25 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
             ).first()
 
             if receiver_in_call:
+                # Queue the call instead of rejecting it
+                queue_expiry = timezone.now() + timedelta(minutes=5)
+                queue_entry = CallQueue.objects.create(
+                    caller=user_profile,
+                    busy_user=recipient,
+                    call_type="video" if is_video_call else "audio",
+                    expires_at=queue_expiry,
+                    realm=user_profile.realm
+                )
+                
+                logger.info(f"Queued call {queue_entry.queue_id} - recipient {recipient.id} is busy")
+                
                 return JsonResponse({
-                    "result": "error",
-                    "message": "The recipient is already in a call",
-                    "existing_call_id": str(receiver_in_call.call_id)
-                }, status=409)
+                    "result": "queued",
+                    "queue_id": str(queue_entry.queue_id),
+                    "message": f"{recipient.full_name} is currently in another call. You'll be notified when they're available.",
+                    "expires_at": queue_expiry.isoformat(),
+                    "position": "next"
+                }, status=202)
 
             # Re-check in-transaction before creating the call to avoid race conditions
             recheck_active = Call.objects.select_for_update().filter(
@@ -593,6 +858,7 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                 call_type="video" if is_video_call else "audio",
                 sender=user_profile,
                 receiver=recipient,
+                moderator=user_profile,  # Sender is always the moderator
                 jitsi_room_name=f"zulip-call-{uuid.uuid4().hex[:12]}",
                 realm=user_profile.realm
             )
@@ -777,6 +1043,13 @@ def respond_to_call(request: HttpRequest, user_profile: UserProfile, call_id: st
                 event_type=event_type,
                 user=user_profile
             )
+            
+            # If call was declined, process queue for the receiver
+            if response == "decline":
+                try:
+                    process_call_queue(call.receiver)
+                except Exception as e:
+                    logger.error(f"Failed to process queue after call decline: {e}")
 
             return JsonResponse({
                 "result": "success",
@@ -818,32 +1091,73 @@ def end_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> J
                     "message": "Not authorized to end this call"
                 }, status=403)
 
-            # Mark call as ended
-            call.state = "ended"
-            call.ended_at = timezone.now()
-            call.save()
+            # Check if user is moderator - moderators end call for everyone
+            is_moderator = call.moderator and call.moderator.id == user_profile.id
+            
+            if is_moderator:
+                # Moderator ends call for everyone
+                call.state = "ended"
+                call.ended_at = timezone.now()
+                call.save()
 
-            # Create event
-            CallEvent.objects.create(
-                call=call,
-                event_type="ended",
-                user=user_profile
-            )
+                # Create event
+                CallEvent.objects.create(
+                    call=call,
+                    event_type="ended",
+                    user=user_profile,
+                    metadata={"ended_by_moderator": True}
+                )
 
-            # Emit WebSocket events to both participants
-            try:
-                send_call_event(call.sender, call, 'ended')
-            except Exception:
-                pass
-            try:
-                send_call_event(call.receiver, call, 'ended')
-            except Exception:
-                pass
+                # Emit WebSocket events to both participants
+                try:
+                    send_call_event(call.sender, call, 'ended')
+                except Exception:
+                    pass
+                try:
+                    send_call_event(call.receiver, call, 'ended')
+                except Exception:
+                    pass
+                
+                # Process queue for both participants
+                try:
+                    process_call_queue(call.sender)
+                    process_call_queue(call.receiver)
+                except Exception as e:
+                    logger.error(f"Failed to process queue after call end: {e}")
 
-            return JsonResponse({
-                "result": "success",
-                "message": "Call ended successfully"
-            })
+                return JsonResponse({
+                    "result": "success",
+                    "message": "Call ended successfully"
+                })
+            else:
+                # Participant leaves call but doesn't end it for everyone
+                # Create participant_left event
+                CallEvent.objects.create(
+                    call=call,
+                    event_type="participant_left",
+                    user=user_profile
+                )
+                
+                # Notify other participant
+                other_user = call.sender if user_profile.id == call.receiver.id else call.receiver
+                try:
+                    send_call_event(other_user, call, 'participant_left', {
+                        'left_user_id': user_profile.id,
+                        'left_user_name': user_profile.full_name
+                    })
+                except Exception:
+                    pass
+                
+                # Process queue for the user who left
+                try:
+                    process_call_queue(user_profile)
+                except Exception as e:
+                    logger.error(f"Failed to process queue after participant left: {e}")
+
+                return JsonResponse({
+                    "result": "success",
+                    "message": "You have left the call"
+                })
 
     except Exception as e:
         logger.error(f"Failed to end call: {e}")
@@ -972,6 +1286,7 @@ def get_call_status(request: HttpRequest, user_profile: UserProfile, call_id: st
                 "jitsi_url": call.jitsi_room_url,
                 "timestamp": int(call.created_at.timestamp()),  # Unix timestamp
                 "duration": int(call.duration.total_seconds()) if call.duration else None,
+                "is_moderator": call.moderator and call.moderator.id == user_profile.id,
                 # Keep additional fields for backward compatibility
                 "state": call.state,
                 "call_url": call.jitsi_room_url,
@@ -1002,21 +1317,62 @@ def get_call_status(request: HttpRequest, user_profile: UserProfile, call_id: st
 @require_http_methods(["GET"])
 @authenticated_rest_api_view(webhook_client_name="Zulip")
 def get_call_history(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
-    """Get call history for the user"""
+    """Get call history for the user with cursor-based pagination"""
+    import base64
     try:
         # Get query parameters
         limit = min(int(request.GET.get("limit", 50)), 100)
-        offset = int(request.GET.get("offset", 0))
+        cursor = request.GET.get("cursor", "").strip()
+        call_type_filter = request.GET.get("call_type", "").strip()  # video, audio, or empty for all
+        status_filter = request.GET.get("status", "").strip()  # missed, answered, all
 
-        # Get calls where user was sender or receiver
-        calls = Call.objects.filter(
+        # Base query - calls where user was sender or receiver
+        query = Call.objects.filter(
             models.Q(sender=user_profile) | models.Q(receiver=user_profile),
             realm=user_profile.realm
-        ).order_by("-created_at")[offset:offset + limit]
+        )
+
+        # Apply call type filter if specified
+        if call_type_filter in ['video', 'audio']:
+            query = query.filter(call_type=call_type_filter)
+
+        # Apply status filter if specified
+        if status_filter == 'missed':
+            query = query.filter(state='missed')
+        elif status_filter == 'answered':
+            query = query.filter(state__in=['accepted', 'ended'])
+
+        # Parse cursor for pagination
+        if cursor:
+            try:
+                decoded_cursor = base64.b64decode(cursor).decode('utf-8')
+                cursor_parts = decoded_cursor.split('_', 1)
+                if len(cursor_parts) == 2:
+                    cursor_timestamp = cursor_parts[0]
+                    cursor_call_id = cursor_parts[1]
+                    
+                    # Filter calls created before cursor or same time with lower call_id
+                    query = query.filter(
+                        models.Q(created_at__lt=cursor_timestamp) |
+                        models.Q(created_at=cursor_timestamp, call_id__lt=cursor_call_id)
+                    )
+            except Exception as e:
+                logger.warning(f"Invalid cursor format: {e}")
+                # Continue without cursor if parsing fails
+
+        # Order by created_at descending, then call_id for consistent ordering
+        calls = query.order_by("-created_at", "-call_id")[:limit + 1]  # Fetch one extra to check has_more
+        
+        # Check if there are more results
+        has_more = len(calls) > limit
+        if has_more:
+            calls = calls[:limit]  # Remove the extra record
 
         call_list = []
+        last_call = None
         for call in calls:
             other_user = call.receiver if call.sender.id == user_profile.id else call.sender
+            last_call = call
 
             call_list.append({
                 "call_id": str(call.call_id),
@@ -1037,10 +1393,17 @@ def get_call_history(request: HttpRequest, user_profile: UserProfile) -> JsonRes
                 )
             })
 
+        # Generate next cursor if there are more results
+        next_cursor = None
+        if has_more and last_call:
+            cursor_string = f"{last_call.created_at.isoformat()}_{str(last_call.call_id)}"
+            next_cursor = base64.b64encode(cursor_string.encode('utf-8')).decode('utf-8')
+
         return JsonResponse({
             "result": "success",
             "calls": call_list,
-            "has_more": len(call_list) == limit
+            "next_cursor": next_cursor,
+            "has_more": has_more
         })
 
     except Exception as e:
@@ -1196,3 +1559,103 @@ def heartbeat(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
     except Exception as e:
         logger.error(f"Heartbeat error: {e}")
         raise
+
+
+@require_http_methods(["GET"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def get_call_queue(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """Get queued calls for the current user"""
+    try:
+        # Get pending queue entries where user is the busy_user
+        queue_entries = CallQueue.objects.filter(
+            busy_user=user_profile,
+            status='pending',
+            expires_at__gt=timezone.now()
+        ).order_by('created_at')
+        
+        queue_list = []
+        for entry in queue_entries:
+            queue_list.append({
+                "queue_id": str(entry.queue_id),
+                "caller": {
+                    "user_id": entry.caller.id,
+                    "full_name": entry.caller.full_name,
+                    "email": entry.caller.delivery_email,
+                },
+                "call_type": entry.call_type,
+                "created_at": entry.created_at.isoformat(),
+                "expires_at": entry.expires_at.isoformat(),
+            })
+        
+        return JsonResponse({
+            "result": "success",
+            "queue": queue_list,
+            "count": len(queue_list)
+        })
+    
+    except Exception as e:
+        logger.error(f"Failed to get call queue: {e}")
+        return JsonResponse({
+            "result": "error",
+            "message": f"Failed to get call queue: {str(e)}"
+        }, status=500)
+
+
+@require_http_methods(["POST"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def cancel_queued_call(request: HttpRequest, user_profile: UserProfile, queue_id: str) -> JsonResponse:
+    """Cancel a queued call"""
+    try:
+        with transaction.atomic():
+            try:
+                queue_entry = CallQueue.objects.select_for_update().get(
+                    queue_id=queue_id,
+                    realm=user_profile.realm
+                )
+            except CallQueue.DoesNotExist:
+                return JsonResponse({
+                    "result": "error",
+                    "message": "Queue entry not found"
+                }, status=404)
+            
+            # Only caller can cancel
+            if queue_entry.caller.id != user_profile.id:
+                return JsonResponse({
+                    "result": "error",
+                    "message": "Not authorized to cancel this queued call"
+                }, status=403)
+            
+            # Check if already processed
+            if queue_entry.status != 'pending':
+                return JsonResponse({
+                    "result": "error",
+                    "message": f"Queue entry already {queue_entry.status}"
+                }, status=400)
+            
+            # Mark as cancelled
+            queue_entry.status = 'cancelled'
+            queue_entry.save()
+            
+            logger.info(f"Cancelled queue entry {queue_id} by user {user_profile.id}")
+            
+            return JsonResponse({
+                "result": "success",
+                "message": "Queued call cancelled successfully"
+            })
+    
+    except Exception as e:
+        logger.error(f"Failed to cancel queued call: {e}")
+        return JsonResponse({
+            "result": "error",
+            "message": f"Failed to cancel queued call: {str(e)}"
+        }, status=500)
+
+
+@require_http_methods(["POST"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def leave_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
+    """Leave a call (for non-moderators) - same as end_call but explicit"""
+    # This is now handled in end_call() function - it checks if user is moderator
+    # If moderator: ends call for everyone
+    # If participant: just leaves the call
+    return end_call(request, user_profile, call_id)
