@@ -10,6 +10,11 @@ from .calls import (
     create_embedded_call,
     acknowledge_call,
     heartbeat,
+    get_call_queue,
+    cancel_queued_call,
+    leave_call,
+    cleanup_stale_calls,
+    cleanup_expired_queue_entries,
 )
 
 __all__ = [
@@ -22,4 +27,9 @@ __all__ = [
     "create_embedded_call",
     "acknowledge_call",
     "heartbeat",
+    "get_call_queue",
+    "cancel_queued_call",
+    "leave_call",
+    "cleanup_stale_calls",
+    "cleanup_expired_queue_entries",
 ]
