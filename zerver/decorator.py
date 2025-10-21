@@ -87,6 +87,11 @@ def update_user_activity(
     else:
         query = request.META["PATH_INFO"]
 
+    # Truncate query to fit within UserActivity.query field (max_length=50)
+    # This prevents database errors for long API endpoint paths
+    if len(query) > 50:
+        query = query[:50]
+
     assert request_notes.client is not None
     event = {
         "query": query,

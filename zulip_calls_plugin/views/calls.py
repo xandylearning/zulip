@@ -674,7 +674,7 @@ def process_call_queue(user_profile: UserProfile) -> int:
                 metadata={"from_queue": True, "queue_id": str(queue_entry.queue_id)}
             )
             
-            # Send notification to caller that user is now available
+            # Prepare push notification data
             available_notification = {
                 "call_id": str(call.call_id),
                 "jitsi_url": call.jitsi_room_url,
@@ -683,9 +683,7 @@ def process_call_queue(user_profile: UserProfile) -> int:
                 "sender_id": str(user_profile.id),
                 "room_name": call.jitsi_room_name,
             }
-            send_call_push_notification(queue_entry.caller, available_notification)
-            
-            # Send call notification to the now-available user
+
             call_notification = {
                 "call_id": str(call.call_id),
                 "jitsi_url": call.jitsi_room_url,
@@ -694,7 +692,10 @@ def process_call_queue(user_profile: UserProfile) -> int:
                 "sender_id": str(queue_entry.caller.id),
                 "room_name": call.jitsi_room_name,
             }
-            send_call_push_notification(user_profile, call_notification)
+
+            # Send push notifications after transaction commits to avoid nested atomic block errors
+            transaction.on_commit(lambda: send_call_push_notification(queue_entry.caller, available_notification))
+            transaction.on_commit(lambda: send_call_push_notification(user_profile, call_notification))
             
             logger.info(f"Processed queue entry {queue_entry.queue_id}, created call {call.call_id}")
             return 1
@@ -927,7 +928,7 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                 }
             )
 
-            # Send push notification with participant URL
+            # Prepare push notification data
             push_data = {
                 "type": "call_invitation",
                 "call_id": str(call.call_id),
@@ -938,10 +939,6 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                 "room_name": call.jitsi_room_name,
             }
 
-            # Send legacy push notification (for compatibility)
-            send_call_push_notification(recipient, push_data)
-
-            # Send specialized FCM call notification in exact format specified
             fcm_call_data = {
                 "call_id": str(call.call_id),
                 "sender_id": str(user_profile.id),
@@ -951,7 +948,11 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                 "jitsi_url": participant_url,
                 "sender_avatar_url": f"/avatar/{user_profile.id}",  # Include avatar URL
             }
-            send_fcm_call_notification(recipient, fcm_call_data)
+
+            # Send push notifications after transaction commits to avoid nested atomic block errors
+            # This also ensures notifications are only sent if the database transaction succeeds
+            transaction.on_commit(lambda: send_call_push_notification(recipient, push_data))
+            transaction.on_commit(lambda: send_fcm_call_notification(recipient, fcm_call_data))
 
             return JsonResponse({
                 "result": "success",
@@ -1482,7 +1483,7 @@ def acknowledge_call(request: HttpRequest, user_profile: UserProfile) -> JsonRes
         if not call_id:
             raise JsonableError("Missing required parameter: call_id")
         if status not in ['ringing']:
-            raise JsonableError("Invalid status. Must be 'ringing'")
+            raise JsonableError("Invalid status parameter. Must be 'ringing'")
 
         # Get call
         try:
@@ -1493,7 +1494,7 @@ def acknowledge_call(request: HttpRequest, user_profile: UserProfile) -> JsonRes
         # Check if call can be acknowledged - accept both 'calling' and 'ringing' states
         # This fixes the race condition where the call might already be in 'ringing' state
         if call.state not in ['calling', 'ringing']:
-            raise JsonableError(f"Call cannot be acknowledged. Current status: {call.state}")
+            raise JsonableError(f"Call cannot be acknowledged. Must be in 'calling' or 'ringing' state. Current status: {call.state}")
 
         # Update call state to ringing
         with transaction.atomic():
