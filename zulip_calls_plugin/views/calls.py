@@ -44,6 +44,32 @@ def generate_jitsi_url(call_id: str) -> tuple[str, str]:
     return jitsi_url, room_id
 
 
+def extract_request_data(request: HttpRequest, required_fields: list = None) -> dict:
+    """
+    Extract and validate request data from POST/GET parameters
+    Returns a dictionary with extracted data and any validation errors
+    """
+    data = {}
+    errors = []
+    
+    # Extract data from both POST and GET
+    for key in (request.POST.keys() | request.GET.keys()):
+        value = (request.POST.get(key) or request.GET.get(key) or "").strip()
+        data[key] = value
+    
+    # Validate required fields
+    if required_fields:
+        for field in required_fields:
+            if not data.get(field):
+                errors.append(f"Missing required parameter: {field}")
+    
+    return {
+        'data': data,
+        'errors': errors,
+        'has_errors': len(errors) > 0
+    }
+
+
 def send_call_push_notification(recipient: UserProfile, call_data: dict) -> None:
     """Send push notification for call events using correct Zulip API with fallback support"""
     from django.conf import settings
@@ -1476,25 +1502,55 @@ def acknowledge_call(request: HttpRequest, user_profile: UserProfile) -> JsonRes
     Acknowledge receipt of call notification (sets status to 'ringing')
     """
     try:
-        # Don't run cleanup here - acknowledgment should work for recent calls
-        call_id = (request.POST.get("call_id") or request.GET.get("call_id") or "").strip()
-        status = (request.POST.get("status") or request.GET.get("status") or "").strip()
+        # Extract and validate request data
+        request_data = extract_request_data(request, required_fields=['call_id', 'status'])
+        
+        # Log request data for debugging
+        logger.info(f"Acknowledge call request - User: {user_profile.id}")
+        logger.info(f"Request data: {request_data['data']}")
+        logger.info(f"Request POST data: {dict(request.POST)}")
+        logger.info(f"Request GET data: {dict(request.GET)}")
 
-        if not call_id:
-            raise JsonableError("Missing required parameter: call_id")
+        # Check for validation errors
+        if request_data['has_errors']:
+            error_msg = "; ".join(request_data['errors'])
+            logger.error(f"Acknowledge call validation error: {error_msg}")
+            return JsonResponse({
+                "result": "error",
+                "message": error_msg
+            }, status=400)
+
+        call_id = request_data['data']['call_id']
+        status = request_data['data']['status']
+
         if status not in ['ringing']:
-            raise JsonableError("Invalid status parameter. Must be 'ringing'")
+            error_msg = f"Invalid status parameter. Must be 'ringing'. Received: '{status}'"
+            logger.error(f"Acknowledge call error: {error_msg}")
+            return JsonResponse({
+                "result": "error",
+                "message": error_msg
+            }, status=400)
 
         # Get call
         try:
             call = Call.objects.get(call_id=call_id, receiver=user_profile)
         except Call.DoesNotExist:
-            raise JsonableError("Call not found or you're not the receiver")
+            error_msg = f"Call not found or you're not the receiver. Call ID: {call_id}, User: {user_profile.id}"
+            logger.error(f"Acknowledge call error: {error_msg}")
+            return JsonResponse({
+                "result": "error",
+                "message": "Call not found or you're not the receiver"
+            }, status=404)
 
         # Check if call can be acknowledged - accept both 'calling' and 'ringing' states
         # This fixes the race condition where the call might already be in 'ringing' state
         if call.state not in ['calling', 'ringing']:
-            raise JsonableError(f"Call cannot be acknowledged. Must be in 'calling' or 'ringing' state. Current status: {call.state}")
+            error_msg = f"Call cannot be acknowledged. Must be in 'calling' or 'ringing' state. Current status: {call.state}"
+            logger.error(f"Acknowledge call error: {error_msg}")
+            return JsonResponse({
+                "result": "error",
+                "message": error_msg
+            }, status=400)
 
         # Update call state to ringing
         with transaction.atomic():
@@ -1525,8 +1581,12 @@ def acknowledge_call(request: HttpRequest, user_profile: UserProfile) -> JsonRes
         })
 
     except Exception as e:
-        logger.error(f"Error acknowledging call: {str(e)}")
-        raise
+        error_msg = f"Unexpected error acknowledging call: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return JsonResponse({
+            "result": "error",
+            "message": "Internal server error"
+        }, status=500)
 
 
 @require_http_methods(["POST"])
