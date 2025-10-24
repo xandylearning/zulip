@@ -86,7 +86,10 @@ def dev_direct_login(
         redirect_to = get_safe_redirect_to(next, realm.url)
         return HttpResponseRedirect(redirect_to)
 
-    email = request.POST["direct_email"]
+    email = request.POST.get("direct_email")
+    if not email:
+        return config_error(request, "dev_not_supported")
+    
     user_profile = authenticate(dev_auth_username=email, realm=realm)
     if user_profile is None:
         return config_error(request, "dev_not_supported")
