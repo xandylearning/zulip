@@ -480,47 +480,51 @@ class UserAnswerAttemptSections(models.Model):
 # =============================================================================
 
 class Batchtostudent(models.Model):
-    pk = models.CompositePrimaryKey('A', 'B')
+    id = models.AutoField(primary_key=True)
     a = models.ForeignKey('Batches', models.DO_NOTHING, db_column='A')  # Field name made lowercase.
     b = models.ForeignKey('Students', models.DO_NOTHING, db_column='B')  # Field name made lowercase.
 
     class Meta:
         managed = False
         db_table = '_BatchToStudent'
+        unique_together = (('a', 'b'),)
 
 
 class Coursebatch(models.Model):
-    pk = models.CompositePrimaryKey('A', 'B')
+    id = models.AutoField(primary_key=True)
     a = models.ForeignKey('Batches', models.DO_NOTHING, db_column='A')  # Field name made lowercase.
     b = models.ForeignKey('Courses', models.DO_NOTHING, db_column='B')  # Field name made lowercase.
 
     class Meta:
         managed = False
         db_table = '_CourseBatch'
+        unique_together = (('a', 'b'),)
 
 
 class Examcourse(models.Model):
-    pk = models.CompositePrimaryKey('A', 'B')
+    id = models.AutoField(primary_key=True)
     a = models.ForeignKey('Courses', models.DO_NOTHING, db_column='A')  # Field name made lowercase.
     b = models.ForeignKey('Exams', models.DO_NOTHING, db_column='B')  # Field name made lowercase.
 
     class Meta:
         managed = False
         db_table = '_ExamCourse'
+        unique_together = (('a', 'b'),)
 
 
 class Mentortostudent(models.Model):
-    pk = models.CompositePrimaryKey('A', 'B')
+    id = models.AutoField(primary_key=True)
     a = models.ForeignKey('Mentors', models.DO_NOTHING, db_column='A')  # Field name made lowercase.
     b = models.ForeignKey('Students', models.DO_NOTHING, db_column='B')  # Field name made lowercase.
 
     class Meta:
         managed = False
         db_table = '_MentorToStudent'
+        unique_together = (('a', 'b'),)
 
 
 class Chaptertocontent(models.Model):
-    pk = models.CompositePrimaryKey('chapterId', 'contentId')
+    id = models.AutoField(primary_key=True)
     chapterid = models.ForeignKey('Chapters', models.DO_NOTHING, db_column='chapterId')  # Field name made lowercase.
     contentid = models.ForeignKey(Chaptercontent, models.DO_NOTHING, db_column='contentId')  # Field name made lowercase.
     order = models.IntegerField()
@@ -528,6 +532,7 @@ class Chaptertocontent(models.Model):
     class Meta:
         managed = False
         db_table = 'ChapterToContent'
+        unique_together = (('chapterid', 'contentid'),)
 
 
 # =============================================================================
@@ -553,8 +558,8 @@ class StudentActivities(models.Model):
 
 
 class StudentActivityDates(models.Model):
-    pk = models.CompositePrimaryKey('student_id', 'activity_date')
-    student_id = models.CharField()
+    id = models.AutoField(primary_key=True)
+    student_id = models.CharField(max_length=50)
     activity_date = models.DateField()
 
     class Meta:
@@ -664,3 +669,111 @@ class Bookmarks(models.Model):
     class Meta:
         managed = False
         db_table = 'bookmarks'
+
+
+# =============================================================================
+# LMS EVENT MODELS (STORED IN ZULIP DATABASE)
+# =============================================================================
+
+class LMSActivityEvent(models.Model):
+    """
+    Core event storage table for LMS activities.
+    Stored in Zulip's default database for AI processing and notifications.
+    """
+    
+    # Event identification
+    event_id = models.AutoField(primary_key=True)
+    event_type = models.CharField(
+        max_length=50,
+        choices=[
+            ('exam_started', 'Exam Started'),
+            ('exam_completed', 'Exam Completed'),
+            ('exam_failed', 'Exam Failed'),
+            ('exam_passed', 'Exam Passed'),
+            ('content_started', 'Content Started'),
+            ('content_completed', 'Content Completed'),
+            ('content_watched', 'Content Watched'),
+        ]
+    )
+    
+    # Student information (from LMS)
+    student_id = models.IntegerField(help_text="Student ID from LMS database")
+    student_username = models.CharField(max_length=255, blank=True, null=True)
+    
+    # Mentor information (from LMS)
+    mentor_id = models.IntegerField(blank=True, null=True, help_text="Mentor ID from LMS database")
+    mentor_username = models.CharField(max_length=255, blank=True, null=True)
+    
+    # Activity details
+    activity_id = models.IntegerField(help_text="Exam or content ID from LMS")
+    activity_title = models.CharField(max_length=500, blank=True, null=True)
+    activity_metadata = models.JSONField(
+        blank=True, 
+        null=True,
+        help_text="Additional data like scores, percentage, duration, etc."
+    )
+    
+    # Timestamps
+    timestamp = models.DateTimeField(help_text="When the activity occurred in LMS")
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    # AI processing flag
+    processed_for_ai = models.BooleanField(
+        default=False,
+        help_text="Whether this event has been processed for AI analysis"
+    )
+    
+    # Optional Zulip user linking
+    zulip_user_id = models.IntegerField(
+        blank=True, 
+        null=True,
+        help_text="Zulip UserProfile ID if student has Zulip account"
+    )
+    
+    class Meta:
+        managed = True
+        db_table = 'lms_activity_events'
+        indexes = [
+            models.Index(fields=['student_id']),
+            models.Index(fields=['event_type']),
+            models.Index(fields=['timestamp']),
+            models.Index(fields=['processed_for_ai']),
+        ]
+        ordering = ['-timestamp']
+
+
+class LMSEventLog(models.Model):
+    """
+    Event processing audit trail.
+    Tracks notification status and errors for each event.
+    """
+    
+    event = models.OneToOneField(
+        LMSActivityEvent,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        help_text="The LMS activity event this log entry refers to"
+    )
+    
+    # Notification tracking
+    notification_sent = models.BooleanField(default=False)
+    notification_message_id = models.IntegerField(
+        blank=True, 
+        null=True,
+        help_text="Zulip message ID of the notification sent to mentor"
+    )
+    
+    # Error handling
+    error_message = models.TextField(
+        blank=True, 
+        null=True,
+        help_text="Error details if processing failed"
+    )
+    
+    # Processing timestamp
+    processed_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        managed = True
+        db_table = 'lms_event_logs'
+        ordering = ['-processed_at']

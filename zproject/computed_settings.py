@@ -284,7 +284,7 @@ INSTALLED_APPS = [
     "two_factor",
     "two_factor.plugins.phonenumber",
     # LMS Integration
-    "lms_integration",
+    "lms_integration.apps.LmsIntegrationConfig",
 ]
 if USING_PGROONGA:
     INSTALLED_APPS += ["pgroonga"]
@@ -412,6 +412,19 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Database routers for LMS integration
 DATABASE_ROUTERS = ['lms_integration.db_router.LMSRouter']
+
+########################################################################
+# LMS ACTIVITY MONITORING CONFIGURATION
+########################################################################
+
+# LMS Activity Monitoring Settings
+LMS_ACTIVITY_MONITOR_ENABLED = get_config("lms_activity_monitor", "enabled", False)
+LMS_ACTIVITY_POLL_INTERVAL = get_config("lms_activity_monitor", "poll_interval", 60)
+LMS_NOTIFY_MENTORS_ENABLED = get_config("lms_activity_monitor", "notify_mentors", True)
+LMS_EVENT_TYPES_TO_MONITOR = get_config("lms_activity_monitor", "event_types", [
+    'exam_started', 'exam_completed', 'exam_failed', 'exam_passed',
+    'content_started', 'content_completed', 'content_watched'
+])
 
 ########################################################################
 # RABBITMQ CONFIGURATION
@@ -1360,7 +1373,8 @@ try:
             pass
 
     # Validate AI agent settings if enabled
-    if globals().get('USE_LANGGRAPH_AGENTS', False):
+    # Only run validation in the main process, not in reloader or multiple workers
+    if globals().get('USE_LANGGRAPH_AGENTS', False) and os.environ.get('RUN_MAIN') == 'true':
         validation_warnings = globals().get('validate_ai_agent_settings', lambda: [])()
         if validation_warnings:
             import logging

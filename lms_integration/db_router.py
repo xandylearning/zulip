@@ -36,15 +36,16 @@ class LMSRouter:
         'StudentActivities', 'StudentActivityDates', 'DailySummary', 
         'DifficultyLevelStats', 'SubjectStats',
         
-
-        
-     
-        
         # Scheduling Models
         'ClassSchedule', 'FacultySchedule',
         
         # Miscellaneous Models
         'AdaptiveQuestionPools', 'Bookmarks'
+    }
+    
+    # Zulip-managed models that should use the default database
+    zulip_managed_models = {
+        'LMSActivityEvent', 'LMSEventLog'
     }
     
     def db_for_read(self, model, **hints):
@@ -54,9 +55,11 @@ class LMSRouter:
         return None
     
     def db_for_write(self, model, **hints):
-        """Route write operations - LMS models are read-only"""
+        """Route write operations - LMS models are read-only, Zulip models use default DB"""
         if model.__name__ in self.lms_models:
             return None  # Read-only access to external LMS database
+        if model.__name__ in self.zulip_managed_models:
+            return 'default'  # Zulip-managed models use default database
         return None
     
     def allow_relation(self, obj1, obj2, **hints):
@@ -73,6 +76,9 @@ class LMSRouter:
             # Block migrations for all LMS models (they're managed=False)
             if model_name in self.lms_models:
                 return False  # External models don't need migrations
+            # Allow migrations for Zulip-managed models in default database
+            if model_name in self.zulip_managed_models:
+                return db == 'default'
             # Allow migrations for other lms_integration models in default database
             return db == 'default'
         return None
