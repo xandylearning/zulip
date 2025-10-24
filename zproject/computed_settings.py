@@ -283,6 +283,8 @@ INSTALLED_APPS = [
     "django_otp.plugins.otp_totp",
     "two_factor",
     "two_factor.plugins.phonenumber",
+    # LMS Integration
+    "lms_integration",
 ]
 if USING_PGROONGA:
     INSTALLED_APPS += ["pgroonga"]
@@ -361,6 +363,17 @@ DATABASES: dict[str, dict[str, Any]] = {
             # unable to handle new connections for some reason.
             "connect_timeout": 2,
         },
+    },
+    "lms_db": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": get_config("lms_database", "database_name", os.environ.get("LMS_DB_NAME", "lms_production")),
+        "USER": get_config("lms_database", "database_user", os.environ.get("LMS_DB_USER", "lms_readonly")),
+        "PASSWORD": get_secret("lms_database_password"),
+        "HOST": get_config("lms_database", "host", os.environ.get("LMS_DB_HOST", "localhost")),
+        "PORT": get_config("lms_database", "port", os.environ.get("LMS_DB_PORT", "5432")),
+        "OPTIONS": {
+            "connect_timeout": 2,
+        },
     }
 }
 
@@ -396,6 +409,9 @@ elif (
 POSTGRESQL_MISSING_DICTIONARIES = get_config("postgresql", "missing_dictionaries", False)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Database routers for LMS integration
+DATABASE_ROUTERS = ['lms_integration.db_router.LMSRouter']
 
 ########################################################################
 # RABBITMQ CONFIGURATION

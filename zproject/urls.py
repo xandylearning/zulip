@@ -979,6 +979,9 @@ urls += [path("health", health)]
 # Zulip Calls Plugin URLs
 urls += calls_urls
 
+# LMS Integration URLs
+urls += [path("api/v1/lms/", include("lms_integration.urls"))]
+
 # The sequence is important; if i18n URLs don't come first then
 # reverse URL mapping points to i18n URLs which causes the frontend
 # tests to fail
