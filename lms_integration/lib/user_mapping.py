@@ -245,3 +245,4 @@ class UserMapper:
             logger.error(f"Error getting mapping stats: {e}")
         
         return stats
+

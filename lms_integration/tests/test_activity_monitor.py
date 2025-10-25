@@ -115,3 +115,4 @@ class ActivityMonitorTestCase(TestCase):
         
         event = self.monitor.create_activity_event(event_data)
         self.assertIsNone(event)
+

@@ -200,3 +200,4 @@ class MessageFormatterTestCase(TestCase):
         
         display_name = self.formatter._get_student_display_name(event)
         self.assertEqual(display_name, 'Student ID: 123')
+

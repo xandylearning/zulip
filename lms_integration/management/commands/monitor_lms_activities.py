@@ -255,3 +255,4 @@ class Command(BaseCommand):
             self.stdout.write('Cleanup completed')
         except Exception as e:
             logger.error(f'Error during cleanup: {e}')
+

@@ -268,3 +268,4 @@ class ActivityMonitor:
             logger.error(f"Error processing activities: {e}")
             
         return events_created
+

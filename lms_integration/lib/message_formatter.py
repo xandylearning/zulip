@@ -192,3 +192,4 @@ class MessageFormatter:
             summary_parts.append(f"{emoji} {display_name}: {count}")
         
         return "\n".join(summary_parts)
+

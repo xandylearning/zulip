@@ -225,3 +225,4 @@ class LMSActivityEventHandlerTestCase(TestCase):
                 event_log.refresh_from_db()
                 self.assertFalse(event_log.notification_sent)
                 self.assertIn('Test error', event_log.error_message)
+

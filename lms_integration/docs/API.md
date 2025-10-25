@@ -802,3 +802,4 @@ error_events = LMSEventLog.objects.exclude(
 for event_log in error_events:
     print(f"Event {event_log.event.event_id}: {event_log.error_message}")
 ```
+
