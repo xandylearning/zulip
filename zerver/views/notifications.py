@@ -33,28 +33,44 @@ def create_notification_template(
     user_profile: UserProfile,
     *,
     name: str,
-    content: str,
+    content: str = "",
+    template_type: str = "text_only",
+    template_structure: Json[dict] | None = None,
+    ai_generated: bool = False,
+    ai_prompt: str = "",
 ) -> HttpResponse:
     """Create a new notification template."""
     realm = user_profile.realm
-    
+
     # Check if template with same name already exists
     if NotificationTemplate.objects.filter(realm=realm, name=name).exists():
         raise JsonableError(_("A template with this name already exists"))
-    
+
+    # Validate template_type
+    if template_type not in ["text_only", "rich_media"]:
+        raise JsonableError(_("Invalid template_type. Must be 'text_only' or 'rich_media'"))
+
     template = NotificationTemplate.objects.create(
         name=name,
         content=content,
+        template_type=template_type,
+        template_structure=template_structure or {},
+        ai_generated=ai_generated,
+        ai_prompt=ai_prompt,
         creator=user_profile,
         realm=realm,
     )
-    
+
     return json_success(
         request,
         data={
             "id": template.id,
             "name": template.name,
             "content": template.content,
+            "template_type": template.template_type,
+            "template_structure": template.template_structure,
+            "ai_generated": template.ai_generated,
+            "ai_prompt": template.ai_prompt,
             "creator_id": template.creator_id,
             "created_time": template.created_time.timestamp(),
             "last_edit_time": template.last_edit_time.timestamp(),
@@ -68,16 +84,20 @@ def list_notification_templates(
 ) -> HttpResponse:
     """List all notification templates for the realm."""
     realm = user_profile.realm
-    
+
     templates = NotificationTemplate.objects.filter(realm=realm, is_active=True).select_related(
         "creator"
     )
-    
+
     template_data = [
         {
             "id": template.id,
             "name": template.name,
             "content": template.content,
+            "template_type": template.template_type,
+            "template_structure": template.template_structure,
+            "ai_generated": template.ai_generated,
+            "ai_prompt": template.ai_prompt,
             "creator_email": template.creator.email,
             "creator_full_name": template.creator.full_name,
             "created_time": template.created_time.timestamp(),
@@ -85,7 +105,7 @@ def list_notification_templates(
         }
         for template in templates
     ]
-    
+
     return json_success(request, data={"templates": template_data})
 
 
@@ -98,15 +118,21 @@ def update_notification_template(
     template_id: int,
     name: str | None = None,
     content: str | None = None,
+    template_type: str | None = None,
+    template_structure: Json[dict] | None = None,
+    ai_generated: bool | None = None,
+    ai_prompt: str | None = None,
 ) -> HttpResponse:
     """Update an existing notification template."""
     realm = user_profile.realm
-    
+
     try:
         template = NotificationTemplate.objects.get(id=template_id, realm=realm)
     except NotificationTemplate.DoesNotExist:
         raise ResourceNotFoundError(_("Template not found"))
-    
+
+    update_fields = ["last_edit_time"]
+
     if name is not None:
         # Check for name conflicts
         if (
@@ -116,18 +142,42 @@ def update_notification_template(
         ):
             raise JsonableError(_("A template with this name already exists"))
         template.name = name
-    
+        update_fields.append("name")
+
     if content is not None:
         template.content = content
-    
-    template.save(update_fields=["name", "content", "last_edit_time"])
-    
+        update_fields.append("content")
+
+    if template_type is not None:
+        if template_type not in ["text_only", "rich_media"]:
+            raise JsonableError(_("Invalid template_type. Must be 'text_only' or 'rich_media'"))
+        template.template_type = template_type
+        update_fields.append("template_type")
+
+    if template_structure is not None:
+        template.template_structure = template_structure
+        update_fields.append("template_structure")
+
+    if ai_generated is not None:
+        template.ai_generated = ai_generated
+        update_fields.append("ai_generated")
+
+    if ai_prompt is not None:
+        template.ai_prompt = ai_prompt
+        update_fields.append("ai_prompt")
+
+    template.save(update_fields=update_fields)
+
     return json_success(
         request,
         data={
             "id": template.id,
             "name": template.name,
             "content": template.content,
+            "template_type": template.template_type,
+            "template_structure": template.template_structure,
+            "ai_generated": template.ai_generated,
+            "ai_prompt": template.ai_prompt,
             "last_edit_time": template.last_edit_time.timestamp(),
         },
     )
@@ -168,8 +218,9 @@ def send_broadcast(
     content: str,
     target_type: str,
     target_ids: Json[list[int]],
-    template_id: int | None = None,
+    template_id: Json[int] | None = None,
     attachment_paths: Json[list[str]] | None = None,
+    media_content: Json[dict] | None = None,
 ) -> HttpResponse:
     """Send a broadcast notification."""
     realm = user_profile.realm
@@ -201,6 +252,7 @@ def send_broadcast(
             target_ids=target_ids,
             attachment_paths=attachment_paths or [],
             template_id=template_id,
+            media_content=media_content,
         )
         
         return json_success(

@@ -61,6 +61,9 @@ export function buildTabs(): string {
             <button class="tab-button" data-tab="templates">
                 ${$t({defaultMessage: "Templates"})}
             </button>
+            <button class="tab-button" data-tab="ai-generator">
+                ${$t({defaultMessage: "AI Generator"})}
+            </button>
             <button class="tab-button" data-tab="history">
                 ${$t({defaultMessage: "Notification History"})}
             </button>
@@ -71,8 +74,10 @@ export function buildTabs(): string {
 export function buildNotificationForm(templates: NotificationTemplate[]): string {
     const templateOptions = templates
         .map(
-            (t) =>
-                `<option value="${t.id}">${t.name.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</option>`,
+            (t) => {
+                const typeIndicator = t.template_type === "rich_media" ? "" : "";
+                return `<option value="${t.id}" data-template-type="${t.template_type}">${typeIndicator}${t.name.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</option>`;
+            },
         )
         .join("");
 
@@ -81,40 +86,47 @@ export function buildNotificationForm(templates: NotificationTemplate[]): string
             <div class="form-group">
                 <div class="label-with-actions">
                     <label for="template-select">${$t({defaultMessage: "Template (Optional)"})}</label>
-                    <button type="button" class="btn btn-link" id="use-template-btn">${$t({defaultMessage: "Use Template"})}</button>
+                    <button type="button" class="btn btn-link" id="preview-template-btn" style="display: none;">${$t({defaultMessage: "Preview Template"})}</button>
                 </div>
                 <select id="template-select" class="form-control">
-                    <option value="">${$t({defaultMessage: "No template"})}</option>
+                    <option value="" data-template-type="text_only">${$t({defaultMessage: "No template"})}</option>
                     ${templateOptions}
                 </select>
             </div>
 
             <div class="form-group">
                 <label for="notification-subject">${$t({defaultMessage: "Subject"})}</label>
-                <input 
-                    type="text" 
-                    id="notification-subject" 
-                    class="form-control" 
+                <input
+                    type="text"
+                    id="notification-subject"
+                    class="form-control"
                     placeholder="${$t({defaultMessage: "Enter notification subject"})}"
                     required
                 />
             </div>
 
-            <div class="form-group">
+            <!-- Standard text/markdown content area (shown for text_only templates or no template) -->
+            <div id="standard-content-area" class="form-group">
                 <div class="label-with-actions">
                     <label for="notification-content">${$t({defaultMessage: "Message"})}</label>
                     <button type="button" class="btn-link" id="toggle-preview">
                         ${$t({defaultMessage: "Preview"})}
                     </button>
                 </div>
-                <textarea 
-                    id="notification-content" 
-                    class="form-control" 
+                <textarea
+                    id="notification-content"
+                    class="form-control"
                     rows="8"
                     placeholder="${$t({defaultMessage: "Enter message content (Markdown supported)"})}"
+                    spellcheck="false"
                     required
                 ></textarea>
                 <div id="markdown-preview" class="markdown-preview" style="display: none;"></div>
+            </div>
+
+            <!-- Dynamic media fields area (shown for rich_media templates) -->
+            <div id="media-fields-area" style="display: none;">
+                <!-- Media fields will be dynamically inserted here -->
             </div>
 
             <div class="form-group">
@@ -313,16 +325,23 @@ function formatTargetType(targetType: string): string {
 // Template Management Components
 export function buildTemplateTab(): string {
     return `
-        <div class="settings-section">
-            <div class="settings_panel_list_header">
-                <h3>${$t({defaultMessage: "Templates"})}</h3>
-                <div style="display: flex; gap: 12px; align-items: center;">
-                    <input type="text" class="search-input" id="template-search" placeholder="${$t({defaultMessage: "Search templates..."})}">
-                    <button class="btn btn-primary" id="add-template-btn">${$t({defaultMessage: "Add Template"})}</button>
+        <div class="templates-tab-container">
+            <div class="settings-section">
+                <div class="settings_panel_list_header">
+                    <h3>${$t({defaultMessage: "Templates"})}</h3>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <input type="text" class="search-input" id="template-search" placeholder="${$t({defaultMessage: "Search templates..."})}">
+                        <button class="btn btn-default" id="add-text-template-btn" title="${$t({defaultMessage: "Create simple text template"})}">
+                            ${$t({defaultMessage: "Text Template"})}
+                        </button>
+                        <button class="btn btn-primary" id="add-rich-template-btn" title="${$t({defaultMessage: "Create rich media template with images, videos, buttons"})}">
+                            ${$t({defaultMessage: "Rich Media Template"})}
+                        </button>
+                    </div>
                 </div>
-            </div>
-            <div id="templates-table-container">
-                <div class="loading-spinner"></div>
+                <div id="templates-table-container">
+                    <div class="loading-spinner"></div>
+                </div>
             </div>
         </div>
     `;
@@ -395,7 +414,7 @@ export function buildTemplateModal(template?: NotificationTemplate): string {
                         </div>
                         <div class="form-group">
                             <label for="template-content">${$t({defaultMessage: "Content"})}</label>
-                            <textarea id="template-content" class="form-control" rows="10" required>${contentValue}</textarea>
+                            <textarea id="template-content" class="form-control" rows="10" spellcheck="false" required>${contentValue}</textarea>
                         </div>
                     </form>
                 </div>

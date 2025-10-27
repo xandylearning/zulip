@@ -28,6 +28,7 @@ def send_broadcast_notification(
     target_ids: list[int],
     attachment_paths: list[str] | None = None,
     template_id: int | None = None,
+    media_content: dict | None = None,
 ) -> BroadcastNotification:
     """
     Send a broadcast notification to specified recipients.
@@ -41,6 +42,7 @@ def send_broadcast_notification(
         target_ids: List of user or channel IDs
         attachment_paths: Optional list of file attachment paths
         template_id: Optional template ID used
+        media_content: Optional rich media content for templates
         
     Returns:
         BroadcastNotification object
@@ -59,6 +61,7 @@ def send_broadcast_notification(
             attachment_paths=attachment_paths,
             target_type=target_type,
             target_ids=target_ids,
+            media_content=media_content or {},
         )
 
         # Determine recipients based on target type
@@ -131,12 +134,64 @@ def send_broadcast_notification(
     return notification
 
 
+def _build_rich_media_content(notification: BroadcastNotification) -> str:
+    """Build formatted content from rich media template structure and media content."""
+    if not notification.template or not notification.template.template_structure:
+        return notification.content
+    
+    template_structure = notification.template.template_structure
+    media_content = notification.media_content or {}
+    content_parts = []
+    
+    # Process blocks in order
+    blocks = template_structure.get("blocks", [])
+    for block in blocks:
+        block_type = block.get("type")
+        block_id = block.get("id")
+        
+        if block_type == "text":
+            # Text blocks - use content from media_content or fallback to block text
+            text_content = media_content.get(block_id, block.get("text", ""))
+            if text_content.strip():
+                content_parts.append(text_content)
+                
+        elif block_type == "image":
+            # Image blocks - add image link
+            image_url = media_content.get(block_id, "")
+            if image_url:
+                content_parts.append(f"![Image]({image_url})")
+                
+        elif block_type == "video":
+            # Video blocks - add video link
+            video_url = media_content.get(block_id, "")
+            if video_url:
+                content_parts.append(f"[Video]({video_url})")
+                
+        elif block_type == "button":
+            # Button blocks - add button as link
+            button_text = block.get("text", "Button")
+            button_url = media_content.get(block_id, "")
+            if button_url:
+                content_parts.append(f"[{button_text}]({button_url})")
+    
+    # Join all content parts with line breaks
+    return "\n\n".join(content_parts) if content_parts else notification.content
+
+
 def _send_notification_messages(notification: BroadcastNotification) -> None:
     """Send actual Zulip messages for a broadcast notification."""
     sender = notification.sender
     
     # Format the message content with subject
-    formatted_content = f"**{notification.subject}**\n\n{notification.content}"
+    formatted_content = f"**{notification.subject}**\n\n"
+    
+    # Check if this is a rich media template
+    if notification.template and notification.template.template_type == "rich_media":
+        # Build content from template structure and media_content
+        formatted_content += _build_rich_media_content(notification)
+    else:
+        # Use standard content
+        formatted_content += notification.content
     
     # Add attachment links if present
     if notification.attachment_paths:

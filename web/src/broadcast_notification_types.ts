@@ -1,9 +1,15 @@
 // TypeScript types for broadcast notification system
 
+import type {TemplateStructure} from "./broadcast_template_blocks.ts";
+
 export interface NotificationTemplate {
     id: number;
     name: string;
     content: string;
+    template_type: "text_only" | "rich_media";
+    template_structure: TemplateStructure;
+    ai_generated: boolean;
+    ai_prompt: string;
     creator_email: string;
     creator_full_name: string;
     created_time: number;
@@ -80,6 +86,7 @@ export interface SendNotificationRequest {
     target_ids: number[];
     template_id?: number;
     attachment_paths?: string[];
+    media_content?: Record<string, string>; // Block ID -> media URL mapping
 }
 
 export interface SendNotificationResponse {

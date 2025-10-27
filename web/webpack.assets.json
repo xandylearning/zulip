@@ -121,9 +121,9 @@
         "./src/bundles/portico.ts",
         "./src/broadcast_notification_app.ts",
         "./styles/app_variables.css",
+        "./styles/inputs.css",
         "./styles/app_components.css",
         "./styles/input_pill.css",
-        "./styles/inputs.css",
         "./styles/modal.css",
         "./styles/broadcast_notification.css"
     ]

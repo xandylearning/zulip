@@ -119,7 +119,7 @@ All planned features have been implemented and are production-ready.
 
 ### Documentation (100% Complete)
 
-- ✅ **Developer Documentation** (`docs/subsystems/admin-notifications.md`):
+- ✅ **Developer Documentation** (`docs/subsystems/broadcast-notifications.md`):
   - Architecture overview
   - Complete API reference
   - Database schema
@@ -134,7 +134,7 @@ All planned features have been implemented and are production-ready.
   - Best practices
   - Real-world examples
 
-- ✅ **Implementation Summary** (`ADMIN_NOTIFICATIONS_README.md`)
+- ✅ **Implementation Summary** (`docs/overview/broadcast-notifications-complete.md`)
 
 ---
 
@@ -344,11 +344,12 @@ While the core system is complete, these could be added later:
 
 ## 🎓 Learning Resources
 
-- **Developer Docs:** `docs/subsystems/admin-notifications.md`
+- **Developer Docs:** `docs/subsystems/broadcast-notifications.md`
 - **User Guide:** `help/admin-notifications.md`
+- **Rich Media Implementation:** `docs/development/broadcast-notifications-rich-media.md`
 - **API Reference:** See developer docs
 - **Code Examples:** See test files
-- **Architecture:** See README
+- **Architecture:** See complete documentation
 
 ---
 

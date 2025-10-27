@@ -193,15 +193,12 @@ export function populateUserTypeahead(widget: any): void {
 
     // Hide dropdown when clicking outside
     $(document).on('click.broadcast-pills-user', function(e) {
-        console.log('Document clicked (user), checking if outside');
         if (!widget.container[0].contains(e.target as Node)) {
-            console.log('Click outside detected (user), hiding dropdown');
             $dropdown.removeClass('visible');
         }
     });
 
     function updateDropdown() {
-        console.log('updateDropdown called, matches:', currentMatches.length);
         if (currentMatches.length === 0) {
             $dropdown.removeClass('visible');
             return;
@@ -218,17 +215,13 @@ export function populateUserTypeahead(widget: any): void {
         }).join('');
 
         $dropdown.html(items).addClass('visible');
-        console.log('Dropdown shown with', currentMatches.length, 'items');
 
         // Handle click on dropdown items
         $dropdown.find('.dropdown-item').on('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            console.log('Dropdown item clicked!');
             const userId = Number.parseInt($(this).data('user-id') as string, 10);
-            console.log('User ID:', userId);
             const user = currentMatches.find(u => u.user_id === userId);
-            console.log('User found:', user);
             if (user) {
                 addUserPill(user, widget);
                 widget.$input.val('');
@@ -239,12 +232,9 @@ export function populateUserTypeahead(widget: any): void {
 }
 
 function addUserPill(user: {user_id: number; email: string; full_name: string}, widget: any): void {
-    console.log('Adding user pill:', user.full_name);
-
     // Check if user is already added
     const existingPill = widget.container.find(`.pill[data-user-id="${user.user_id}"]`);
     if (existingPill.length > 0) {
-        console.log('User already added, skipping');
         return;
     }
 
@@ -256,13 +246,11 @@ function addUserPill(user: {user_id: number; email: string; full_name: string}, 
     `);
 
     pill.find('.pill-remove').on('click', () => {
-        console.log('Removing pill:', user.full_name);
         pill.remove();
     });
 
     // Insert before the input field
     widget.$input.before(pill);
-    console.log('Pill added successfully');
 }
 
 export function populateStreamTypeahead(widget: any): void {
@@ -359,15 +347,12 @@ export function populateStreamTypeahead(widget: any): void {
 
     // Hide dropdown when clicking outside
     $(document).on('click.broadcast-pills-stream', function(e) {
-        console.log('Document clicked (stream), checking if outside');
         if (!widget.container[0].contains(e.target as Node)) {
-            console.log('Click outside detected (stream), hiding dropdown');
             $dropdown.removeClass('visible');
         }
     });
 
     function updateDropdown() {
-        console.log('updateDropdown (streams) called, matches:', currentMatches.length);
         if (currentMatches.length === 0) {
             $dropdown.removeClass('visible');
             return;
@@ -383,17 +368,13 @@ export function populateStreamTypeahead(widget: any): void {
         }).join('');
 
         $dropdown.html(items).addClass('visible');
-        console.log('Dropdown (streams) shown with', currentMatches.length, 'items');
 
         // Handle click on dropdown items
         $dropdown.find('.dropdown-item').on('click', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            console.log('Stream dropdown item clicked!');
             const streamId = Number.parseInt($(this).data('stream-id') as string, 10);
-            console.log('Stream ID:', streamId);
             const stream = currentMatches.find(s => s.stream_id === streamId);
-            console.log('Stream found:', stream);
             if (stream) {
                 addStreamPill(stream, widget);
                 widget.$input.val('');
@@ -404,12 +385,9 @@ export function populateStreamTypeahead(widget: any): void {
 }
 
 function addStreamPill(stream: {stream_id: number; name: string}, widget: any): void {
-    console.log('Adding stream pill:', stream.name);
-
     // Check if stream is already added
     const existingPill = widget.container.find(`.pill[data-stream-id="${stream.stream_id}"]`);
     if (existingPill.length > 0) {
-        console.log('Stream already added, skipping');
         return;
     }
 
@@ -421,13 +399,11 @@ function addStreamPill(stream: {stream_id: number; name: string}, widget: any): 
     `);
 
     pill.find('.pill-remove').on('click', () => {
-        console.log('Removing pill:', stream.name);
         pill.remove();
     });
 
     // Insert before the input field
     widget.$input.before(pill);
-    console.log('Pill added successfully');
 }
 
 export function getAvailableUsers(): {user_id: number; email: string; full_name: string}[] {
@@ -437,7 +413,6 @@ export function getAvailableUsers(): {user_id: number; email: string; full_name:
         try {
             const pageParams = JSON.parse(pageParamsElement.dataset.params || '{}');
             const users = pageParams.realm_users || [];
-            console.log('Available users:', users.length);
             return users;
         } catch (e) {
             console.error('Failed to parse page params:', e);
@@ -455,7 +430,6 @@ export function getAvailableStreams(): {stream_id: number; name: string}[] {
         try {
             const pageParams = JSON.parse(pageParamsElement.dataset.params || '{}');
             const streams = pageParams.realm_streams || [];
-            console.log('Available streams:', streams.length);
             return streams;
         } catch (e) {
             console.error('Failed to parse page params:', e);

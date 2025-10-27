@@ -5,6 +5,9 @@ import $ from "jquery";
 import * as api from "./broadcast_notification_api.ts";
 import * as components from "./broadcast_notification_components.ts";
 import * as pills from "./broadcast_notification_pills.ts";
+import * as mediaFields from "./broadcast_media_fields.ts";
+import * as templateAI from "./broadcast_template_ai.ts";
+import {openRichTemplateEditor} from "./broadcast_template_editor.ts";
 import type {
     BroadcastNotification,
     NotificationTemplate,
@@ -13,12 +16,12 @@ import type {
 } from "./broadcast_notification_types.ts";
 import {$t} from "./i18n.ts";
 
-let current_tab: "send" | "templates" | "history" = "send";
+let current_tab: "send" | "templates" | "ai-generator" | "history" = "send";
 let current_recipient_type: RecipientType = "all";
 let templates: NotificationTemplate[] = [];
 let notifications: BroadcastNotification[] = [];
 
-function showTab(tab: "send" | "templates" | "history"): void {
+function showTab(tab: "send" | "templates" | "ai-generator" | "history"): void {
     current_tab = tab;
 
     // Update tab buttons
@@ -34,6 +37,8 @@ function showTab(tab: "send" | "templates" | "history"): void {
         void loadNotificationHistory();
     } else if (tab === "templates") {
         void loadTemplates();
+    } else if (tab === "ai-generator") {
+        loadAIGenerator();
     }
 }
 
@@ -90,7 +95,6 @@ function toggleMarkdownPreview(): void {
 
 async function handleSendNotification(): Promise<void> {
     const subject = $("#notification-subject").val() as string;
-    const content = $("#notification-content").val() as string;
     const template_id = $("#template-select").val() as string;
 
     // Validation
@@ -99,7 +103,30 @@ async function handleSendNotification(): Promise<void> {
         return;
     }
 
-    if (!content.trim()) {
+    // Check for content based on template type
+    let hasContent = false;
+    let content = "";
+
+    if (template_id && template_id.trim()) {
+        const template = templates.find((t) => t.id === Number.parseInt(template_id, 10));
+        if (template && template.template_type === "rich_media") {
+            // For rich media templates, check if any text blocks have content
+            const textContent = mediaFields.getTextContent();
+            hasContent = Object.values(textContent).some(text => text.trim().length > 0);
+            // For rich media templates, we'll build the content from the template structure
+            content = ""; // Will be handled by the backend
+        } else {
+            // For text-only templates or no template, use standard content field
+            content = $("#notification-content").val() as string;
+            hasContent = content.trim().length > 0;
+        }
+    } else {
+        // No template selected, use standard content field
+        content = $("#notification-content").val() as string;
+        hasContent = content.trim().length > 0;
+    }
+
+    if (!hasContent) {
         showMessage($t({defaultMessage: "Please enter message content"}), "error");
         return;
     }
@@ -141,11 +168,37 @@ async function handleSendNotification(): Promise<void> {
             target_type,
             target_ids,
         };
-        
-        if (template_id) {
-            request.template_id = Number.parseInt(template_id, 10);
+
+        // Only add template_id if it's a valid, non-empty value
+        if (template_id && template_id.trim() && template_id !== "null" && template_id !== "undefined") {
+            const templateIdNum = Number.parseInt(template_id, 10);
+
+            // Verify it's a valid positive integer
+            if (!isNaN(templateIdNum) && templateIdNum > 0 && Number.isFinite(templateIdNum)) {
+                request.template_id = templateIdNum;
+
+                const template = templates.find((t) => t.id === templateIdNum);
+                if (template && template.template_type === "rich_media") {
+                    // For rich media templates, get the media content and text content
+                    const mediaContent = mediaFields.getMediaContent();
+                    const textContent = mediaFields.getTextContent();
+                    const buttonUrls = mediaFields.getButtonUrls();
+
+                    // Combine all content for rich media templates
+                    request.media_content = {
+                        ...mediaContent,
+                        ...textContent,
+                        ...buttonUrls,
+                    };
+
+                    // For rich media templates, we can set content to empty or a summary
+                    // The backend will handle building the actual content from the template structure
+                    request.content = "";
+                }
+            }
         }
-        
+
+
         await api.sendNotification(request);
 
         showMessage($t({defaultMessage: "Notification sent successfully"}), "success");
@@ -154,6 +207,12 @@ async function handleSendNotification(): Promise<void> {
         $("#notification-subject").val("");
         $("#notification-content").val("");
         $("#template-select").val("");
+        
+        // Clear media fields if they exist
+        mediaFields.clearMediaContent();
+        $("#media-fields-area").empty();
+        $("#standard-content-area").show();
+        
         pills.destroyCurrentWidget();
         switchRecipientType("all");
 
@@ -175,12 +234,38 @@ async function handleSendNotification(): Promise<void> {
 
 function handleTemplateSelect(): void {
     const template_id = $("#template-select").val() as string;
-    if (!template_id) {
+
+    if (!template_id || template_id.trim() === "") {
+        // No template selected - show standard form
+        $("#standard-content-area").show();
+        $("#media-fields-area").hide().empty();
+        $("#preview-template-btn").hide();
         return;
     }
 
     const template = templates.find((t) => t.id === Number.parseInt(template_id, 10));
-    if (template) {
+    if (!template) {
+        return;
+    }
+
+    // Check template type
+    if (template.template_type === "rich_media" && template.template_structure) {
+        // Rich media template - show media fields, hide standard content
+        $("#standard-content-area").hide();
+        $("#media-fields-area").show();
+        $("#preview-template-btn").show();
+
+        // Render media fields
+        const fieldsHtml = mediaFields.renderMediaFields(template.template_structure);
+        $("#media-fields-area").html(fieldsHtml);
+
+        // Setup media field handlers
+        mediaFields.setupMediaFieldHandlers();
+    } else {
+        // Text-only template - show standard content
+        $("#standard-content-area").show();
+        $("#media-fields-area").hide().empty();
+        $("#preview-template-btn").hide();
         $("#notification-content").val(template.content);
     }
 }
@@ -252,7 +337,7 @@ function setupEventHandlers(): void {
     // Tab switching
     $app.on("click", ".tab-button", function (e) {
         e.preventDefault();
-        const tab = $(this).data("tab") as "send" | "templates" | "history";
+        const tab = $(this).data("tab") as "send" | "templates" | "ai-generator" | "history";
         showTab(tab);
     });
 
@@ -292,6 +377,12 @@ function setupEventHandlers(): void {
         $("#notification-subject").val("");
         $("#notification-content").val("");
         $("#template-select").val("");
+        
+        // Clear media fields if they exist
+        mediaFields.clearMediaContent();
+        $("#media-fields-area").empty();
+        $("#standard-content-area").show();
+        
         pills.destroyCurrentWidget();
         switchRecipientType("all");
     });
@@ -305,15 +396,11 @@ function setupEventHandlers(): void {
 }
 
 async function initialize(): Promise<void> {
-    console.log("Initializing broadcast notification app...");
     const $app = $("#broadcast-notification-app");
     
     if ($app.length === 0) {
-        console.error("Could not find #broadcast-notification-app element");
         return;
     }
-
-    console.log("Found app container, building UI...");
 
     // Build initial UI
     const html = `
@@ -326,6 +413,9 @@ async function initialize(): Promise<void> {
             <div id="templates-tab-content" class="tab-content" style="display: none;">
                 ${components.buildTemplateTab()}
             </div>
+            <div id="ai-generator-tab-content" class="tab-content" style="display: none;">
+                <!-- AI Generator content will be loaded dynamically -->
+            </div>
             <div id="history-tab-content" class="tab-content" style="display: none;">
                 ${components.buildLoadingSpinner()}
             </div>
@@ -333,7 +423,6 @@ async function initialize(): Promise<void> {
     `;
 
     $app.html(html);
-    console.log("UI built successfully");
 
     // Setup event handlers
     setupEventHandlers();
@@ -380,7 +469,7 @@ function showMessage(message: string, type: "success" | "error"): void {
 // Template Management Functions
 async function loadTemplates(): Promise<void> {
     const $container = $("#templates-table-container");
-    
+
     try {
         const response = await api.fetchTemplates();
         templates = response.templates;
@@ -396,10 +485,26 @@ async function loadTemplates(): Promise<void> {
     }
 }
 
+// AI Generator Functions
+function loadAIGenerator(): void {
+    const $container = $("#ai-generator-tab-content");
+
+    // Render AI generator page
+    $container.html(templateAI.buildAIGeneratorTab());
+
+    // Setup event handlers
+    templateAI.setupAIGeneratorHandlers();
+}
+
 function setupTemplateEventHandlers(): void {
-    // Add template button
-    $("#add-template-btn").on("click", () => {
+    // Add text template button
+    $("#add-text-template-btn").off("click").on("click", () => {
         showTemplateModal();
+    });
+
+    // Add rich media template button
+    $("#add-rich-template-btn").off("click").on("click", () => {
+        openRichTemplateEditor("create");
     });
 
     // Edit template buttons
@@ -407,7 +512,17 @@ function setupTemplateEventHandlers(): void {
         const templateId = Number.parseInt($(this).data("template-id"), 10);
         const template = templates.find(t => t.id === templateId);
         if (template) {
-            showTemplateModal(template);
+            // Check if it's a rich media template
+            if (template.template_type === "rich_media") {
+                openRichTemplateEditor(
+                    "edit",
+                    template.name,
+                    template.template_structure,
+                    template.id
+                );
+            } else {
+                showTemplateModal(template);
+            }
         }
     });
 
@@ -564,7 +679,6 @@ function selectTemplate(template: NotificationTemplate): void {
 }
 
 $(() => {
-    console.log("Broadcast notification app initializing...");
     void initialize();
 });
 

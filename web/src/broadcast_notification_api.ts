@@ -14,8 +14,8 @@ export async function fetchTemplates(): Promise<TemplatesResponse> {
     return new Promise((resolve, reject) => {
         channel.get({
             url: "/json/notification_templates",
-            success(data: TemplatesResponse) {
-                resolve(data);
+            success(data) {
+                resolve(data as TemplatesResponse);
             },
             error(xhr) {
                 reject(new Error(xhr.responseJSON?.msg || "Failed to fetch templates"));
@@ -24,11 +24,39 @@ export async function fetchTemplates(): Promise<TemplatesResponse> {
     });
 }
 
-export async function createTemplate(template: {name: string, content: string}): Promise<void> {
+export async function createTemplate(template: {
+    name: string;
+    content?: string;
+    template_type?: string;
+    template_structure?: Record<string, unknown>;
+    ai_generated?: boolean;
+    ai_prompt?: string;
+}): Promise<void> {
     return new Promise((resolve, reject) => {
+        const data: Record<string, unknown> = {
+            name: template.name,
+        };
+
+        // Add optional fields if provided
+        if (template.content !== undefined) {
+            data.content = template.content;
+        }
+        if (template.template_type !== undefined) {
+            data.template_type = template.template_type;
+        }
+        if (template.template_structure !== undefined) {
+            data.template_structure = JSON.stringify(template.template_structure);
+        }
+        if (template.ai_generated !== undefined) {
+            data.ai_generated = template.ai_generated;
+        }
+        if (template.ai_prompt !== undefined) {
+            data.ai_prompt = template.ai_prompt;
+        }
+
         channel.post({
             url: "/json/notification_templates",
-            data: template,
+            data,
             success() {
                 resolve();
             },
@@ -39,11 +67,45 @@ export async function createTemplate(template: {name: string, content: string}):
     });
 }
 
-export async function updateTemplate(templateId: number, template: {name: string, content: string}): Promise<void> {
+export async function updateTemplate(
+    templateId: number,
+    template: {
+        name?: string;
+        content?: string;
+        template_type?: string;
+        template_structure?: Record<string, unknown>;
+        ai_generated?: boolean;
+        ai_prompt?: string;
+    },
+): Promise<void> {
     return new Promise((resolve, reject) => {
+        const data: Record<string, unknown> = {
+            template_id: templateId,
+        };
+
+        // Add optional fields if provided
+        if (template.name !== undefined) {
+            data.name = template.name;
+        }
+        if (template.content !== undefined) {
+            data.content = template.content;
+        }
+        if (template.template_type !== undefined) {
+            data.template_type = template.template_type;
+        }
+        if (template.template_structure !== undefined) {
+            data.template_structure = JSON.stringify(template.template_structure);
+        }
+        if (template.ai_generated !== undefined) {
+            data.ai_generated = template.ai_generated;
+        }
+        if (template.ai_prompt !== undefined) {
+            data.ai_prompt = template.ai_prompt;
+        }
+
         channel.patch({
             url: `/json/notification_templates/${templateId}`,
-            data: template,
+            data,
             success() {
                 resolve();
             },
@@ -72,20 +134,37 @@ export async function sendNotification(
     request: SendNotificationRequest,
 ): Promise<SendNotificationResponse> {
     return new Promise((resolve, reject) => {
+        const requestData: Record<string, unknown> = {
+            subject: request.subject,
+            content: request.content,
+            target_type: request.target_type,
+            target_ids: JSON.stringify(request.target_ids),
+        };
+
+        // Only add template_id if it's a valid positive integer
+        if (request.template_id !== undefined && request.template_id !== null) {
+            const templateIdNum = Number(request.template_id);
+            if (!isNaN(templateIdNum) && templateIdNum > 0 && Number.isInteger(templateIdNum)) {
+                // Send as JSON string - typed_endpoint expects Json[int] type
+                requestData.template_id = JSON.stringify(templateIdNum);
+            }
+        }
+
+        // Add optional fields
+        if (request.attachment_paths) {
+            requestData.attachment_paths = JSON.stringify(request.attachment_paths);
+        }
+
+        if (request.media_content) {
+            requestData.media_content = JSON.stringify(request.media_content);
+        }
+
+
         channel.post({
             url: "/json/broadcast_notification",
-            data: {
-                subject: request.subject,
-                content: request.content,
-                target_type: request.target_type,
-                target_ids: JSON.stringify(request.target_ids),
-                template_id: request.template_id,
-                attachment_paths: request.attachment_paths
-                    ? JSON.stringify(request.attachment_paths)
-                    : undefined,
-            },
-            success(data: SendNotificationResponse) {
-                resolve(data);
+            data: requestData,
+            success(data) {
+                resolve(data as SendNotificationResponse);
             },
             error(xhr) {
                 reject(new Error(xhr.responseJSON?.msg || "Failed to send notification"));
@@ -98,8 +177,8 @@ export async function fetchNotifications(): Promise<NotificationsResponse> {
     return new Promise((resolve, reject) => {
         channel.get({
             url: "/json/broadcast_notifications",
-            success(data: NotificationsResponse) {
-                resolve(data);
+            success(data) {
+                resolve(data as NotificationsResponse);
             },
             error(xhr) {
                 reject(new Error(xhr.responseJSON?.msg || "Failed to fetch notifications"));
@@ -114,8 +193,8 @@ export async function fetchNotificationDetails(
     return new Promise((resolve, reject) => {
         channel.get({
             url: `/json/broadcast_notifications/${notificationId}`,
-            success(data: NotificationDetailResponse) {
-                resolve(data);
+            success(data) {
+                resolve(data as NotificationDetailResponse);
             },
             error(xhr) {
                 reject(
@@ -130,8 +209,8 @@ export async function fetchRecipients(notificationId: number): Promise<Recipient
     return new Promise((resolve, reject) => {
         channel.get({
             url: `/json/broadcast_notifications/${notificationId}/recipients`,
-            success(data: RecipientsResponse) {
-                resolve(data);
+            success(data) {
+                resolve(data as RecipientsResponse);
             },
             error(xhr) {
                 reject(new Error(xhr.responseJSON?.msg || "Failed to fetch recipients"));
