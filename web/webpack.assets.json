@@ -116,5 +116,15 @@
     "desktop-redirect": ["./src/bundles/portico.ts", "./src/portico/desktop-redirect.ts"],
     "stats": ["./src/bundles/portico.ts", "./styles/portico/stats.css", "./src/stats/stats.ts"],
     "app": ["./src/bundles/app.ts"],
-    "digest": ["./src/bundles/portico.ts"]
+    "digest": ["./src/bundles/portico.ts"],
+    "broadcast-notification": [
+        "./src/bundles/portico.ts",
+        "./src/broadcast_notification_app.ts",
+        "./styles/app_variables.css",
+        "./styles/app_components.css",
+        "./styles/input_pill.css",
+        "./styles/inputs.css",
+        "./styles/modal.css",
+        "./styles/broadcast_notification.css"
+    ]
 }

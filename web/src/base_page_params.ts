@@ -102,12 +102,34 @@ const upgrade_params_schema = z.object({
     percent_off_monthly_price: z.nullable(z.string()),
 });
 
+// Broadcast notification page parameters
+const broadcast_notification_params_schema = z.object({
+    ...default_params_schema.shape,
+    page_type: z.literal("broadcast_notification"),
+    realm_users: z.array(z.object({
+        user_id: z.number(),
+        email: z.string(),
+        full_name: z.string(),
+        avatar_hash: z.nullable(z.string()),
+        avatar_source: z.nullable(z.string()),
+        avatar_version: z.nullable(z.number()),
+        is_bot: z.boolean(),
+        is_active: z.boolean(),
+    })),
+    realm_streams: z.array(z.object({
+        stream_id: z.number(),
+        name: z.string(),
+        description: z.string(),
+    })),
+});
+
 const page_params_schema = z.discriminatedUnion("page_type", [
     default_params_schema,
     home_params_schema,
     stats_params_schema,
     team_params_schema,
     upgrade_params_schema,
+    broadcast_notification_params_schema,
 ]);
 
 function take_params(): string {

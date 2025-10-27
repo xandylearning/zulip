@@ -100,6 +100,17 @@ from zerver.views.navigation_views import (
     remove_navigation_view,
     update_navigation_view,
 )
+from zerver.views.notifications import (
+    broadcast_notification_page,
+    create_notification_template,
+    delete_notification_template,
+    get_broadcast_notification_detail,
+    get_broadcast_notification_recipients,
+    list_broadcast_notifications,
+    list_notification_templates,
+    send_broadcast,
+    update_notification_template,
+)
 from zerver.views.onboarding_steps import mark_onboarding_step_as_read
 from zerver.views.presence import (
     get_presence_backend,
@@ -449,6 +460,22 @@ v1_api_and_json_patterns = [
     rest_path("typing", POST=send_notification_backend),
     # POST sends a message edit typing notification
     rest_path("messages/<int:message_id>/typing", POST=send_message_edit_notification_backend),
+    # broadcast notifications -> zerver.views.notifications
+    # Template management endpoints
+    rest_path("notification_templates", GET=list_notification_templates, POST=create_notification_template),
+    rest_path(
+        "notification_templates/<int:template_id>",
+        PATCH=update_notification_template,
+        DELETE=delete_notification_template,
+    ),
+    # Broadcast notification endpoints
+    rest_path("broadcast_notification", POST=send_broadcast),
+    rest_path("broadcast_notifications", GET=list_broadcast_notifications),
+    rest_path("broadcast_notifications/<int:notification_id>", GET=get_broadcast_notification_detail),
+    rest_path(
+        "broadcast_notifications/<int:notification_id>/recipients",
+        GET=get_broadcast_notification_recipients,
+    ),
     # user_uploads -> zerver.views.upload
     rest_path("user_uploads", POST=upload_file_backend),
     rest_path(
@@ -652,6 +679,8 @@ i18n_urls = [
     path("accounts/deactivated/", show_deactivation_notice),
     # Displays digest email content in browser.
     path("digest/", digest_page),
+    # Standalone broadcast notification page
+    path("broadcast-notification/", broadcast_notification_page),
     # Registration views, require a confirmation ID.
     path("accounts/home/", accounts_home),
     path(

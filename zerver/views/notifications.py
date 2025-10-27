@@ -1,0 +1,393 @@
+"""API endpoints for broadcast notification system."""
+
+from django.conf import settings
+from django.http import HttpRequest, HttpResponse
+from django.utils.translation import gettext as _
+from pydantic import Json
+
+from django.shortcuts import render
+
+from zerver.decorator import require_realm_admin, zulip_login_required
+from zerver.lib.exceptions import JsonableError, ResourceNotFoundError, OrganizationAdministratorRequiredError
+from zerver.lib.notifications_broadcast import (
+    get_notification_statistics,
+    send_broadcast_notification,
+)
+from zerver.lib.response import json_success
+from zerver.lib.typed_endpoint import typed_endpoint
+from zerver.models import (
+    BroadcastNotification,
+    NotificationRecipient,
+    NotificationTemplate,
+    UserProfile,
+)
+
+
+# ============ Template Management Endpoints ============
+
+
+@require_realm_admin
+@typed_endpoint
+def create_notification_template(
+    request: HttpRequest,
+    user_profile: UserProfile,
+    *,
+    name: str,
+    content: str,
+) -> HttpResponse:
+    """Create a new notification template."""
+    realm = user_profile.realm
+    
+    # Check if template with same name already exists
+    if NotificationTemplate.objects.filter(realm=realm, name=name).exists():
+        raise JsonableError(_("A template with this name already exists"))
+    
+    template = NotificationTemplate.objects.create(
+        name=name,
+        content=content,
+        creator=user_profile,
+        realm=realm,
+    )
+    
+    return json_success(
+        request,
+        data={
+            "id": template.id,
+            "name": template.name,
+            "content": template.content,
+            "creator_id": template.creator_id,
+            "created_time": template.created_time.timestamp(),
+            "last_edit_time": template.last_edit_time.timestamp(),
+        },
+    )
+
+
+@require_realm_admin
+def list_notification_templates(
+    request: HttpRequest, user_profile: UserProfile
+) -> HttpResponse:
+    """List all notification templates for the realm."""
+    realm = user_profile.realm
+    
+    templates = NotificationTemplate.objects.filter(realm=realm, is_active=True).select_related(
+        "creator"
+    )
+    
+    template_data = [
+        {
+            "id": template.id,
+            "name": template.name,
+            "content": template.content,
+            "creator_email": template.creator.email,
+            "creator_full_name": template.creator.full_name,
+            "created_time": template.created_time.timestamp(),
+            "last_edit_time": template.last_edit_time.timestamp(),
+        }
+        for template in templates
+    ]
+    
+    return json_success(request, data={"templates": template_data})
+
+
+@require_realm_admin
+@typed_endpoint
+def update_notification_template(
+    request: HttpRequest,
+    user_profile: UserProfile,
+    *,
+    template_id: int,
+    name: str | None = None,
+    content: str | None = None,
+) -> HttpResponse:
+    """Update an existing notification template."""
+    realm = user_profile.realm
+    
+    try:
+        template = NotificationTemplate.objects.get(id=template_id, realm=realm)
+    except NotificationTemplate.DoesNotExist:
+        raise ResourceNotFoundError(_("Template not found"))
+    
+    if name is not None:
+        # Check for name conflicts
+        if (
+            NotificationTemplate.objects.filter(realm=realm, name=name)
+            .exclude(id=template_id)
+            .exists()
+        ):
+            raise JsonableError(_("A template with this name already exists"))
+        template.name = name
+    
+    if content is not None:
+        template.content = content
+    
+    template.save(update_fields=["name", "content", "last_edit_time"])
+    
+    return json_success(
+        request,
+        data={
+            "id": template.id,
+            "name": template.name,
+            "content": template.content,
+            "last_edit_time": template.last_edit_time.timestamp(),
+        },
+    )
+
+
+@require_realm_admin
+@typed_endpoint
+def delete_notification_template(
+    request: HttpRequest,
+    user_profile: UserProfile,
+    *,
+    template_id: int,
+) -> HttpResponse:
+    """Delete (soft delete) a notification template."""
+    realm = user_profile.realm
+    
+    try:
+        template = NotificationTemplate.objects.get(id=template_id, realm=realm)
+    except NotificationTemplate.DoesNotExist:
+        raise ResourceNotFoundError(_("Template not found"))
+    
+    template.is_active = False
+    template.save(update_fields=["is_active"])
+    
+    return json_success(request)
+
+
+# ============ Broadcast Notification Endpoints ============
+
+
+@require_realm_admin
+@typed_endpoint
+def send_broadcast(
+    request: HttpRequest,
+    user_profile: UserProfile,
+    *,
+    subject: str,
+    content: str,
+    target_type: str,
+    target_ids: Json[list[int]],
+    template_id: int | None = None,
+    attachment_paths: Json[list[str]] | None = None,
+) -> HttpResponse:
+    """Send a broadcast notification."""
+    realm = user_profile.realm
+    
+    # Validate target_type
+    valid_target_types = [
+        BroadcastNotification.TARGET_USERS,
+        BroadcastNotification.TARGET_CHANNELS,
+        BroadcastNotification.TARGET_BROADCAST,
+    ]
+    if target_type not in valid_target_types:
+        raise JsonableError(_("Invalid target_type"))
+    
+    # Validate template if provided
+    if template_id is not None:
+        try:
+            NotificationTemplate.objects.get(id=template_id, realm=realm, is_active=True)
+        except NotificationTemplate.DoesNotExist:
+            raise ResourceNotFoundError(_("Template not found"))
+    
+    # Send the broadcast notification
+    try:
+        notification = send_broadcast_notification(
+            sender=user_profile,
+            realm=realm,
+            subject=subject,
+            content=content,
+            target_type=target_type,
+            target_ids=target_ids,
+            attachment_paths=attachment_paths or [],
+            template_id=template_id,
+        )
+        
+        return json_success(
+            request,
+            data={
+                "notification_id": notification.id,
+                "sent_time": notification.sent_time.timestamp(),
+            },
+        )
+    except Exception as e:
+        raise JsonableError(str(e))
+
+
+@require_realm_admin
+def list_broadcast_notifications(
+    request: HttpRequest, user_profile: UserProfile
+) -> HttpResponse:
+    """List all broadcast notifications for the realm."""
+    realm = user_profile.realm
+    
+    notifications = BroadcastNotification.objects.filter(realm=realm).select_related(
+        "sender", "template"
+    )[:100]  # Limit to recent 100
+    
+    notification_data = [
+        {
+            "id": notification.id,
+            "subject": notification.subject,
+            "sender_email": notification.sender.email,
+            "sender_full_name": notification.sender.full_name,
+            "sent_time": notification.sent_time.timestamp(),
+            "target_type": notification.target_type,
+            "template_name": notification.template.name if notification.template else None,
+            "recipient_count": NotificationRecipient.objects.filter(
+                notification=notification
+            ).count(),
+        }
+        for notification in notifications
+    ]
+    
+    return json_success(request, data={"notifications": notification_data})
+
+
+@require_realm_admin
+@typed_endpoint
+def get_broadcast_notification_detail(
+    request: HttpRequest,
+    user_profile: UserProfile,
+    *,
+    notification_id: int,
+) -> HttpResponse:
+    """Get detailed information about a specific broadcast notification."""
+    realm = user_profile.realm
+    
+    try:
+        notification = BroadcastNotification.objects.select_related(
+            "sender", "template"
+        ).get(id=notification_id, realm=realm)
+    except BroadcastNotification.DoesNotExist:
+        raise ResourceNotFoundError(_("Notification not found"))
+    
+    # Get statistics
+    stats = get_notification_statistics(notification_id)
+    
+    return json_success(
+        request,
+        data={
+            "id": notification.id,
+            "subject": notification.subject,
+            "content": notification.content,
+            "sender_email": notification.sender.email,
+            "sender_full_name": notification.sender.full_name,
+            "sent_time": notification.sent_time.timestamp(),
+            "target_type": notification.target_type,
+            "target_ids": notification.target_ids,
+            "attachment_paths": notification.attachment_paths,
+            "template_name": notification.template.name if notification.template else None,
+            "statistics": stats,
+        },
+    )
+
+
+@require_realm_admin
+@typed_endpoint
+def get_broadcast_notification_recipients(
+    request: HttpRequest,
+    user_profile: UserProfile,
+    *,
+    notification_id: int,
+) -> HttpResponse:
+    """Get detailed recipient list and status for a broadcast notification."""
+    realm = user_profile.realm
+    
+    try:
+        notification = BroadcastNotification.objects.get(id=notification_id, realm=realm)
+    except BroadcastNotification.DoesNotExist:
+        raise ResourceNotFoundError(_("Notification not found"))
+    
+    recipients = NotificationRecipient.objects.filter(notification=notification).select_related(
+        "recipient_user", "recipient_channel"
+    )
+    
+    recipient_data = [
+        {
+            "id": recipient.id,
+            "user_email": recipient.recipient_user.email,
+            "user_full_name": recipient.recipient_user.full_name,
+            "channel_name": recipient.recipient_channel.name if recipient.recipient_channel else None,
+            "status": recipient.status,
+            "sent_time": recipient.sent_time.timestamp() if recipient.sent_time else None,
+            "delivered_time": recipient.delivered_time.timestamp() if recipient.delivered_time else None,
+            "read_time": recipient.read_time.timestamp() if recipient.read_time else None,
+            "error_message": recipient.error_message,
+            "message_id": recipient.message_id,
+        }
+        for recipient in recipients
+    ]
+    
+    return json_success(request, data={"recipients": recipient_data})
+
+
+# ============ Standalone Page View ============
+
+
+@zulip_login_required
+def broadcast_notification_page(request: HttpRequest) -> HttpResponse:
+    """Render the standalone broadcast notification page."""
+    user_profile = request.user
+    assert user_profile.is_authenticated
+    
+    # Check if user is realm admin
+    if not user_profile.is_realm_admin:
+        raise OrganizationAdministratorRequiredError
+    
+    # Get realm users for the pill widgets
+    from zerver.models import UserProfile
+    import json
+    
+    realm_users = UserProfile.objects.filter(
+        realm=user_profile.realm,
+        is_active=True,
+        is_bot=False
+    ).select_related().values(
+        'id', 'email', 'full_name', 'avatar_hash', 'avatar_source', 'avatar_version', 'is_bot', 'is_active'
+    )
+    
+    # Convert to the format expected by the people module
+    users_data = []
+    for user in realm_users:
+        users_data.append({
+            'user_id': user['id'],
+            'email': user['email'],
+            'full_name': user['full_name'],
+            'avatar_hash': user['avatar_hash'],
+            'avatar_source': user['avatar_source'],
+            'avatar_version': user['avatar_version'],
+            'is_bot': user['is_bot'],
+            'is_active': user['is_active']
+        })
+    
+    # Get streams for the pill widgets
+    from zerver.models import Stream
+    realm_streams = Stream.objects.filter(
+        realm=user_profile.realm,
+        deactivated=False
+    ).values('id', 'name', 'description')
+
+    # Convert streams to expected format
+    streams_data = [
+        {
+            'stream_id': stream['id'],
+            'name': stream['name'],
+            'description': stream['description']
+        }
+        for stream in realm_streams
+    ]
+
+    context = {
+        "user_profile": user_profile,
+        "page_params": {
+            "page_type": "broadcast_notification",
+            "development_environment": settings.DEVELOPMENT,
+            "request_language": "en",
+            "realm_users": users_data,
+            "realm_streams": streams_data,
+        }
+    }
+    
+    return render(request, "zerver/broadcast_notification_page.html", context)
+
