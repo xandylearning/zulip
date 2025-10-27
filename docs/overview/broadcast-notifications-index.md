@@ -15,10 +15,11 @@ The Broadcast Notification System allows organization administrators to send imp
 - **[Broadcast Notifications Subsystem](../subsystems/broadcast-notifications.md)** - Complete implementation guide, architecture overview, API reference, database schema, code examples, security considerations, and performance notes
 - **[Broadcast Notifications UI Development](../development/broadcast-notifications-ui.md)** - UI implementation details and frontend architecture
 - **[Rich Media Template Implementation](../development/broadcast-notifications-rich-media.md)** - Comprehensive guide to the rich media template system, including the visual editor, AI generator, and dynamic media fields
+- **[Bug Fixes and Issues](../development/broadcast-notifications-bugfixes.md)** - Known issues, fixes, and troubleshooting guide
 
 ### Project Documentation
 - **[Implementation Complete Status](broadcast-notifications-complete.md)** - Project completion status and feature overview
-- **[Changelog](broadcast-notifications-changelog.md)** - Complete version history and feature evolution
+- **[Changelog](broadcast-notifications-changelog.md)** - Complete version history and feature evolution (includes v1.1.1 bug fixes)
 
 ## 🚀 Quick Start
 

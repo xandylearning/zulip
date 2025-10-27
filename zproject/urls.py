@@ -104,11 +104,14 @@ from zerver.views.notifications import (
     broadcast_notification_page,
     create_notification_template,
     delete_notification_template,
+    get_broadcast_analytics,
     get_broadcast_notification_detail,
     get_broadcast_notification_recipients,
     list_broadcast_notifications,
     list_notification_templates,
     send_broadcast,
+    send_quick_reply,
+    track_button_click,
     update_notification_template,
 )
 from zerver.views.onboarding_steps import mark_onboarding_step_as_read
@@ -476,6 +479,10 @@ v1_api_and_json_patterns = [
         "broadcast_notifications/<int:notification_id>/recipients",
         GET=get_broadcast_notification_recipients,
     ),
+    rest_path("broadcast_notifications/<int:broadcast_id>/analytics", GET=get_broadcast_analytics),
+    # Button click tracking endpoints
+    rest_path("broadcast/button_click", POST=track_button_click),
+    rest_path("broadcast/quick_reply", POST=send_quick_reply),
     # user_uploads -> zerver.views.upload
     rest_path("user_uploads", POST=upload_file_backend),
     rest_path(

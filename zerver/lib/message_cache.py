@@ -330,6 +330,7 @@ class MessageDict:
                 "sender_id": message.sender.id,
                 "sending_client__name": message.sending_client.name,
                 "sender__realm_id": message.sender.realm_id,
+                "broadcast_template_data": message.broadcast_template_data,
             }
             for message in messages
         ]
@@ -356,6 +357,7 @@ class MessageDict:
             "sender_id",
             "sending_client__name",
             "sender__realm_id",
+            "broadcast_template_data",
         ]
         # Uses index: zerver_message_pkey
         messages = Message.objects.filter(id__in=needed_ids).values(*fields)
@@ -392,6 +394,7 @@ class MessageDict:
             recipient_type_id=row["recipient__type_id"],
             reactions=row["reactions"],
             submessages=row["submessages"],
+            broadcast_template_data=row.get("broadcast_template_data"),
         )
 
     @staticmethod
@@ -413,6 +416,7 @@ class MessageDict:
         recipient_type_id: int,
         reactions: list[RawReactionRow],
         submessages: list[dict[str, Any]],
+        broadcast_template_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         obj = dict(
             id=message_id,
@@ -475,6 +479,11 @@ class MessageDict:
             ReactionDict.build_dict_from_raw_db_row(reaction) for reaction in reactions
         ]
         obj["submessages"] = submessages
+
+        # Add broadcast template data if present
+        if broadcast_template_data is not None:
+            obj["broadcast_template_data"] = broadcast_template_data
+
         return obj
 
     @staticmethod

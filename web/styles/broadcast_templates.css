@@ -1,0 +1,221 @@
+/**
+ * Broadcast Template Styles
+ *
+ * Rich media broadcast notification template styles integrated with Zulip's design system
+ */
+
+/* Container for broadcast template messages */
+.broadcast-template-message {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 8px 0;
+    max-width: 600px;
+}
+
+/* Text blocks */
+.broadcast-text-block {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--color-text-default);
+}
+
+.broadcast-text-block p {
+    margin: 0 0 8px;
+}
+
+.broadcast-text-block p:last-child {
+    margin-bottom: 0;
+}
+
+/* Image blocks */
+.broadcast-image-block {
+    display: flex;
+    justify-content: center;
+    margin: 4px 0;
+}
+
+.broadcast-image-block img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Video blocks */
+.broadcast-video-block {
+    margin: 4px 0;
+}
+
+.broadcast-video-block video {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 4px;
+    background: #000;
+}
+
+.broadcast-video-block .video-embed {
+    position: relative;
+    padding-bottom: 56.25%; /* 16:9 aspect ratio */
+    height: 0;
+    overflow: hidden;
+    border-radius: 4px;
+}
+
+.broadcast-video-block .video-embed iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 4px;
+}
+
+/* Audio blocks */
+.broadcast-audio-block {
+    margin: 8px 0;
+}
+
+.broadcast-audio-block audio {
+    width: 100%;
+    max-width: 400px;
+    height: 40px;
+}
+
+/* SVG blocks */
+.broadcast-svg-block {
+    display: flex;
+    justify-content: center;
+    margin: 8px 0;
+}
+
+.broadcast-svg-block img,
+.broadcast-svg-block svg {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Button blocks */
+.broadcast-button-block {
+    display: flex;
+    justify-content: flex-start;
+    margin: 4px 0;
+}
+
+.broadcast-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 20px;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    font-family: inherit;
+    white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.broadcast-button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    opacity: 0.9;
+}
+
+.broadcast-button:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.broadcast-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.broadcast-button.success {
+    background-color: #28a745 !important;
+}
+
+/* Button sizes */
+.broadcast-button.btn-small {
+    padding: 6px 14px;
+    font-size: 12px;
+}
+
+.broadcast-button.btn-medium {
+    padding: 10px 20px;
+    font-size: 14px;
+}
+
+.broadcast-button.btn-large {
+    padding: 14px 28px;
+    font-size: 16px;
+}
+
+/* Button icons */
+.broadcast-button i.fa {
+    font-size: 0.9em;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .broadcast-template-message {
+        max-width: 100%;
+    }
+
+    .broadcast-button {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .broadcast-button-block {
+        width: 100%;
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .broadcast-image-block img {
+        box-shadow: 0 1px 3px rgba(255, 255, 255, 0.1);
+    }
+
+    .broadcast-button {
+        box-shadow: 0 1px 2px rgba(255, 255, 255, 0.1);
+    }
+
+    .broadcast-button:hover:not(:disabled) {
+        box-shadow: 0 2px 4px rgba(255, 255, 255, 0.15);
+    }
+}
+
+/* Loading state for media */
+.broadcast-image-block img[loading="lazy"],
+.broadcast-video-block video,
+.broadcast-audio-block audio {
+    background: var(--color-background-loading, #f0f0f0);
+}
+
+/* Accessibility */
+.broadcast-button:focus {
+    outline: 2px solid var(--color-outline-focus, #4A90E2);
+    outline-offset: 2px;
+}
+
+/* Animation for button feedback */
+@keyframes button-click-feedback {
+    0% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(0.95);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.broadcast-button:active:not(:disabled) {
+    animation: button-click-feedback 0.2s ease;
+}

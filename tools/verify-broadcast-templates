@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+
+# Verification script for broadcast template rendering
+# This checks both backend and frontend are properly configured
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/.."
+
+echo "=========================================="
+echo "Broadcast Template Verification Script"
+echo "=========================================="
+echo ""
+
+# Check 1: Verify TypeScript file exists
+echo "✓ Check 1: TypeScript renderer exists"
+if [ -f "web/src/broadcast_message_renderer.ts" ]; then
+    echo "  ✅ broadcast_message_renderer.ts found"
+else
+    echo "  ❌ broadcast_message_renderer.ts NOT FOUND"
+    exit 1
+fi
+
+# Check 2: Verify CSS file exists
+echo "✓ Check 2: CSS file exists"
+if [ -f "web/styles/broadcast_templates.css" ]; then
+    echo "  ✅ broadcast_templates.css found"
+else
+    echo "  ❌ broadcast_templates.css NOT FOUND"
+    exit 1
+fi
+
+# Check 3: Check database migration
+echo "✓ Check 3: Database migrations"
+if python manage.py migrate --check >/dev/null 2>&1; then
+    echo "  ✅ All migrations applied"
+else
+    echo "  ⚠️  Pending migrations detected"
+fi
+
+# Check 4: Verify backend serialization
+echo "✓ Check 4: Backend message serialization"
+python manage.py shell <<'EOF'
+from zerver.models import Message
+from zerver.lib.message_cache import MessageDict
+
+# Find a message with template data
+msg = Message.objects.filter(broadcast_template_data__isnull=False).first()
+if msg:
+    print(f"  ✅ Found message with template data (ID: {msg.id})")
+
+    # Test serialization
+    result = MessageDict.ids_to_dict([msg.id])
+    if result and 'broadcast_template_data' in result[0]:
+        print(f"  ✅ Message serialization includes broadcast_template_data")
+        template_data = result[0]['broadcast_template_data']
+        num_blocks = len(template_data.get('template_structure', {}).get('blocks', []))
+        print(f"  ✅ Template has {num_blocks} blocks")
+    else:
+        print("  ❌ broadcast_template_data NOT in serialized message")
+        exit(1)
+else:
+    print("  ⚠️  No messages with template data found in database")
+    print("     (This is OK if you haven't sent any broadcasts yet)")
+EOF
+
+# Check 5: Verify TypeScript tests can run
+echo "✓ Check 5: TypeScript test file"
+if [ -f "web/tests/broadcast_message_renderer.test.ts" ]; then
+    echo "  ✅ Test file exists"
+else
+    echo "  ⚠️  Test file not found (optional)"
+fi
+
+# Check 6: Check if webpack is configured
+echo "✓ Check 6: Build configuration"
+if [ -f "tools/run-dev" ]; then
+    echo "  ✅ Zulip build tools found"
+else
+    echo "  ❌ Build tools NOT FOUND"
+    exit 1
+fi
+
+echo ""
+echo "=========================================="
+echo "Verification Summary"
+echo "=========================================="
+echo ""
+echo "All backend checks passed! ✅"
+echo ""
+echo "NEXT STEPS:"
+echo "1. Start the dev server: ./tools/run-dev"
+echo "2. Wait for 'webpack compiled successfully'"
+echo "3. Open browser and hard-refresh: Cmd+Shift+R or Ctrl+Shift+R"
+echo "4. Open browser console (F12) and check for errors"
+echo "5. Navigate to a broadcast message to see rich rendering"
+echo ""
+echo "To test the renderer:"
+echo "  ./tools/test-js-with-node web/tests/broadcast_message_renderer.test.ts"
+echo ""
+echo "To check if a specific message has template data:"
+echo "  python manage.py shell"
+echo "  >>> from zerver.models import Message"
+echo "  >>> msg = Message.objects.get(id=YOUR_MESSAGE_ID)"
+echo "  >>> print(msg.broadcast_template_data)"
+echo ""

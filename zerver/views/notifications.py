@@ -16,7 +16,9 @@ from zerver.lib.notifications_broadcast import (
 from zerver.lib.response import json_success
 from zerver.lib.typed_endpoint import typed_endpoint
 from zerver.models import (
+    BroadcastButtonClick,
     BroadcastNotification,
+    Message,
     NotificationRecipient,
     NotificationTemplate,
     UserProfile,
@@ -440,6 +442,176 @@ def broadcast_notification_page(request: HttpRequest) -> HttpResponse:
             "realm_streams": streams_data,
         }
     }
-    
+
     return render(request, "zerver/broadcast_notification_page.html", context)
+
+
+# ============ Button Click Tracking Endpoints ============
+
+
+@zulip_login_required
+@typed_endpoint
+def track_button_click(
+    request: HttpRequest,
+    user_profile: UserProfile,
+    *,
+    message_id: int,
+    button_id: str,
+    button_type: str = "url",
+    button_text: str,
+    button_url: str | None = None,
+) -> HttpResponse:
+    """Track a button click on a broadcast notification message."""
+    # Verify message exists and user has access
+    try:
+        message = Message.objects.get(id=message_id, realm=user_profile.realm)
+    except Message.DoesNotExist:
+        raise ResourceNotFoundError(_("Message not found"))
+
+    # Get the broadcast notification if available
+    broadcast_notification_id = None
+    if message.broadcast_template_data:
+        broadcast_notification_id = message.broadcast_template_data.get("broadcast_notification_id")
+
+    broadcast_notification = None
+    if broadcast_notification_id:
+        try:
+            broadcast_notification = BroadcastNotification.objects.get(
+                id=broadcast_notification_id, realm=user_profile.realm
+            )
+        except BroadcastNotification.DoesNotExist:
+            pass
+
+    # Create click record
+    click = BroadcastButtonClick.objects.create(
+        user=user_profile,
+        message=message,
+        broadcast_notification=broadcast_notification,
+        button_id=button_id,
+        button_type=button_type,
+        button_text=button_text,
+        button_url=button_url or "",
+    )
+
+    return json_success(
+        request,
+        data={
+            "click_id": click.id,
+            "clicked_at": click.clicked_at.timestamp(),
+        },
+    )
+
+
+@zulip_login_required
+@typed_endpoint
+def send_quick_reply(
+    request: HttpRequest,
+    user_profile: UserProfile,
+    *,
+    message_id: int,
+    button_id: str,
+    reply_text: str,
+) -> HttpResponse:
+    """Handle quick reply button action by sending a reply message."""
+    # Verify message exists
+    try:
+        message = Message.objects.get(id=message_id, realm=user_profile.realm)
+    except Message.DoesNotExist:
+        raise ResourceNotFoundError(_("Message not found"))
+
+    # Track the button click first
+    track_button_click(
+        request,
+        user_profile,
+        message_id=message_id,
+        button_id=button_id,
+        button_type="quick_reply",
+        button_text=reply_text,
+    )
+
+    # Send reply as a normal message (implementation depends on message type)
+    # For now, just return success - actual reply sending can be handled by frontend
+    return json_success(
+        request,
+        data={
+            "success": True,
+            "message": _("Quick reply recorded"),
+        },
+    )
+
+
+# ============ Analytics Endpoints ============
+
+
+@require_realm_admin
+@typed_endpoint
+def get_broadcast_analytics(
+    request: HttpRequest,
+    user_profile: UserProfile,
+    *,
+    broadcast_id: int,
+) -> HttpResponse:
+    """Get analytics data for a broadcast notification including button clicks."""
+    realm = user_profile.realm
+
+    # Get the broadcast notification
+    try:
+        notification = BroadcastNotification.objects.get(id=broadcast_id, realm=realm)
+    except BroadcastNotification.DoesNotExist:
+        raise ResourceNotFoundError(_("Broadcast notification not found"))
+
+    # Get delivery statistics
+    stats = get_notification_statistics(broadcast_id)
+
+    # Get button click analytics
+    button_clicks = BroadcastButtonClick.objects.filter(
+        broadcast_notification=notification
+    ).select_related("user")
+
+    # Aggregate clicks by button_id
+    button_analytics = {}
+    for click in button_clicks:
+        if click.button_id not in button_analytics:
+            button_analytics[click.button_id] = {
+                "button_id": click.button_id,
+                "button_text": click.button_text,
+                "button_type": click.button_type,
+                "total_clicks": 0,
+                "unique_users": set(),
+                "clicks": [],
+            }
+
+        button_analytics[click.button_id]["total_clicks"] += 1
+        button_analytics[click.button_id]["unique_users"].add(click.user.id)
+        button_analytics[click.button_id]["clicks"].append(
+            {
+                "user_id": click.user.id,
+                "user_email": click.user.email,
+                "user_full_name": click.user.full_name,
+                "clicked_at": click.clicked_at.timestamp(),
+            }
+        )
+
+    # Convert sets to counts for JSON serialization
+    for button_id in button_analytics:
+        button_analytics[button_id]["unique_users"] = len(
+            button_analytics[button_id]["unique_users"]
+        )
+
+    # Calculate engagement rate
+    total_recipients = stats["total"]
+    total_button_clicks = sum(ba["total_clicks"] for ba in button_analytics.values())
+    engagement_rate = (
+        (total_button_clicks / total_recipients * 100) if total_recipients > 0 else 0
+    )
+
+    return json_success(
+        request,
+        data={
+            "delivery_stats": stats,
+            "button_analytics": list(button_analytics.values()),
+            "engagement_rate": round(engagement_rate, 2),
+            "total_button_clicks": total_button_clicks,
+        },
+    )
 

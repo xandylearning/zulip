@@ -25,6 +25,9 @@ export interface ButtonBlock extends BaseBlock {
     type: "button";
     text: string;
     url: string;
+    actionType: "url" | "quick_reply";
+    quickReplyText?: string; // For quick_reply buttons - the text to send as reply
+    quickReplyAction?: string; // Optional action like "mark_as_read"
     style: {
         backgroundColor: string;
         textColor: string;
@@ -87,6 +90,7 @@ export const DEFAULT_BUTTON_BLOCK: Omit<ButtonBlock, "id"> = {
     type: "button",
     text: "Click Here",
     url: "",
+    actionType: "url",
     style: {
         backgroundColor: "#007bff",
         textColor: "#ffffff",

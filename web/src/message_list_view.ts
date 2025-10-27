@@ -14,6 +14,7 @@ import render_single_message from "../templates/single_message.hbs";
 
 import * as activity from "./activity.ts";
 import * as blueslip from "./blueslip.ts";
+import * as broadcast_message_renderer from "./broadcast_message_renderer.ts";
 import * as compose_fade from "./compose_fade.ts";
 import * as condense from "./condense.ts";
 import * as hash_util from "./hash_util.ts";
@@ -1060,9 +1061,22 @@ export class MessageListView {
 
         const $content = $row.find(".message_content");
 
-        rendered_markdown.update_elements($content);
-
         const id = rows.id($row);
+        const message = message_store.get(id);
+
+        // Check if this is a broadcast message with rich template
+        if (message && broadcast_message_renderer.isBroadcastMessage(message)) {
+            // Replace content with rich template rendering
+            const richContent = broadcast_message_renderer.renderBroadcastMessage(message);
+            $content.html(richContent);
+
+            // Initialize button click handlers
+            broadcast_message_renderer.initializeButtonHandlers($row);
+        } else {
+            // Standard markdown processing
+            rendered_markdown.update_elements($content);
+        }
+
         message_edit.maybe_show_edit($row, id);
 
         submessage.process_submessages({

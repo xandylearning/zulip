@@ -121,6 +121,16 @@ class AbstractMessage(models.Model):
     # JSON field containing AI agent metadata
     ai_metadata = models.JSONField(null=True, blank=True)
 
+    # Broadcast Template Data
+    # Stores rich media template structure and content for broadcast notifications
+    # Structure: {
+    #   "template_id": int,  # Reference to NotificationTemplate
+    #   "template_structure": {...},  # Template block structure
+    #   "media_content": {...},  # Resolved URLs and content for blocks
+    #   "message_type": "broadcast_notification"
+    # }
+    broadcast_template_data = models.JSONField(null=True, blank=True)
+
     class Meta:
         abstract = True
 

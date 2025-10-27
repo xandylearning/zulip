@@ -973,15 +973,14 @@ function do_toggle_resolve_topic(
             }
 
             if (xhr.responseJSON) {
-                const {code} = z.object({code: z.string()}).parse(xhr.responseJSON);
-                if (code === "MOVE_MESSAGES_TIME_LIMIT_EXCEEDED") {
+                const parsed = z.object({code: z.string().optional(), msg: z.string().optional()}).parse(xhr.responseJSON);
+                if (parsed.code === "MOVE_MESSAGES_TIME_LIMIT_EXCEEDED") {
                     handle_resolve_topic_failure_due_to_time_limit(topic_is_resolved);
                     return;
                 }
 
-                if (report_errors_in_global_banner) {
-                    const {msg} = z.object({msg: z.string()}).parse(xhr.responseJSON);
-                    ui_report.generic_embed_error(msg, 3500);
+                if (report_errors_in_global_banner && parsed.msg) {
+                    ui_report.generic_embed_error(parsed.msg, 3500);
                 }
             }
         },

@@ -1,7 +1,59 @@
 # Broadcast Notification System - Changelog
 
+## Version 1.1.1 - Critical Bug Fixes
+**Release Date:** October 27, 2025
+**Status:** ✅ Fixed and Deployed
+
+### 🐛 Critical Bugs Fixed
+
+#### Issue #1: Broadcast Templates Not Rendering
+**Problem:** Rich media broadcast templates were displaying as plain text/markdown instead of rendering interactive template blocks.
+
+**Root Cause:** The `broadcast_template_data` field was missing from the Zod validation schema in `web/src/message_store.ts`, causing the field to be stripped from incoming messages.
+
+**Fix:** Added `broadcast_template_data` to `raw_message_schema` with proper Zod validation:
+```typescript
+broadcast_template_data: z.optional(z.nullable(z.object({
+    template_id: z.number(),
+    template_structure: z.any(),
+    media_content: z.any(),
+    message_type: z.literal("broadcast_notification"),
+    broadcast_notification_id: z.optional(z.number()),
+}))),
+```
+
+**Impact:** Critical - Core feature was non-functional. All users affected.
+
+#### Issue #2: Message Edit Error Handler Validation
+**Problem:** Console errors when operations failed: "Invalid input - expected string for code field"
+
+**Root Cause:** Error handler used strict validation requiring `code` and `msg` fields that not all error responses include.
+
+**Fix:** Made error response fields optional:
+```typescript
+const parsed = z.object({
+    code: z.string().optional(),
+    msg: z.string().optional()
+}).parse(xhr.responseJSON);
+```
+
+**Impact:** Medium - Non-blocking but created console noise.
+
+### 📁 Files Modified
+- `web/src/message_store.ts` - Added broadcast_template_data to schema
+- `web/src/message_edit.ts` - Fixed error handler validation
+- `docs/development/broadcast-notifications-bugfixes.md` - New documentation
+
+### 🧪 Testing
+- ✅ Broadcast templates now render correctly
+- ✅ No more Zod validation errors in console
+- ✅ Error handlers work gracefully with all response types
+- ✅ Backward compatibility maintained
+
+---
+
 ## Version 1.1.0 - Rich Media Templates & Code Cleanup
-**Release Date:** December 19, 2024  
+**Release Date:** December 19, 2024
 **Status:** ✅ Complete and Production Ready
 
 ### 🎉 Major Features Added

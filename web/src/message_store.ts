@@ -84,6 +84,13 @@ export const raw_message_schema = z.intersection(
             submessages: z.array(submessage_schema),
             timestamp: z.number(),
             flags: z.array(z.string()),
+            broadcast_template_data: z.optional(z.nullable(z.object({
+                template_id: z.number(),
+                template_structure: z.any(),
+                media_content: z.any(),
+                message_type: z.literal("broadcast_notification"),
+                broadcast_notification_id: z.optional(z.number()),
+            }))),
         }),
         z.discriminatedUnion("type", [
             z.object({
@@ -176,6 +183,15 @@ export type Message = (
     local_edit_timestamp?: number; // Used for edited messages
 
     notification_sent?: boolean; // Used in message_notifications
+
+    // Broadcast notification template data for rich media rendering
+    broadcast_template_data?: {
+        template_id: number;
+        template_structure: Record<string, unknown>;
+        media_content: Record<string, string>;
+        message_type: "broadcast_notification";
+        broadcast_notification_id?: number;
+    } | null;
 } & (
         | {
               type: "private";

@@ -2,6 +2,7 @@ from django.db import models
 from django.utils.timezone import now as timezone_now
 from typing_extensions import override
 
+from zerver.models.messages import Message
 from zerver.models.realms import Realm
 from zerver.models.streams import Stream
 from zerver.models.users import UserProfile
@@ -145,4 +146,54 @@ class NotificationRecipient(models.Model):
     def __str__(self) -> str:
         channel_info = f" in {self.recipient_channel.name}" if self.recipient_channel else ""
         return f"{self.recipient_user.email}{channel_info} - {self.status}"
+
+
+class BroadcastButtonClick(models.Model):
+    """Tracks user interactions with buttons in broadcast notification messages."""
+
+    # Button action type choices
+    ACTION_TYPE_URL = "url"
+    ACTION_TYPE_QUICK_REPLY = "quick_reply"
+    ACTION_TYPE_CHOICES = [
+        (ACTION_TYPE_URL, "URL Button"),
+        (ACTION_TYPE_QUICK_REPLY, "Quick Reply"),
+    ]
+
+    user = models.ForeignKey(
+        UserProfile, on_delete=models.CASCADE, related_name="broadcast_button_clicks"
+    )
+    message = models.ForeignKey(
+        Message, on_delete=models.CASCADE, related_name="button_clicks"
+    )
+    broadcast_notification = models.ForeignKey(
+        BroadcastNotification,
+        on_delete=models.CASCADE,
+        related_name="button_clicks",
+        null=True,
+        blank=True,
+        help_text="Reference to the original broadcast notification if available",
+    )
+    button_id = models.CharField(
+        max_length=255, db_index=True, help_text="ID of the button that was clicked"
+    )
+    button_type = models.CharField(
+        max_length=20, choices=ACTION_TYPE_CHOICES, default=ACTION_TYPE_URL
+    )
+    button_text = models.CharField(max_length=255, help_text="Text displayed on the button")
+    button_url = models.TextField(
+        null=True, blank=True, help_text="URL for URL-type buttons"
+    )
+    clicked_at = models.DateTimeField(default=timezone_now, db_index=True)
+
+    class Meta:
+        ordering = ["-clicked_at"]
+        indexes = [
+            models.Index(fields=["message", "button_id"]),
+            models.Index(fields=["broadcast_notification", "button_id"]),
+            models.Index(fields=["user", "clicked_at"]),
+        ]
+
+    @override
+    def __str__(self) -> str:
+        return f"{self.user.email} clicked '{self.button_text}' at {self.clicked_at}"
 
