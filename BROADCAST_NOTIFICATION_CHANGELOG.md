@@ -1,5 +1,26 @@
 # Broadcast Notification System - Changelog
 
+## Version 1.1.1 - Button Label & Action Separation
+Release Date: October 28, 2025
+Status: ✅ Complete
+
+### Feature Enhancement
+
+#### Separate Button Label from Action
+- Template editor adds explicit "Button Label" and an "Action Type" selector (URL or Quick Reply).
+- Conditional fields: URL input only for URL buttons; Quick Reply text input for quick replies.
+- Validation ensures URL or reply text is provided based on action.
+
+### Sending Form Improvements
+- URL field shown only for URL-type buttons; quick replies show informational text.
+
+### Renderer Cleanup
+- Removed URL-derived label fallback; renderer now always uses the explicit label from the template.
+
+### Technical Details
+- Files modified: `web/src/broadcast_template_editor.ts`, `web/src/broadcast_media_fields.ts`, `web/src/broadcast_message_renderer.ts`.
+- Backward compatible: Legacy buttons default to actionType "url"; `quickReplyText` optional.
+
 ## Version 1.1.1 - Critical Bug Fixes
 **Release Date:** October 27, 2025
 **Status:** ✅ Fixed and Deployed

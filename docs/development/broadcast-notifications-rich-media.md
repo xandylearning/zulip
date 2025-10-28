@@ -44,14 +44,14 @@ We've successfully implemented a comprehensive rich media template editor system
 - 6 block types:
   - Text blocks (Markdown supported)
   - Image fields (with upload placeholder)
-  - Button blocks (customizable styling)
+  - Button blocks (separate label and action, customizable styling)
   - Video fields (upload or URL)
   - Audio fields
   - SVG fields (inline or file)
 
 - Block settings modals for each type:
   - Image: label, alt text, max width, required flag
-  - Button: text, URL, colors, size, border radius
+- Button: label, action type (URL | Quick Reply), URL or quick reply text, colors, size, border radius
   - Video: label, allow URL/upload options, required flag
   - Audio: label, required flag
   - SVG: label, inline SVG support, required flag
@@ -99,7 +99,8 @@ We've successfully implemented a comprehensive rich media template editor system
 
 - Text/Button editing:
   - Editable text content fields
-  - Editable button URL fields
+  - Editable button URL fields (URL buttons only)
+  - Quick Reply buttons show reply text only
 
 - Validation:
   - Required field enforcement

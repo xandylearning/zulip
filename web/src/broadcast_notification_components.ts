@@ -105,6 +105,22 @@ export function buildNotificationForm(templates: NotificationTemplate[]): string
                 />
             </div>
 
+            <!-- AI Compose section -->
+            <div class="form-group" id="ai-compose-section">
+                <div class="label-with-actions">
+                    <label for="notification-ai-prompt">${$t({defaultMessage: "AI Compose (optional)"})}</label>
+                    <button type="button" class="btn btn-default" id="ai-compose-btn">${$t({defaultMessage: "Generate with AI"})}</button>
+                </div>
+                <textarea
+                    id="notification-ai-prompt"
+                    class="form-control"
+                    rows="3"
+                    placeholder="${$t({defaultMessage: "Describe what you want to say (max 400 chars)"})}"
+                    spellcheck="false"
+                ></textarea>
+                <small class="form-text">${$t({defaultMessage: "Works with or without a selected template. Keeps tokens low."})}</small>
+            </div>
+
             <!-- Standard text/markdown content area (shown for text_only templates or no template) -->
             <div id="standard-content-area" class="form-group">
                 <div class="label-with-actions">

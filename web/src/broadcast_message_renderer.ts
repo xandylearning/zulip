@@ -49,9 +49,24 @@ export function renderBroadcastMessage(message: Message): string {
     // Render all blocks
     const renderedBlocks = blocks.map((block) => renderBlock(block, media_content, message.id));
 
+    // Get layout properties with defaults
+    const layoutDirection = template_structure.layoutDirection || "column";
+    const layoutAlignment = template_structure.layoutAlignment || "start";
+    const layoutJustify = template_structure.layoutJustify || "start";
+    const layoutGap = template_structure.layoutGap || 12;
+
+    // Apply layout styles to container
+    const containerStyles = `
+        display: flex;
+        flex-direction: ${layoutDirection};
+        align-items: ${layoutAlignment};
+        justify-content: ${layoutJustify};
+        gap: ${layoutGap}px;
+    `;
+
     // Wrap in broadcast template container
     return `
-        <div class="broadcast-template-message" data-message-id="${message.id}">
+        <div class="broadcast-template-message" data-message-id="${message.id}" style="${containerStyles}">
             ${renderedBlocks.join("")}
         </div>
     `;
@@ -65,22 +80,39 @@ function renderBlock(
     mediaContent: Record<string, string>,
     messageId: number,
 ): string {
+    let blockHtml = "";
+    
     switch (block.type) {
         case "text":
-            return renderTextBlock(block, mediaContent);
+            blockHtml = renderTextBlock(block, mediaContent);
+            break;
         case "image":
-            return renderImageBlock(block, mediaContent);
+            blockHtml = renderImageBlock(block, mediaContent);
+            break;
         case "video":
-            return renderVideoBlock(block, mediaContent);
+            blockHtml = renderVideoBlock(block, mediaContent);
+            break;
         case "audio":
-            return renderAudioBlock(block, mediaContent);
+            blockHtml = renderAudioBlock(block, mediaContent);
+            break;
         case "button":
-            return renderButtonBlock(block, mediaContent, messageId);
+            blockHtml = renderButtonBlock(block, mediaContent, messageId);
+            break;
         case "svg":
-            return renderSVGBlock(block, mediaContent);
+            blockHtml = renderSVGBlock(block, mediaContent);
+            break;
         default:
             return "";
     }
+
+    // Apply per-block alignment override if specified
+    if (block.blockAlignment) {
+        const alignmentStyle = `align-self: ${block.blockAlignment};`;
+        // Wrap the block content with alignment style
+        return `<div style="${alignmentStyle}">${blockHtml}</div>`;
+    }
+
+    return blockHtml;
 }
 
 /**
@@ -218,8 +250,9 @@ function renderButtonBlock(
     mediaContent: Record<string, string>,
     messageId: number,
 ): string {
-    const buttonText = escapeHtml(block.text || "Click Here");
     const buttonUrl = mediaContent[block.id] || block.url || "";
+    // Always use the explicit label defined in the template editor
+    const buttonText = escapeHtml(block.text || "Button");
     const actionType = block.actionType || "url";
     const quickReplyText = block.quickReplyText || buttonText;
 

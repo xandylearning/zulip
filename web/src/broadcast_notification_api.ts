@@ -219,3 +219,37 @@ export async function fetchRecipients(notificationId: number): Promise<Recipient
     });
 }
 
+export async function aiCompose(request: {
+    subject?: string;
+    template_id?: number;
+    prompt: string;
+    media_content?: Record<string, string>;
+}): Promise<{ subject: string; content: string; media_content: Record<string, string> }> {
+    return new Promise((resolve, reject) => {
+        const data: Record<string, unknown> = {
+            prompt: request.prompt,
+        };
+
+        if (request.subject !== undefined) {
+            data.subject = request.subject;
+        }
+        if (request.template_id !== undefined) {
+            data.template_id = JSON.stringify(request.template_id);
+        }
+        if (request.media_content !== undefined) {
+            data.media_content = JSON.stringify(request.media_content);
+        }
+
+        channel.post({
+            url: "/json/broadcast/ai_compose",
+            data,
+            success(resp) {
+                resolve((resp || {subject: "", content: "", media_content: {}}) as { subject: string; content: string; media_content: Record<string, string> });
+            },
+            error(xhr) {
+                reject(new Error(xhr.responseJSON?.msg || "Failed to compose with AI"));
+            },
+        });
+    });
+}
+

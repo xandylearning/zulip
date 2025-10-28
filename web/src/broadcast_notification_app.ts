@@ -179,16 +179,18 @@ async function handleSendNotification(): Promise<void> {
 
                 const template = templates.find((t) => t.id === templateIdNum);
                 if (template && template.template_type === "rich_media") {
-                    // For rich media templates, get the media content and text content
+                    // For rich media templates, upload files first, then get all content
+                    const uploadedUrls = await mediaFields.uploadFilesAndGetUrls();
                     const mediaContent = mediaFields.getMediaContent();
                     const textContent = mediaFields.getTextContent();
                     const buttonUrls = mediaFields.getButtonUrls();
 
-                    // Combine all content for rich media templates
+                    // Combine all content for rich media templates, including uploaded files
                     request.media_content = {
                         ...mediaContent,
                         ...textContent,
                         ...buttonUrls,
+                        ...uploadedUrls, // Add uploaded file URLs
                     };
 
                     // For rich media templates, we can set content to empty or a summary
@@ -385,6 +387,83 @@ function setupEventHandlers(): void {
         
         pills.destroyCurrentWidget();
         switchRecipientType("all");
+    });
+
+    // AI compose
+    $app.on("click", "#ai-compose-btn", async function (e) {
+        e.preventDefault();
+        const $btn = $(this);
+        const promptRaw = ($("#notification-ai-prompt").val() as string) || "";
+        const prompt = promptRaw.substring(0, 400);
+        const subject = ($("#notification-subject").val() as string) || "";
+        const templateVal = $("#template-select").val() as string;
+        const templateId = templateVal && templateVal.trim() ? Number.parseInt(templateVal, 10) : undefined;
+
+        let media_content: Record<string, string> | undefined = undefined;
+        if (templateId) {
+            const template = templates.find((t) => t.id === templateId);
+            if (template && template.template_type === "rich_media") {
+                media_content = {
+                    ...mediaFields.getMediaContent(),
+                    ...mediaFields.getTextContent(),
+                    ...mediaFields.getButtonUrls(),
+                };
+            }
+        }
+
+        if (!prompt.trim()) {
+            showMessage($t({defaultMessage: "Enter a brief prompt for AI compose"}), "error");
+            return;
+        }
+
+        $btn.prop("disabled", true).text($t({defaultMessage: "Generating..."}));
+        try {
+            const req: any = { prompt };
+            if (subject) {
+                req.subject = subject;
+            }
+            if (templateId) {
+                req.template_id = templateId;
+            }
+            if (media_content) {
+                req.media_content = media_content;
+            }
+            const resp = await api.aiCompose(req);
+            if (resp && resp.content) {
+                if (!subject || !subject.trim()) {
+                    if (resp.subject && resp.subject.trim()) {
+                        $("#notification-subject").val(resp.subject.trim());
+                    }
+                }
+                
+                // If template is selected, populate template fields instead of message textarea
+                if (templateId) {
+                    const template = templates.find((t) => t.id === templateId);
+                    if (template && template.template_type === "rich_media" && resp.media_content) {
+                        // Populate template fields with AI-generated content
+                        mediaFields.populateFromMediaContent(resp.media_content);
+                        showMessage($t({defaultMessage: "AI content generated and populated template fields"}), "success");
+                    } else {
+                        // Text template or no media_content, use message textarea
+                        $("#notification-content").val(resp.content);
+                        $("#standard-content-area").show();
+                        showMessage($t({defaultMessage: "AI content generated"}), "success");
+                    }
+                } else {
+                    // No template selected, use message textarea
+                    $("#notification-content").val(resp.content);
+                    $("#standard-content-area").show();
+                    showMessage($t({defaultMessage: "AI content generated"}), "success");
+                }
+            } else {
+                showMessage($t({defaultMessage: "AI did not return content"}), "error");
+            }
+        } catch (err) {
+            console.error("AI compose failed", err);
+            showMessage($t({defaultMessage: "Failed to generate with AI"}) + ": " + (err as Error).message, "error");
+        } finally {
+            $btn.prop("disabled", false).text($t({defaultMessage: "Generate with AI"}));
+        }
     });
 
     // View notification details

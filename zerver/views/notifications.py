@@ -13,6 +13,7 @@ from zerver.lib.notifications_broadcast import (
     get_notification_statistics,
     send_broadcast_notification,
 )
+from zerver.lib.notifications_broadcast_ai import compose_broadcast_with_ai
 from zerver.lib.response import json_success
 from zerver.lib.typed_endpoint import typed_endpoint
 from zerver.models import (
@@ -296,6 +297,50 @@ def list_broadcast_notifications(
     ]
     
     return json_success(request, data={"notifications": notification_data})
+
+
+@require_realm_admin
+@typed_endpoint
+def ai_compose_broadcast(
+    request: HttpRequest,
+    user_profile: UserProfile,
+    *,
+    prompt: str,
+    subject: str | None = None,
+    template_id: Json[int] | None = None,
+    media_content: Json[dict] | None = None,
+) -> HttpResponse:
+    """Compose concise Markdown content for a broadcast using AI.
+
+    Works with or without a selected template. Uses low token budget.
+    """
+    realm = user_profile.realm
+
+    prompt = (prompt or "").strip()
+    if not prompt:
+        raise JsonableError(_("Prompt is required"))
+
+    # Trim prompt length to control tokens
+    if len(prompt) > 400:
+        prompt = prompt[:400]
+
+    template = None
+    if template_id is not None:
+        try:
+            template = NotificationTemplate.objects.get(id=template_id, realm=realm, is_active=True)
+        except NotificationTemplate.DoesNotExist:
+            raise ResourceNotFoundError(_("Template not found"))
+
+    ai = compose_broadcast_with_ai(
+        realm=realm,
+        user=user_profile,
+        subject=subject,
+        prompt=prompt,
+        template=template,
+        media_content=media_content or {},
+    )
+
+    return json_success(request, data={"subject": ai["subject"], "content": ai["content"], "media_content": ai["media_content"]})
 
 
 @require_realm_admin

@@ -203,26 +203,29 @@ def _send_notification_messages(notification: BroadcastNotification) -> None:
     recipients = NotificationRecipient.objects.filter(
         notification=notification, status=NotificationRecipient.STATUS_QUEUED
     ).select_related("recipient_user", "recipient_channel")
-    
-    for recipient in recipients:
+
+    # Group channel recipients by channel to ensure single message per channel
+    channel_id_to_recipients: dict[int, list[NotificationRecipient]] = {}
+    direct_recipients: list[NotificationRecipient] = []
+
+    for r in recipients:
+        if r.recipient_channel is not None:
+            channel_id = r.recipient_channel.id
+            channel_id_to_recipients.setdefault(channel_id, []).append(r)
+        else:
+            direct_recipients.append(r)
+
+    # Send one message per channel
+    for channel_recipients in channel_id_to_recipients.values():
+        channel = channel_recipients[0].recipient_channel
         try:
-            # Send as direct message or channel message
-            if recipient.recipient_channel:
-                # Send to channel
-                message_id = internal_send_stream_message(
-                    sender=sender,
-                    stream=recipient.recipient_channel,
-                    topic_name="Broadcast Notification",
-                    content=formatted_content,
-                )
-            else:
-                # Send as DM
-                message_id = internal_send_private_message(
-                    sender=sender,
-                    recipient_user=recipient.recipient_user,
-                    content=formatted_content,
-                )
-            
+            message_id = internal_send_stream_message(
+                sender=sender,
+                stream=channel,
+                topic_name="Broadcast Notification",
+                content=formatted_content,
+            )
+
             if message_id:
                 # Store template data in the message for rich rendering
                 if notification.template and notification.template.template_type == "rich_media":
@@ -239,6 +242,54 @@ def _send_notification_messages(notification: BroadcastNotification) -> None:
                     except Message.DoesNotExist:
                         pass  # Message not found, skip template data storage
 
+                # Update all recipients for this channel with the same message_id
+                for recipient in channel_recipients:
+                    recipient.message_id = message_id
+                    recipient.status = NotificationRecipient.STATUS_SENT
+                    recipient.sent_time = timezone_now()
+                NotificationRecipient.objects.bulk_update(
+                    channel_recipients, ["message_id", "status", "sent_time"]
+                )
+            else:
+                # Mark all as failed for this channel
+                for recipient in channel_recipients:
+                    recipient.status = NotificationRecipient.STATUS_FAILED
+                    recipient.error_message = "Failed to send message"
+                NotificationRecipient.objects.bulk_update(
+                    channel_recipients, ["status", "error_message"]
+                )
+        except Exception as e:
+            for recipient in channel_recipients:
+                recipient.status = NotificationRecipient.STATUS_FAILED
+                recipient.error_message = str(e)
+            NotificationRecipient.objects.bulk_update(
+                channel_recipients, ["status", "error_message"]
+            )
+
+    # Send DMs (one message per direct recipient)
+    for recipient in direct_recipients:
+        try:
+            message_id = internal_send_private_message(
+                sender=sender,
+                recipient_user=recipient.recipient_user,
+                content=formatted_content,
+            )
+
+            if message_id:
+                if notification.template and notification.template.template_type == "rich_media":
+                    try:
+                        message = Message.objects.get(id=message_id)
+                        message.broadcast_template_data = {
+                            "template_id": notification.template.id,
+                            "template_structure": notification.template.template_structure,
+                            "media_content": notification.media_content,
+                            "message_type": "broadcast_notification",
+                            "broadcast_notification_id": notification.id,
+                        }
+                        message.save(update_fields=["broadcast_template_data"])
+                    except Message.DoesNotExist:
+                        pass
+
                 recipient.message_id = message_id
                 recipient.status = NotificationRecipient.STATUS_SENT
                 recipient.sent_time = timezone_now()
@@ -247,7 +298,6 @@ def _send_notification_messages(notification: BroadcastNotification) -> None:
                 recipient.status = NotificationRecipient.STATUS_FAILED
                 recipient.error_message = "Failed to send message"
                 recipient.save(update_fields=["status", "error_message"])
-                
         except Exception as e:
             recipient.status = NotificationRecipient.STATUS_FAILED
             recipient.error_message = str(e)

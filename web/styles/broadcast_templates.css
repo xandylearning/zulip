@@ -13,6 +13,70 @@
     max-width: 600px;
 }
 
+/* Layout utility classes */
+.broadcast-template-message.layout-row {
+    flex-direction: row;
+}
+
+.broadcast-template-message.layout-column {
+    flex-direction: column;
+}
+
+/* Alignment utility classes */
+.broadcast-template-message.align-start {
+    align-items: flex-start;
+}
+
+.broadcast-template-message.align-center {
+    align-items: center;
+}
+
+.broadcast-template-message.align-end {
+    align-items: flex-end;
+}
+
+.broadcast-template-message.align-stretch {
+    align-items: stretch;
+}
+
+/* Justify utility classes */
+.broadcast-template-message.justify-start {
+    justify-content: flex-start;
+}
+
+.broadcast-template-message.justify-center {
+    justify-content: center;
+}
+
+.broadcast-template-message.justify-end {
+    justify-content: flex-end;
+}
+
+.broadcast-template-message.justify-space-between {
+    justify-content: space-between;
+}
+
+.broadcast-template-message.justify-space-around {
+    justify-content: space-around;
+}
+
+/* Per-block alignment classes */
+.broadcast-block-align-start {
+    align-self: flex-start;
+}
+
+.broadcast-block-align-center {
+    align-self: center;
+}
+
+.broadcast-block-align-end {
+    align-self: flex-end;
+}
+
+.broadcast-block-align-stretch {
+    align-self: stretch;
+}
+
 /* Text blocks */
 .broadcast-text-block {
     font-size: 14px;
@@ -165,6 +229,11 @@
         max-width: 100%;
     }
 
+    /* For row layouts on mobile, switch to column */
+    .broadcast-template-message.layout-row {
+        flex-direction: column;
+    }
+
     .broadcast-button {
         width: 100%;
         justify-content: center;
@@ -218,4 +287,68 @@
 
 .broadcast-button:active:not(:disabled) {
     animation: button-click-feedback 0.2s ease;
+}
+
+/* Template Editor Layout Controls */
+.layout-controls-section {
+    margin: 16px 0;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border: 1px solid #e9ecef;
+}
+
+.layout-controls-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-default);
+}
+
+.layout-controls-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+}
+
+.layout-controls-grid .form-group {
+    margin-bottom: 0;
+}
+
+.layout-controls-grid label {
+    font-size: 12px;
+    font-weight: 500;
+    margin-bottom: 4px;
+    color: var(--color-text-muted);
+}
+
+.layout-controls-grid .form-control {
+    font-size: 13px;
+}
+
+/* Preview container styles */
+.preview-container {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f9f9f9;
+    min-height: 100px;
+    padding: 8px;
+}
+
+.preview-container .preview-text,
+.preview-container .preview-image-placeholder,
+.preview-container .preview-button-container,
+.preview-container .preview-video-placeholder,
+.preview-container .preview-audio-placeholder,
+.preview-container .preview-svg-placeholder {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 3px;
+    padding: 8px;
+    font-size: 12px;
+}
+
+.preview-container .preview-button {
+    font-size: 12px;
+    padding: 6px 12px;
 }

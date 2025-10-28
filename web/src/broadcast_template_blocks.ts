@@ -5,6 +5,8 @@ export type BlockType = "text" | "image" | "button" | "video" | "audio" | "svg";
 export interface BaseBlock {
     id: string;
     type: BlockType;
+    blockAlignment?: "start" | "center" | "end" | "stretch";
+    blockWidth?: "auto" | "full" | number;
 }
 
 export interface TextBlock extends BaseBlock {
@@ -71,6 +73,10 @@ export type TemplateBlock =
 
 export interface TemplateStructure {
     blocks: TemplateBlock[];
+    layoutDirection?: "column" | "row";
+    layoutAlignment?: "start" | "center" | "end" | "stretch";
+    layoutJustify?: "start" | "center" | "end" | "space-between" | "space-around";
+    layoutGap?: number;
 }
 
 // Default block configurations
@@ -225,5 +231,9 @@ export function createBlankTemplateStructure(): TemplateStructure {
                 content: "Enter your message here...",
             },
         ],
+        layoutDirection: "column",
+        layoutAlignment: "start",
+        layoutJustify: "start",
+        layoutGap: 12,
     };
 }

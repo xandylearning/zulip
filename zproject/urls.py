@@ -105,6 +105,7 @@ from zerver.views.notifications import (
     create_notification_template,
     delete_notification_template,
     get_broadcast_analytics,
+    ai_compose_broadcast,
     get_broadcast_notification_detail,
     get_broadcast_notification_recipients,
     list_broadcast_notifications,
@@ -480,6 +481,7 @@ v1_api_and_json_patterns = [
         GET=get_broadcast_notification_recipients,
     ),
     rest_path("broadcast_notifications/<int:broadcast_id>/analytics", GET=get_broadcast_analytics),
+    rest_path("broadcast/ai_compose", POST=ai_compose_broadcast),
     # Button click tracking endpoints
     rest_path("broadcast/button_click", POST=track_button_click),
     rest_path("broadcast/quick_reply", POST=send_quick_reply),

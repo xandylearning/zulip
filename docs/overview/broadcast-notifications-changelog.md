@@ -1,5 +1,16 @@
 # Broadcast Notification System - Changelog
 
+## Version 1.1.1 - Button Label & Action Separation
+Release Date: October 28, 2025
+Status: ✅ Complete
+
+### Highlights
+- Editor: Added explicit Button Label and Action Type (URL | Quick Reply).
+- Sending Form: URL input only for URL buttons; info text for quick replies.
+- Renderer: Removed URL-derived label fallback; always uses label from template.
+
+Technical notes: Backward compatible; legacy buttons default to actionType "url".
+
 ## Version 1.1.0 - Rich Media Templates & Code Cleanup
 **Release Date:** December 19, 2024  
 **Status:** ✅ Complete and Production Ready

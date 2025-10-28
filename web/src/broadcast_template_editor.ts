@@ -79,6 +79,49 @@ export function buildRichTemplateEditorModal(
                             />
                         </div>
 
+                        <div class="layout-controls-section">
+                            <h4>${$t({defaultMessage: "Layout Settings"})}</h4>
+                            <div class="layout-controls-grid">
+                                <div class="form-group">
+                                    <label for="layout-direction">${$t({defaultMessage: "Layout Direction"})}</label>
+                                    <select id="layout-direction" class="form-control">
+                                        <option value="column">${$t({defaultMessage: "Column (Vertical)"})}</option>
+                                        <option value="row">${$t({defaultMessage: "Row (Horizontal)"})}</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="layout-alignment">${$t({defaultMessage: "Block Alignment"})}</label>
+                                    <select id="layout-alignment" class="form-control">
+                                        <option value="start">${$t({defaultMessage: "Start"})}</option>
+                                        <option value="center">${$t({defaultMessage: "Center"})}</option>
+                                        <option value="end">${$t({defaultMessage: "End"})}</option>
+                                        <option value="stretch">${$t({defaultMessage: "Stretch"})}</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="layout-justify">${$t({defaultMessage: "Block Spacing"})}</label>
+                                    <select id="layout-justify" class="form-control">
+                                        <option value="start">${$t({defaultMessage: "Start"})}</option>
+                                        <option value="center">${$t({defaultMessage: "Center"})}</option>
+                                        <option value="end">${$t({defaultMessage: "End"})}</option>
+                                        <option value="space-between">${$t({defaultMessage: "Space Between"})}</option>
+                                        <option value="space-around">${$t({defaultMessage: "Space Around"})}</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="layout-gap">${$t({defaultMessage: "Gap Between Blocks (px)"})}</label>
+                                    <input
+                                        type="number"
+                                        id="layout-gap"
+                                        class="form-control"
+                                        min="0"
+                                        max="50"
+                                        value="12"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="editor-workspace">
                             <div class="editor-panel">
                                 <div class="editor-toolbar">
@@ -231,6 +274,7 @@ function renderBlocksList(): void {
 function renderPreview(): void {
     const $preview = $("#template-preview");
     const blocks = editorState.templateStructure.blocks;
+    const layout = editorState.templateStructure;
 
     if (blocks.length === 0) {
         $preview.html(`<p class="preview-empty">${$t({defaultMessage: "Preview will appear here"})}</p>`);
@@ -285,7 +329,26 @@ function renderPreview(): void {
         }
     }
 
-    $preview.html(previewHtml);
+    // Apply layout styles to preview container
+    const layoutDirection = layout.layoutDirection || "column";
+    const layoutAlignment = layout.layoutAlignment || "start";
+    const layoutJustify = layout.layoutJustify || "start";
+    const layoutGap = layout.layoutGap || 12;
+
+    const containerStyles = `
+        display: flex;
+        flex-direction: ${layoutDirection};
+        align-items: ${layoutAlignment};
+        justify-content: ${layoutJustify};
+        gap: ${layoutGap}px;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background: #f9f9f9;
+        min-height: 100px;
+    `;
+
+    $preview.html(`<div class="preview-container" style="${containerStyles}">${previewHtml}</div>`);
 }
 
 // Add a new block
@@ -390,6 +453,16 @@ function buildTextBlockSettings(block: TextBlock): string {
                         <textarea class="form-control" id="text-content" rows="6" spellcheck="false">${block.content}</textarea>
                         <small class="form-text">${$t({defaultMessage: "Supports Markdown"})}</small>
                     </div>
+                    <div class="form-group">
+                        <label>${$t({defaultMessage: "Block Alignment Override"})}</label>
+                        <select class="form-control" id="text-block-alignment">
+                            <option value="" ${!block.blockAlignment ? "selected" : ""}>${$t({defaultMessage: "Use Template Default"})}</option>
+                            <option value="start" ${block.blockAlignment === "start" ? "selected" : ""}>${$t({defaultMessage: "Start"})}</option>
+                            <option value="center" ${block.blockAlignment === "center" ? "selected" : ""}>${$t({defaultMessage: "Center"})}</option>
+                            <option value="end" ${block.blockAlignment === "end" ? "selected" : ""}>${$t({defaultMessage: "End"})}</option>
+                            <option value="stretch" ${block.blockAlignment === "stretch" ? "selected" : ""}>${$t({defaultMessage: "Stretch"})}</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-default settings-cancel">${$t({defaultMessage: "Cancel"})}</button>
@@ -427,6 +500,16 @@ function buildImageBlockSettings(block: ImageBlock): string {
                             ${$t({defaultMessage: "Required field"})}
                         </label>
                     </div>
+                    <div class="form-group">
+                        <label>${$t({defaultMessage: "Block Alignment Override"})}</label>
+                        <select class="form-control" id="image-block-alignment">
+                            <option value="" ${!block.blockAlignment ? "selected" : ""}>${$t({defaultMessage: "Use Template Default"})}</option>
+                            <option value="start" ${block.blockAlignment === "start" ? "selected" : ""}>${$t({defaultMessage: "Start"})}</option>
+                            <option value="center" ${block.blockAlignment === "center" ? "selected" : ""}>${$t({defaultMessage: "Center"})}</option>
+                            <option value="end" ${block.blockAlignment === "end" ? "selected" : ""}>${$t({defaultMessage: "End"})}</option>
+                            <option value="stretch" ${block.blockAlignment === "stretch" ? "selected" : ""}>${$t({defaultMessage: "Stretch"})}</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-default settings-cancel">${$t({defaultMessage: "Cancel"})}</button>
@@ -447,13 +530,24 @@ function buildButtonBlockSettings(block: ButtonBlock): string {
                 </div>
                 <div class="modal-body">
                     <div class="form-group">
-                        <label>${$t({defaultMessage: "Button Text"})}</label>
+                        <label>${$t({defaultMessage: "Button Label"})}</label>
                         <input type="text" class="form-control" id="button-text" value="${block.text}" />
+                    </div>
+                    <div class="form-group">
+                        <label>${$t({defaultMessage: "Action Type"})}</label>
+                        <select class="form-control" id="button-action-type">
+                            <option value="url" ${(!block.actionType || block.actionType === "url") ? "selected" : ""}>${$t({defaultMessage: "URL"})}</option>
+                            <option value="quick_reply" ${(block.actionType === "quick_reply") ? "selected" : ""}>${$t({defaultMessage: "Quick Reply"})}</option>
+                        </select>
                     </div>
                     <div class="form-group">
                         <label>${$t({defaultMessage: "URL"})}</label>
                         <input type="url" class="form-control" id="button-url" value="${block.url}" placeholder="https://example.com" />
-                        <small class="form-text">${$t({defaultMessage: "Can be edited when using template"})}</small>
+                        <small class="form-text">${$t({defaultMessage: "Shown when Action Type is URL"})}</small>
+                    </div>
+                    <div class="form-group" id="quick-reply-text-group" style="display: ${block.actionType === "quick_reply" ? "block" : "none"};">
+                        <label>${$t({defaultMessage: "Quick Reply Text"})}</label>
+                        <input type="text" class="form-control" id="button-quick-reply-text" value="${block.quickReplyText || ""}" placeholder="${$t({defaultMessage: "e.g., Attending"})}" />
                     </div>
                     <div class="form-row">
                         <div class="form-group">
@@ -478,6 +572,16 @@ function buildButtonBlockSettings(block: ButtonBlock): string {
                                 <option value="large" ${block.style.size === "large" ? "selected" : ""}>${$t({defaultMessage: "Large"})}</option>
                             </select>
                         </div>
+                    </div>
+                    <div class="form-group">
+                        <label>${$t({defaultMessage: "Block Alignment Override"})}</label>
+                        <select class="form-control" id="button-block-alignment">
+                            <option value="" ${!block.blockAlignment ? "selected" : ""}>${$t({defaultMessage: "Use Template Default"})}</option>
+                            <option value="start" ${block.blockAlignment === "start" ? "selected" : ""}>${$t({defaultMessage: "Start"})}</option>
+                            <option value="center" ${block.blockAlignment === "center" ? "selected" : ""}>${$t({defaultMessage: "Center"})}</option>
+                            <option value="end" ${block.blockAlignment === "end" ? "selected" : ""}>${$t({defaultMessage: "End"})}</option>
+                            <option value="stretch" ${block.blockAlignment === "stretch" ? "selected" : ""}>${$t({defaultMessage: "Stretch"})}</option>
+                        </select>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -520,6 +624,16 @@ function buildVideoBlockSettings(block: VideoBlock): string {
                             ${$t({defaultMessage: "Required field"})}
                         </label>
                     </div>
+                    <div class="form-group">
+                        <label>${$t({defaultMessage: "Block Alignment Override"})}</label>
+                        <select class="form-control" id="video-block-alignment">
+                            <option value="" ${!block.blockAlignment ? "selected" : ""}>${$t({defaultMessage: "Use Template Default"})}</option>
+                            <option value="start" ${block.blockAlignment === "start" ? "selected" : ""}>${$t({defaultMessage: "Start"})}</option>
+                            <option value="center" ${block.blockAlignment === "center" ? "selected" : ""}>${$t({defaultMessage: "Center"})}</option>
+                            <option value="end" ${block.blockAlignment === "end" ? "selected" : ""}>${$t({defaultMessage: "End"})}</option>
+                            <option value="stretch" ${block.blockAlignment === "stretch" ? "selected" : ""}>${$t({defaultMessage: "Stretch"})}</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-default settings-cancel">${$t({defaultMessage: "Cancel"})}</button>
@@ -548,6 +662,16 @@ function buildAudioBlockSettings(block: AudioBlock): string {
                             <input type="checkbox" id="audio-required" ${block.required ? "checked" : ""} />
                             ${$t({defaultMessage: "Required field"})}
                         </label>
+                    </div>
+                    <div class="form-group">
+                        <label>${$t({defaultMessage: "Block Alignment Override"})}</label>
+                        <select class="form-control" id="audio-block-alignment">
+                            <option value="" ${!block.blockAlignment ? "selected" : ""}>${$t({defaultMessage: "Use Template Default"})}</option>
+                            <option value="start" ${block.blockAlignment === "start" ? "selected" : ""}>${$t({defaultMessage: "Start"})}</option>
+                            <option value="center" ${block.blockAlignment === "center" ? "selected" : ""}>${$t({defaultMessage: "Center"})}</option>
+                            <option value="end" ${block.blockAlignment === "end" ? "selected" : ""}>${$t({defaultMessage: "End"})}</option>
+                            <option value="stretch" ${block.blockAlignment === "stretch" ? "selected" : ""}>${$t({defaultMessage: "Stretch"})}</option>
+                        </select>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -584,6 +708,16 @@ function buildSVGBlockSettings(block: SVGBlock): string {
                             ${$t({defaultMessage: "Required field"})}
                         </label>
                     </div>
+                    <div class="form-group">
+                        <label>${$t({defaultMessage: "Block Alignment Override"})}</label>
+                        <select class="form-control" id="svg-block-alignment">
+                            <option value="" ${!block.blockAlignment ? "selected" : ""}>${$t({defaultMessage: "Use Template Default"})}</option>
+                            <option value="start" ${block.blockAlignment === "start" ? "selected" : ""}>${$t({defaultMessage: "Start"})}</option>
+                            <option value="center" ${block.blockAlignment === "center" ? "selected" : ""}>${$t({defaultMessage: "Center"})}</option>
+                            <option value="end" ${block.blockAlignment === "end" ? "selected" : ""}>${$t({defaultMessage: "End"})}</option>
+                            <option value="stretch" ${block.blockAlignment === "stretch" ? "selected" : ""}>${$t({defaultMessage: "Stretch"})}</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-default settings-cancel">${$t({defaultMessage: "Cancel"})}</button>
@@ -604,27 +738,50 @@ function setupBlockSettingsHandlers(blockId: string, block: TemplateBlock): void
     $modal.find(".settings-save").on("click", () => {
         let updates: Partial<TemplateBlock> = {};
 
+        // Get block alignment override
+        const blockAlignment = $modal.find(`#${block.type}-block-alignment`).val() as string;
+        const alignmentOverride = blockAlignment ? blockAlignment as "start" | "center" | "end" | "stretch" : undefined;
+
         if (isTextBlock(block)) {
             updates = {
                 content: $modal.find("#text-content").val() as string,
+                ...(alignmentOverride && { blockAlignment: alignmentOverride }),
             };
         } else if (isImageBlock(block)) {
+            const maxWidth = parseInt($modal.find("#image-max-width").val() as string);
             updates = {
                 label: $modal.find("#image-label").val() as string,
                 alt: $modal.find("#image-alt").val() as string,
-                maxWidth: parseInt($modal.find("#image-max-width").val() as string) || undefined,
+                ...(maxWidth && { maxWidth }),
                 required: $modal.find("#image-required").prop("checked") as boolean,
+                ...(alignmentOverride && { blockAlignment: alignmentOverride }),
             };
         } else if (isButtonBlock(block)) {
+            const actionType = $modal.find("#button-action-type").val() as "url" | "quick_reply";
+            const quickReplyText = $modal.find("#button-quick-reply-text").val() as string;
+            const urlVal = $modal.find("#button-url").val() as string;
+
+            // Basic validation
+            if (actionType === "url" && !urlVal.trim()) {
+                alert($t({defaultMessage: "Please provide a URL for this button"}));
+                return;
+            }
+            if (actionType === "quick_reply" && !quickReplyText.trim()) {
+                alert($t({defaultMessage: "Please provide a quick reply text for this button"}));
+                return;
+            }
             updates = {
                 text: $modal.find("#button-text").val() as string,
-                url: $modal.find("#button-url").val() as string,
+                url: urlVal,
+                actionType,
+                ...(actionType === "quick_reply" ? {quickReplyText} : {quickReplyText: undefined}),
                 style: {
                     backgroundColor: $modal.find("#button-bg-color").val() as string,
                     textColor: $modal.find("#button-text-color").val() as string,
                     borderRadius: parseInt($modal.find("#button-border-radius").val() as string),
                     size: $modal.find("#button-size").val() as "small" | "medium" | "large",
                 },
+                ...(alignmentOverride && { blockAlignment: alignmentOverride }),
             };
         } else if (isVideoBlock(block)) {
             updates = {
@@ -632,22 +789,35 @@ function setupBlockSettingsHandlers(blockId: string, block: TemplateBlock): void
                 allowUrl: $modal.find("#video-allow-url").prop("checked") as boolean,
                 allowUpload: $modal.find("#video-allow-upload").prop("checked") as boolean,
                 required: $modal.find("#video-required").prop("checked") as boolean,
+                ...(alignmentOverride && { blockAlignment: alignmentOverride }),
             };
         } else if (isAudioBlock(block)) {
             updates = {
                 label: $modal.find("#audio-label").val() as string,
                 required: $modal.find("#audio-required").prop("checked") as boolean,
+                ...(alignmentOverride && { blockAlignment: alignmentOverride }),
             };
         } else if (isSVGBlock(block)) {
             updates = {
                 label: $modal.find("#svg-label").val() as string,
                 allowInline: $modal.find("#svg-allow-inline").prop("checked") as boolean,
                 required: $modal.find("#svg-required").prop("checked") as boolean,
+                ...(alignmentOverride && { blockAlignment: alignmentOverride }),
             };
         }
 
         updateBlock(blockId, updates);
         $modal.remove();
+    });
+
+    // Toggle URL vs Quick Reply input visibility based on action type
+    $modal.on("change", "#button-action-type", function () {
+        const value = $(this).val() as string;
+        if (value === "quick_reply") {
+            $modal.find("#quick-reply-text-group").show();
+        } else {
+            $modal.find("#quick-reply-text-group").hide();
+        }
     });
 }
 
@@ -673,6 +843,14 @@ export function openRichTemplateEditor(
 
     // Initial render
     $("#rich-template-name").val(templateName);
+    
+    // Initialize layout controls
+    const structure = editorState.templateStructure;
+    $("#layout-direction").val(structure.layoutDirection || "column");
+    $("#layout-alignment").val(structure.layoutAlignment || "start");
+    $("#layout-justify").val(structure.layoutJustify || "start");
+    $("#layout-gap").val(structure.layoutGap || 12);
+    
     renderBlocksList();
 
     setupEditorHandlers();
@@ -715,6 +893,32 @@ function setupEditorHandlers(): void {
     $modal.find("#rich-template-name").on("input", function () {
         editorState.templateName = $(this).val() as string;
         editorState.isDirty = true;
+    });
+
+    // Layout controls handlers
+    $modal.find("#layout-direction").on("change", function () {
+        editorState.templateStructure.layoutDirection = $(this).val() as "column" | "row";
+        editorState.isDirty = true;
+        renderPreview();
+    });
+
+    $modal.find("#layout-alignment").on("change", function () {
+        editorState.templateStructure.layoutAlignment = $(this).val() as "start" | "center" | "end" | "stretch";
+        editorState.isDirty = true;
+        renderPreview();
+    });
+
+    $modal.find("#layout-justify").on("change", function () {
+        editorState.templateStructure.layoutJustify = $(this).val() as "start" | "center" | "end" | "space-between" | "space-around";
+        editorState.isDirty = true;
+        renderPreview();
+    });
+
+    $modal.find("#layout-gap").on("input", function () {
+        const gap = parseInt($(this).val() as string) || 12;
+        editorState.templateStructure.layoutGap = gap;
+        editorState.isDirty = true;
+        renderPreview();
     });
 
     // Save handler

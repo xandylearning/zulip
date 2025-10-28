@@ -321,11 +321,14 @@ function renderSVGField(block: SVGBlock): string {
     `;
 }
 
-// Render button field (URL editable)
+// Render button field
 function renderButtonField(block: ButtonBlock): string {
+    const isUrlAction = !block.actionType || block.actionType === "url";
+    const actionBadge = isUrlAction ? $t({defaultMessage: "URL"}) : $t({defaultMessage: "Quick Reply"});
     return `
         <div class="form-group template-button-field" data-block-id="${block.id}">
-            <label for="button-url-${block.id}">${block.text}</label>
+            <label for="button-url-${block.id}">${block.text} <span class="badge" style="margin-left: 6px;">${actionBadge}</span></label>
+            ${isUrlAction ? `
             <input
                 type="url"
                 id="button-url-${block.id}"
@@ -334,8 +337,26 @@ function renderButtonField(block: ButtonBlock): string {
                 placeholder="${$t({defaultMessage: "https://example.com"})}"
             />
             <small class="form-text">${$t({defaultMessage: "Enter the link URL for this button"})}</small>
+            ` : `
+            <div class="form-text">${$t({defaultMessage: "No URL needed. Quick reply sends:"})} "${block.quickReplyText || block.text}"</div>
+            `}
         </div>
     `;
+}
+
+// Remove uploaded file
+function removeUpload(blockId: string): void {
+    delete uploadedFiles[blockId];
+    delete mediaContent[blockId];
+
+    const $preview = $(`#preview-${blockId}`);
+    const $dropzone = $(`#dropzone-${blockId}`);
+
+    $preview.hide();
+    $dropzone.find(".dropzone-content").show();
+
+    // Clear file input
+    $(`#media-field-${blockId}`).val("");
 }
 
 // Setup event handlers for media fields
@@ -439,24 +460,37 @@ function handleFileUpload(blockId: string, file: File): void {
         const url = URL.createObjectURL(file);
         $preview.find(".preview-audio").attr("src", url);
     }
-
-    // TODO: Actual upload will happen when sending notification
-    // For now, just store the file locally
 }
 
-// Remove uploaded file
-function removeUpload(blockId: string): void {
-    delete uploadedFiles[blockId];
-    delete mediaContent[blockId];
-
-    const $preview = $(`#preview-${blockId}`);
-    const $dropzone = $(`#dropzone-${blockId}`);
-
-    $preview.hide();
-    $dropzone.find(".dropzone-content").show();
-
-    // Clear file input
-    $(`#media-field-${blockId}`).val("");
+// Upload files and return URLs for media content
+export async function uploadFilesAndGetUrls(): Promise<Record<string, string>> {
+    const uploadedUrls: Record<string, string> = {};
+    
+    for (const [blockId, file] of Object.entries(uploadedFiles)) {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const response = await fetch('/json/user_uploads', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRFToken': $('input[name="csrfmiddlewaretoken"]').val() as string,
+                },
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                uploadedUrls[blockId] = data.url;
+            } else {
+                console.error(`Failed to upload file for block ${blockId}:`, response.statusText);
+            }
+        } catch (error) {
+            console.error(`Error uploading file for block ${blockId}:`, error);
+        }
+    }
+    
+    return uploadedUrls;
 }
 
 // Validate required media fields
@@ -528,9 +562,51 @@ export function getButtonUrls(): Record<string, string> {
 
     $(".template-button-field").each(function () {
         const blockId = $(this).data("block-id") as string;
-        const url = $(this).find(".template-button-url").val() as string;
-        buttonUrls[blockId] = url;
+        const urlInput = $(this).find(".template-button-url");
+        if (urlInput.length > 0) {
+            const url = urlInput.val() as string;
+            buttonUrls[blockId] = url;
+        }
     });
 
     return buttonUrls;
+}
+
+// Populate template fields with AI-generated content
+export function populateFromMediaContent(aiMediaContent: Record<string, string>): void {
+    // Populate text blocks
+    $(".template-text-field").each(function () {
+        const blockId = $(this).data("block-id") as string;
+        const content = aiMediaContent[blockId];
+        if (content) {
+            $(this).find(".template-text-content").val(content);
+        }
+    });
+
+    // Populate button URLs
+    $(".template-button-field").each(function () {
+        const blockId = $(this).data("block-id") as string;
+        const url = aiMediaContent[blockId];
+        if (url) {
+            $(this).find(".template-button-url").val(url);
+        }
+    });
+
+    // Populate video URLs
+    $(".media-url-input").each(function () {
+        const blockId = $(this).attr("id")?.replace("video-url-", "") || "";
+        const url = aiMediaContent[blockId];
+        if (url) {
+            $(this).val(url);
+        }
+    });
+
+    // Populate SVG inline content
+    $(".svg-inline-input").each(function () {
+        const blockId = $(this).attr("id")?.replace("svg-inline-", "") || "";
+        const content = aiMediaContent[blockId];
+        if (content) {
+            $(this).val(content);
+        }
+    });
 }
