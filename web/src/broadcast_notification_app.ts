@@ -39,6 +39,9 @@ function showTab(tab: "send" | "templates" | "ai-generator" | "history"): void {
         void loadTemplates();
     } else if (tab === "ai-generator") {
         loadAIGenerator();
+    } else {
+        // Reset AI state when switching away from AI generator
+        templateAI.resetAIState();
     }
 }
 

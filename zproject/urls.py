@@ -105,6 +105,7 @@ from zerver.views.notifications import (
     create_notification_template,
     delete_notification_template,
     get_broadcast_analytics,
+    ai_generate_notification_template,
     ai_compose_broadcast,
     get_broadcast_notification_detail,
     get_broadcast_notification_recipients,
@@ -472,6 +473,7 @@ v1_api_and_json_patterns = [
         PATCH=update_notification_template,
         DELETE=delete_notification_template,
     ),
+    rest_path("notification_templates/ai_generate", POST=ai_generate_notification_template),
     # Broadcast notification endpoints
     rest_path("broadcast_notification", POST=send_broadcast),
     rest_path("broadcast_notifications", GET=list_broadcast_notifications),

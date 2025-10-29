@@ -3,6 +3,7 @@
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.utils.translation import gettext as _
+from typing import Any, Dict
 from pydantic import Json
 
 from django.shortcuts import render
@@ -15,6 +16,9 @@ from zerver.lib.notifications_broadcast import (
 )
 from zerver.lib.notifications_broadcast_ai import compose_broadcast_with_ai
 from zerver.lib.response import json_success
+from zerver.lib.validator import check_string, check_int
+from zerver.lib.notifications_broadcast_ai import generate_template_with_ai
+from zerver.models import NotificationTemplate
 from zerver.lib.typed_endpoint import typed_endpoint
 from zerver.models import (
     BroadcastButtonClick,
@@ -267,6 +271,122 @@ def send_broadcast(
         )
     except Exception as e:
         raise JsonableError(str(e))
+
+
+# ============ AI Template Generation Endpoint ============
+
+
+@require_realm_admin
+@typed_endpoint
+def ai_generate_notification_template(
+    request: HttpRequest,
+    user_profile: UserProfile,
+    *,
+    prompt: str,
+    conversation_id: str | None = None,
+    subject: str | None = None,
+    template_id: int | None = None,
+    media_hints: Json[dict] | None = None,
+    answers: Json[Dict[str, str]] | None = None,
+    approve_plan: Json[bool] | None = None,
+    plan_feedback: str | None = None,
+) -> HttpResponse:
+    """Generate a complete notification template draft using AI with LangGraph agent.
+
+    Returns a JSON payload with conversation_id, template, optional plan, followups, and validation_errors.
+    Conversation memory is managed by LangGraph checkpointing.
+    
+    Parameters:
+    - prompt: User's template description
+    - conversation_id: For resuming interrupted conversations
+    - answers: User answers to follow-up questions (for resuming after interrupt)
+    - approve_plan: Set to True to approve the plan and proceed with generation
+    - plan_feedback: User feedback for plan refinement (if rejecting plan)
+    - subject, template_id, media_hints: Additional context
+    """
+    if not prompt or not prompt.strip():
+        raise JsonableError(_("Prompt is required"))
+
+    realm = user_profile.realm
+
+    # Session-backed memory (clears when session resets)
+    session_bucket: Dict[str, Any] = request.session.setdefault("broadcast_ai", {})
+    import uuid
+    if conversation_id is None:
+        conversation_id = str(uuid.uuid4())
+    prior_context: Dict[str, Any] = session_bucket.get(conversation_id, {})
+    
+    # Add user answers to context if provided (for resuming after interrupt)
+    if answers:
+        prior_context["answers"] = answers
+
+    # Add plan approval/feedback to context
+    if approve_plan is not None:
+        # typed_endpoint passes Json[...] decoded to native Python value
+        prior_context["plan_approved"] = bool(approve_plan)
+    if plan_feedback:
+        prior_context["plan_feedback"] = plan_feedback
+
+    # Persist updated context immediately so resume flows survive across requests
+    session_bucket[conversation_id] = prior_context
+    request.session["broadcast_ai"] = session_bucket
+
+    selected_template: NotificationTemplate | None = None
+    if template_id is not None:
+        try:
+            selected_template = NotificationTemplate.objects.get(id=template_id, realm=realm)
+        except NotificationTemplate.DoesNotExist:
+            raise ResourceNotFoundError(_("Template not found"))
+
+    # Feature flag: enabled only if API key present (or fallback will produce text_only)
+    from django.conf import settings
+    if not getattr(settings, "BROADCAST_AI_TEMPLATES_ENABLED", True) and not getattr(settings, "PORTKEY_API_KEY", None):
+        raise JsonableError(_("AI template generation is disabled"))
+
+    try:
+        result = generate_template_with_ai(
+            realm=realm,
+            user=user_profile,
+            prompt=prompt,
+            subject=subject,
+            prior_context=prior_context,
+            selected_template=selected_template,
+            media_hints=media_hints,
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(
+            "broadcast_ai.ai_generate:failed realm=%s user_id=%s err=%s",
+            realm.string_id,
+            user_profile.id,
+            str(e),
+        )
+        raise JsonableError(str(e))
+
+    # Update conversation context (LangGraph handles checkpointing internally)
+    new_context = {
+        "conversation_id": conversation_id,
+        "last_prompt": prompt,
+        "last_subject": subject,
+        "followups": result.get("followups", []),
+    }
+    # Merge into stored context and persist
+    merged_context: Dict[str, Any] = {**prior_context, **new_context}
+    session_bucket[conversation_id] = merged_context
+    request.session["broadcast_ai"] = session_bucket
+    request.session.modified = True
+
+    return json_success(
+        request,
+        data={
+            "conversation_id": conversation_id,
+            "template": result.get("template"),
+            "plan": result.get("plan"),
+            "followups": result.get("followups", []),
+            "validation_errors": result.get("validation_errors", []),
+            "status": result.get("status", "complete"),
+        },
+    )
 
 
 @require_realm_admin

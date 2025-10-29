@@ -759,6 +759,11 @@ USE_LANGGRAPH_AGENTS = True
 
 # Portkey AI Gateway Configuration
 PORTKEY_API_KEY = get_secret("portkey_api_key")
+# Broadcast AI Template Generator feature flag
+# Enable if you want admins to generate notification templates via AI.
+# Defaults to enabled when a Portkey API key is present.
+BROADCAST_AI_TEMPLATES_ENABLED = bool(PORTKEY_API_KEY)
+
 
 # AI Model Configuration
 AI_MENTOR_MODEL = "gemini-2.0-flash-lite"  # AI model to use (gpt-4, gpt-3.5-turbo, etc.)

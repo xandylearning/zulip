@@ -310,6 +310,9 @@ AI_LOG_LEVEL = "DEBUG"  # More verbose logging for development
 AI_LOG_PERFORMANCE = True
 AI_LOG_DECISIONS = True
 
+# Broadcast AI Template Generator feature flag (enabled if API key is present)
+BROADCAST_AI_TEMPLATES_ENABLED = bool(PORTKEY_API_KEY)
+
 # Security and Privacy (relaxed for development)
 AI_REQUIRE_CONSENT = False  # Disabled for easier testing
 AI_ANONYMIZE_LOGS = False  # Disabled for easier debugging

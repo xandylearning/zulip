@@ -381,3 +381,94 @@ Monitor:
 
 The broadcast notification system is now fully functional and ready for use. Administrators can create templates, send notifications to various recipient types, attach files, and track delivery status comprehensively. The system is built with security, scalability, and usability in mind.
 
+## AI Template Generator
+
+Admins can generate notification templates via AI.
+
+- Endpoint: `POST /json/notification_templates/ai_generate`
+- Permissions: Realm admin required
+- Feature flag: `BROADCAST_AI_TEMPLATES_ENABLED` (enabled if `PORTKEY_API_KEY` present)
+
+Request fields:
+- `prompt` (string, required): Natural language description of the desired template.
+- `conversation_id` (string, optional): Maintains short-lived session memory for iterative refinement.
+- `subject` (string, optional): Hint for template name/content.
+- `template_id` (int, optional): Use an existing template as context for refinement.
+- `media_hints` (object, optional): Minimal hints like `{images: true, buttons: true}`.
+
+Response:
+- `conversation_id` (string): Use in subsequent calls to preserve context.
+- `template` (object): `{name, template_type, content, template_structure, ai_generated, ai_prompt}`.
+- `followups` (string[], optional): Clarifying questions if the prompt was vague.
+- `validation_errors` (string[], optional): Server-side validation feedback for `template_structure`.
+
+Behavior:
+- With `PORTKEY_API_KEY` configured, the server calls the AI to propose blocks and contextual content.
+- Without an API key, a deterministic fallback returns a `text_only` template echoing the prompt.
+- Session memory persists per browser session and resets on refresh/sign-out.
+
+### AI generation flow and parameters (LangGraph)
+
+The AI generator is driven by a LangGraph agent (`zerver/lib/notifications_broadcast_ai.py`) and can be multi-step. The same endpoint
+`POST /json/notification_templates/ai_generate` is used for initial requests and for continuing a session.
+
+Request fields:
+
+- `prompt` (string, required): Natural language description of the desired template.
+- `conversation_id` (string, optional): Returned by the server; send back to resume the same session.
+- `approve_plan` (Json[bool], optional): JSON-encoded boolean to approve the current plan when the response status is `plan_ready`.
+- `plan_feedback` (string, optional): Provide feedback to revise the plan (alternative to approval).
+- `answers` (Json[object], optional): Answers to follow-up questions when the response status is `needs_input`.
+
+Response statuses:
+
+- `plan_ready`: A high-level plan is ready for approval. The response includes `plan` and `conversation_id`.
+- `needs_input`: The agent needs answers; the response includes `followups` and `conversation_id`.
+- `complete`: The response includes a `template` that passed validation (or best-effort with optional `validation_errors`).
+
+Feature flag and fallback:
+
+- If `BROADCAST_AI_TEMPLATES_ENABLED` is false, the endpoint returns an error (disabled).
+- If `PORTKEY_API_KEY` is missing, the endpoint still works but returns a deterministic `text_only` template; `conversation_id` is still included to maintain UX consistency.
+
+Minimal request/response examples:
+
+Approve a plan:
+
+```bash
+curl -X POST \
+  -d 'prompt=Create a welcome card' \
+  -d "conversation_id=$CONV" \
+  -d 'approve_plan=true' \
+  /json/notification_templates/ai_generate
+```
+
+Provide answers to follow-ups:
+
+```bash
+curl -X POST \
+  -d 'prompt=Create a welcome card' \
+  -d "conversation_id=$CONV" \
+  -d 'answers={"headline":"Welcome!","cta":"Get Started"}' \
+  /json/notification_templates/ai_generate
+```
+
+### Agent architecture overview
+
+The Template AI agent orchestrates a small, deterministic workflow around an LLM to produce validated notification templates. It runs as a LangGraph `StateGraph` with checkpoints so that multi-step interactions (plan approval, follow-ups) can pause and resume safely.
+
+- Goals: turn a natural-language prompt into a vetted template (`text_only` or `rich_media`) with minimal user input while preserving control and validation.
+- High-level flow: plan → generate → validate → (followup ⇄ refine)* → format → complete.
+- Statuses: `plan_ready`, `needs_input`, `complete` (see above for API contracts).
+
+Key components:
+- `zerver/lib/notifications_broadcast_ai.py`: Agent state, nodes, system prompts, validation helpers.
+- `PortkeyLLMClient`: Thin wrapper for calling the LLM with retries and timeouts.
+- `MemorySaver`: LangGraph checkpointing for conversation continuity (`conversation_id`).
+
+Operational behavior:
+- Feature flag: `BROADCAST_AI_TEMPLATES_ENABLED` gates the endpoint.
+- Fallback: missing `PORTKEY_API_KEY` returns a deterministic `text_only` template (still returns `conversation_id`).
+- Idempotency: Client should always pass `conversation_id` on subsequent calls; the server resumes from the last checkpoint.
+
+See the deep-dive for developers in `docs/development/broadcast-template-ai-agent.md` for complete state, node, and prompt details.

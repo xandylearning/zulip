@@ -1,5 +1,41 @@
 # Broadcast Notification System - Changelog
 
+## Version 1.1.2 - AI Generation Flow & Approvals
+Release Date: October 29, 2025
+Status: ✅ Complete
+
+### Highlights
+
+- Introduced multi-step AI template generation flow using LangGraph agent.
+- Added support for plan approval and follow-up answers via the same endpoint.
+- Clarified feature flag behavior and deterministic fallback.
+
+### Endpoint Behavior
+
+- `POST /json/notification_templates/ai_generate` now supports:
+  - `approve_plan` (Json[bool]) to approve `plan_ready` responses.
+  - `plan_feedback` (string) to revise a plan instead of approving.
+  - `answers` (Json[object]) to respond to `needs_input` follow-ups.
+  - `conversation_id` used to continue the same session (always returned).
+
+### Statuses
+
+- `plan_ready`: Plan returned for approval (includes `plan`).
+- `needs_input`: Follow-up questions returned (includes `followups`).
+- `complete`: Final `template` returned; may include `validation_errors` if best-effort.
+
+### Feature Flag & Fallback
+
+- `BROADCAST_AI_TEMPLATES_ENABLED=false` → endpoint returns error (disabled).
+- Missing `PORTKEY_API_KEY` → deterministic text-only fallback; still returns `conversation_id`.
+
+### Technical Notes
+
+- Backend module: `zerver/lib/notifications_broadcast_ai.py` (LangGraph agent, validation tools).
+- Tests added: `zerver/tests/test_notifications_ai.py` covering permissions, fallback, conversation tracking, and plan approval parsing.
+
+---
+
 ## Version 1.1.1 - Button Label & Action Separation
 Release Date: October 28, 2025
 Status: ✅ Complete
@@ -729,4 +765,13 @@ The implementation follows Zulip's best practices and coding standards, with att
 **Release Date:** October 25, 2025  
 **Status:** ✅ Complete and Production Ready  
 **Next Version:** 1.1.0 (Planned for Q1 2026)
+
+## 2025-10-28
+- Added AI Template Generator for broadcast notifications
+  - New endpoint: `POST /json/notification_templates/ai_generate` (realm admin)
+  - Short-lived session memory via `conversation_id`
+  - Server-side validation for `template_structure` (rich media)
+  - Frontend: replaced placeholder UI to call backend and handle follow-ups
+  - Feature flag: `BROADCAST_AI_TEMPLATES_ENABLED` (enabled if `PORTKEY_API_KEY` present)
+  - Deterministic fallback (text_only) when `PORTKEY_API_KEY` missing
 

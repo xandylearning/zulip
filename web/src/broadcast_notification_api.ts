@@ -1,3 +1,4 @@
+import type {TemplateStructure} from "./broadcast_template_blocks.ts";
 // API client for broadcast notification system
 
 import * as channel from "./channel.ts";
@@ -48,7 +49,7 @@ export async function createTemplate(template: {
             data.template_structure = JSON.stringify(template.template_structure);
         }
         if (template.ai_generated !== undefined) {
-            data.ai_generated = template.ai_generated;
+            data.ai_generated = JSON.stringify(template.ai_generated);
         }
         if (template.ai_prompt !== undefined) {
             data.ai_prompt = template.ai_prompt;
@@ -97,7 +98,7 @@ export async function updateTemplate(
             data.template_structure = JSON.stringify(template.template_structure);
         }
         if (template.ai_generated !== undefined) {
-            data.ai_generated = template.ai_generated;
+            data.ai_generated = JSON.stringify(template.ai_generated);
         }
         if (template.ai_prompt !== undefined) {
             data.ai_prompt = template.ai_prompt;
@@ -111,6 +112,82 @@ export async function updateTemplate(
             },
             error(xhr) {
                 reject(new Error(xhr.responseJSON?.msg || "Failed to update template"));
+            },
+        });
+    });
+}
+
+export interface AIGenerateTemplateRequest {
+    prompt: string;
+    conversation_id?: string;
+    subject?: string;
+    template_id?: number;
+    media_hints?: Record<string, unknown>;
+    approve_plan?: boolean;
+    plan_feedback?: string;
+}
+
+export interface AIGenerateTemplateResponse {
+    conversation_id: string;
+    template: {
+        name: string;
+        template_type: "text_only" | "rich_media";
+        content: string;
+        template_structure: TemplateStructure;
+        ai_generated: boolean;
+        ai_prompt: string;
+    };
+    plan?: {
+        template_type: string;
+        template_name: string;
+        structure: {
+            blocks: Array<{
+                type: string;
+                description: string;
+            }>;
+        };
+        reasoning: string;
+    };
+    followups?: string[];
+    validation_errors?: string[];
+    status?: "planning" | "plan_ready" | "generating" | "needs_input" | "complete" | "error";
+}
+
+export async function aiGenerateTemplate(
+    request: AIGenerateTemplateRequest,
+): Promise<AIGenerateTemplateResponse> {
+    return new Promise((resolve, reject) => {
+        const data: Record<string, unknown> = {
+            prompt: request.prompt,
+        };
+        if (request.conversation_id) {
+            data.conversation_id = request.conversation_id;
+        }
+        if (request.subject) {
+            data.subject = request.subject;
+        }
+        if (request.template_id !== undefined) {
+            data.template_id = request.template_id;
+        }
+        if (request.media_hints !== undefined) {
+            data.media_hints = JSON.stringify(request.media_hints);
+        }
+        if (request.approve_plan !== undefined) {
+            // Backend expects Json[bool] via typed_endpoint
+            data.approve_plan = JSON.stringify(request.approve_plan);
+        }
+        if (request.plan_feedback) {
+            data.plan_feedback = request.plan_feedback;
+        }
+
+        channel.post({
+            url: "/json/notification_templates/ai_generate",
+            data,
+            success(data: unknown) {
+                resolve(data as AIGenerateTemplateResponse);
+            },
+            error(xhr) {
+                reject(new Error(xhr.responseJSON?.msg || "AI template generation failed"));
             },
         });
     });

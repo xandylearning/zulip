@@ -183,9 +183,10 @@ function renderBlockInEditor(block: TemplateBlock, index: number): string {
 
     if (isTextBlock(block)) {
         blockLabel = $t({defaultMessage: "Text Block"});
+        const content = block.content || "";
         blockContent = `
             <div class="block-preview-text">
-                "${block.content.substring(0, 50)}${block.content.length > 50 ? "..." : ""}"
+                "${content.substring(0, 50)}${content.length > 50 ? "..." : ""}"
             </div>
         `;
     } else if (isImageBlock(block)) {
@@ -285,7 +286,8 @@ function renderPreview(): void {
 
     for (const block of blocks) {
         if (isTextBlock(block)) {
-            previewHtml += `<div class="preview-text">${block.content || $t({defaultMessage: "[Empty text]"})}</div>`;
+            const content = block.content || $t({defaultMessage: "[Empty text]"});
+            previewHtml += `<div class="preview-text">${content}</div>`;
         } else if (isImageBlock(block)) {
             previewHtml += `
                 <div class="preview-image-placeholder">

@@ -201,6 +201,42 @@ We've successfully implemented a comprehensive rich media template editor system
 }
 ```
 
+## TemplateStructure validation (AI-generated templates)
+
+The server validates `template_structure` for AI-generated rich media templates.
+
+- Root shape: `{ "blocks": Block[] }`
+- Supported `Block.type`: `text | image | video | audio | button | svg`
+- Basic field checks:
+  - `text`: requires `content: string`
+  - `image|video|audio|svg`: optional `url: string`
+  - `button`: requires `text: string`, optional `href: string`
+  - Optional `id: string` for any block
+
+Invalid structures are returned in `validation_errors` with index-scoped messages, e.g., `block[2]: unsupported block type`.
+
+### AI flow (LangGraph agent) and client integration
+
+The server-side AI generation uses a LangGraph-based agent implemented in `zerver/lib/notifications_broadcast_ai.py`. The flow is multi-step and may return intermediate statuses that the client should handle:
+
+- `plan_ready`: A high-level plan is proposed. The client should either approve the plan or send short feedback to iterate.
+- `needs_input`: The agent produced 1–3 follow-up questions to resolve validation issues; the client should collect answers and continue.
+- `complete`: A final `template` is available (may be text_only in fallback mode), optionally with `validation_errors` for best-effort results.
+
+Client parameters supported by the endpoint `POST /json/notification_templates/ai_generate`:
+
+- `prompt` (string, required): Natural language description of the desired template.
+- `conversation_id` (string, optional): Continue a prior session; returned by the server.
+- `approve_plan` (Json[bool], optional): JSON-encoded boolean to approve the current plan when status is `plan_ready`.
+- `plan_feedback` (string, optional): Freeform feedback instead of approval to revise the plan.
+- `answers` (Json[object], optional): JSON map of answers to follow-up questions when status is `needs_input`.
+
+Notes:
+
+- When `PORTKEY_API_KEY` is not configured, the server falls back to a deterministic text-only template and still returns `conversation_id`.
+- The feature flag `BROADCAST_AI_TEMPLATES_ENABLED` disables the endpoint when set to false (and is auto-enabled when `PORTKEY_API_KEY` is present).
+- The same endpoint is used for all steps; send back the `conversation_id` and the appropriate fields (`approve_plan`, `plan_feedback`, or `answers`).
+
 ## What Needs to Be Done Next
 
 ### 1. Backend API Updates (High Priority)
