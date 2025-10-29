@@ -153,36 +153,29 @@ jobs:
         if: steps.changes.outputs.deployment_type == 'full' && steps.changes.outputs.skip_deployment != 'true'
         run: |
           echo "🔄 Performing full deployment for code/database changes..."
-          
+
           # Set repository URL (change if using fork)
           ZULIP_GIT_REPO_URL="https://github.com/xandylearning/zulip.git"
           ZULIP_GIT_BRANCH="${{ steps.branch.outputs.branch }}"
-          
+
           echo "Repository: $ZULIP_GIT_REPO_URL"
           echo "Branch: $ZULIP_GIT_BRANCH"
-          
+
           # Run official Zulip upgrade script (requires root privileges)
+          # Note: This script handles dependency installation, migrations, and service restarts
           sudo ${{ env.DEPLOYMENT_PATH }}/scripts/upgrade-zulip-from-git \
             --remote-url "${ZULIP_GIT_REPO_URL}" \
             "${ZULIP_GIT_BRANCH}"
-          
+
           echo "✅ Full deployment completed"
 
-      - name: Restart services (if needed)
-        if: steps.changes.outputs.deployment_type == 'full' && steps.changes.outputs.skip_deployment != 'true'
-        run: |
-          echo "Performing complete service restart..."
-          
-          # Use official Zulip restart script
-          sudo ${{ env.DEPLOYMENT_PATH }}/scripts/restart-server
-          
-          # Ensure nginx is running (since we skipped puppet)
+          # Ensure nginx is running (since we may skip puppet)
           if ! systemctl is-active --quiet nginx; then
             echo "Starting nginx service..."
             sudo systemctl start nginx
             sudo systemctl enable nginx
           fi
-          
+
           # Check nginx configuration
           if sudo nginx -t; then
             echo "✅ Nginx configuration is valid"
@@ -190,7 +183,7 @@ jobs:
           else
             echo "⚠️ Nginx configuration has issues, but continuing..."
           fi
-          
+
           # Wait for services to fully initialize
           echo "Waiting for services to start..."
           sleep 20

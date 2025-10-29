@@ -471,4 +471,4 @@ Operational behavior:
 - Fallback: missing `PORTKEY_API_KEY` returns a deterministic `text_only` template (still returns `conversation_id`).
 - Idempotency: Client should always pass `conversation_id` on subsequent calls; the server resumes from the last checkpoint.
 
-See the deep-dive for developers in `docs/development/broadcast-template-ai-agent.md` for complete state, node, and prompt details.
+See the developer deep-dive in `docs/development/broadcast-template-ai-agent.md` for complete state, node, and prompt details.
