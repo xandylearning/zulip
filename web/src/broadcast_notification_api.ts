@@ -49,7 +49,8 @@ export async function createTemplate(template: {
             data.template_structure = JSON.stringify(template.template_structure);
         }
         if (template.ai_generated !== undefined) {
-            data.ai_generated = JSON.stringify(template.ai_generated);
+            // Backend expects native boolean via typed_endpoint
+            data.ai_generated = template.ai_generated;
         }
         if (template.ai_prompt !== undefined) {
             data.ai_prompt = template.ai_prompt;
@@ -98,7 +99,8 @@ export async function updateTemplate(
             data.template_structure = JSON.stringify(template.template_structure);
         }
         if (template.ai_generated !== undefined) {
-            data.ai_generated = JSON.stringify(template.ai_generated);
+            // Backend expects native boolean via typed_endpoint
+            data.ai_generated = template.ai_generated;
         }
         if (template.ai_prompt !== undefined) {
             data.ai_prompt = template.ai_prompt;
