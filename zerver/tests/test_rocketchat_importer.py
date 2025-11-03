@@ -21,7 +21,6 @@ from zerver.data_import.rocketchat import (
     convert_stream_subscription_data,
     do_convert_data,
     map_receiver_id_to_recipient_id,
-    map_upload_id_to_upload_data,
     map_user_id_to_user,
     map_username_to_user_id,
     process_message_attachment,
@@ -43,7 +42,7 @@ class RocketChatImporter(ZulipTestCase):
     def test_rocketchat_data_to_dict(self) -> None:
         fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
         rocketchat_data = rocketchat_data_to_dict(fixture_dir_name)
-        self.assert_length(rocketchat_data, 6)
+        self.assert_length(rocketchat_data, 5)
 
         self.assert_length(rocketchat_data["user"], 6)
         self.assertEqual(rocketchat_data["user"][2]["username"], "harry.potter")
@@ -55,9 +54,6 @@ class RocketChatImporter(ZulipTestCase):
 
         self.assert_length(rocketchat_data["custom_emoji"]["emoji"], 3)
         self.assertEqual(rocketchat_data["custom_emoji"]["emoji"][0]["name"], "tick")
-
-        self.assert_length(rocketchat_data["upload"]["upload"], 4)
-        self.assertEqual(rocketchat_data["upload"]["upload"][0]["name"], "harry-ron.jpg")
 
     def test_map_user_id_to_user(self) -> None:
         fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
@@ -739,31 +735,6 @@ class RocketChatImporter(ZulipTestCase):
             zerver_recipient[12]["id"],
         )
 
-    def test_map_upload_id_to_upload_data(self) -> None:
-        fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
-        rocketchat_data = rocketchat_data_to_dict(fixture_dir_name)
-
-        upload_id_to_upload_data_map = map_upload_id_to_upload_data(rocketchat_data["upload"])
-
-        self.assert_length(rocketchat_data["upload"]["upload"], 4)
-        self.assert_length(upload_id_to_upload_data_map, 4)
-
-        upload_id = rocketchat_data["upload"]["upload"][0]["_id"]
-        upload_name = rocketchat_data["upload"]["upload"][0]["name"]
-        self.assertEqual(upload_id_to_upload_data_map[upload_id]["name"], upload_name)
-        self.assert_length(upload_id_to_upload_data_map[upload_id]["chunk"], 1)
-
-        # Verify multi-chunk files have chunks in correct order.
-        # The fixture's PDF (4BoikTP2ZZkE5RsGh) has chunks stored as
-        # n=0, n=2, n=1 in the BSON file; they must be reassembled as
-        # n=0, n=1, n=2.
-        pdf_upload_id = "4BoikTP2ZZkE5RsGh"
-        pdf_chunks = upload_id_to_upload_data_map[pdf_upload_id]["chunk"]
-        self.assert_length(pdf_chunks, 3)
-        self.assertEqual(len(pdf_chunks[0]), 261120)
-        self.assertEqual(len(pdf_chunks[1]), 261120)
-        self.assertEqual(len(pdf_chunks[2]), 47300)
-
     def test_build_reactions(self) -> None:
         fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
         rocketchat_data = rocketchat_data_to_dict(fixture_dir_name)
@@ -869,8 +840,32 @@ class RocketChatImporter(ZulipTestCase):
         zerver_attachments: list[ZerverFieldsT] = []
         uploads_list: list[UploadRecordData] = []
 
-        upload_id_to_upload_data_map = map_upload_id_to_upload_data(rocketchat_data["upload"])
-
+        attachment_mock = mock.MagicMock()
+        attachment_mock.return_value = (
+            {
+                "_id": "MmgXWQbD3hXYyGSai",
+                "name": "harry-ron.jpg",
+                "size": 149467,
+                "type": "image/jpeg",
+                "rid": "7scLEFgSgYXDqQwRM",
+                "userId": "LdBZ7kPxtKESyHPEe",
+                "store": "GridFS:Uploads",
+                "_updatedAt": datetime(2021, 7, 30, 22, 3, 11, 351000, tzinfo=timezone.utc),
+                "instanceId": "tYveC9XFjoWEn68mx",
+                "identify": {"format": "jpeg", "size": {"width": 1500, "height": 750}},
+                "complete": True,
+                "etag": "Hp6BwNq6mjqmSe4GH",
+                "path": "/ufs/GridFS:Uploads/MmgXWQbD3hXYyGSai/harry-ron.jpg",
+                "progress": 1,
+                "token": "08397aB979",
+                "uploadedAt": datetime(2021, 7, 30, 22, 3, 12, 675000, tzinfo=timezone.utc),
+                "uploading": False,
+                "url": "http://localhost:3000/ufs/GridFS:Uploads/MmgXWQbD3hXYyGSai/harry-ron.jpg",
+                "description": "Just a random pic!",
+                "typeGroup": "image",
+            },
+            iter([b"moose\n", b"thing\n"]),
+        )
         process_message_attachment(
             upload={"_id": "MmgXWQbD3hXYyGSai", "name": "harry-ron.jpg", "type": "image/jpeg"},
             realm_id=3,
@@ -878,7 +873,7 @@ class RocketChatImporter(ZulipTestCase):
             user_id=3,
             zerver_attachment=zerver_attachments,
             uploads_list=uploads_list,
-            upload_id_to_upload_data_map=upload_id_to_upload_data_map,
+            attachment_lookup=attachment_mock,
             output_dir=output_dir,
         )
 
@@ -936,6 +931,115 @@ class RocketChatImporter(ZulipTestCase):
         dm_ums = [um for um in user_messages if um["message"] == 2]
         for um in dm_ums:
             self.assertTrue(um["flags_mask"] & 2048)
+
+    def test_attachment_lookup_found(self) -> None:
+        """Test that attachment_lookup correctly finds uploads and streams chunks
+        from the BSON fixture files, matching the behavior of the streaming
+        attachment_lookup closure in do_convert_data."""
+        from collections.abc import Iterator
+
+        from bsonstream import KeyValueBSONInput
+
+        fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
+        uploads_path = os.path.join(fixture_dir_name, "rocketchat_uploads.bson")
+        chunks_path = os.path.join(fixture_dir_name, "rocketchat_uploads.chunks.bson")
+
+        with (
+            open(uploads_path, "rb") as uploads_fh,
+            open(chunks_path, "rb") as chunks_fh,
+        ):
+
+            def attachment_lookup(
+                file_id: str,
+            ) -> None | tuple[dict[str, Any], Iterator[bytes]]:
+                uploads_fh.seek(0)
+                uploads = [
+                    doc
+                    for doc in KeyValueBSONInput(
+                        fh=uploads_fh, fast_string_prematch=file_id.encode()
+                    )
+                    if doc.get("_id") == file_id
+                ]
+                if len(uploads) == 0:
+                    return None
+                self.assert_length(uploads, 1)
+
+                chunks_fh.seek(0)
+                matching = [
+                    chunk
+                    for chunk in KeyValueBSONInput(
+                        fh=chunks_fh, fast_string_prematch=file_id.encode()
+                    )
+                    if chunk.get("files_id") == file_id
+                ]
+                matching.sort(key=lambda c: c.get("n", 0))
+
+                def iterate_chunks() -> Iterator[bytes]:
+                    for chunk in matching:
+                        yield chunk.get("data", b"")
+
+                return uploads[0], iterate_chunks()
+
+            # Known upload: harry-ron.jpg has one chunk
+            result = attachment_lookup("MmgXWQbD3hXYyGSai")
+            assert result is not None
+            upload_meta, chunk_iter = result
+            self.assertEqual(upload_meta["name"], "harry-ron.jpg")
+            self.assertEqual(upload_meta["size"], 149467)
+            chunks = list(chunk_iter)
+            self.assert_length(chunks, 1)
+            self.assertEqual(len(chunks[0]), 149467)
+
+            # Known upload: Hogwarts Curriculum.pdf has multiple chunks.
+            # The fixture stores these as n=0, n=2, n=1 in the BSON file;
+            # they must be yielded in n=0, n=1, n=2 order.
+            result = attachment_lookup("4BoikTP2ZZkE5RsGh")
+            assert result is not None
+            upload_meta, chunk_iter = result
+            self.assertEqual(upload_meta["name"], "Hogwarts Curriculum.pdf")
+            chunks = list(chunk_iter)
+            self.assert_length(chunks, 3)
+            self.assertEqual(len(chunks[0]), 261120)
+            self.assertEqual(len(chunks[1]), 261120)
+            self.assertEqual(len(chunks[2]), 47300)
+            self.assertEqual(sum(len(c) for c in chunks), upload_meta["size"])
+
+            # Unknown upload: returns None
+            result = attachment_lookup("nonexistent_id")
+            self.assertIsNone(result)
+
+    def test_process_message_attachment_unknown(self) -> None:
+        """Test that process_message_attachment handles an unknown attachment
+        (attachment_lookup returns None) by returning empty content."""
+
+        output_dir = self.make_import_output_dir("mattermost")
+
+        zerver_attachments: list[ZerverFieldsT] = []
+        uploads_list: list[UploadRecordData] = []
+
+        attachment_mock = mock.MagicMock()
+        attachment_mock.return_value = None
+
+        with self.assertLogs(level="INFO") as info_log:
+            content, has_image = process_message_attachment(
+                upload={"_id": "unknown_id", "name": "missing.jpg", "type": "image/jpeg"},
+                realm_id=3,
+                message_id=42,
+                user_id=3,
+                zerver_attachment=zerver_attachments,
+                uploads_list=uploads_list,
+                attachment_lookup=attachment_mock,
+                output_dir=output_dir,
+            )
+
+        self.assertEqual(content, "")
+        self.assertFalse(has_image)
+        self.assert_length(zerver_attachments, 0)
+        self.assert_length(uploads_list, 0)
+        self.assertIn(
+            "INFO:root:Skipping unknown attachment of message_id: 42",
+            info_log.output,
+        )
 
     def read_file(self, team_output_dir: str, output_file: str) -> Any:
         full_path = os.path.join(team_output_dir, output_file)

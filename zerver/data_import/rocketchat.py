@@ -2,7 +2,7 @@ import logging
 import os
 import uuid
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import bson
@@ -386,10 +386,11 @@ def process_message_attachment(
     user_id: int,
     zerver_attachment: list[ZerverFieldsT],
     uploads_list: list[UploadRecordData],
-    upload_id_to_upload_data_map: dict[str, dict[str, Any]],
+    attachment_lookup: Callable[[str], None | tuple[dict[str, Any], Iterator[bytes]]],
     output_dir: str,
 ) -> tuple[str, bool]:
-    if upload["_id"] not in upload_id_to_upload_data_map:  # nocoverage
+    attachment_data = attachment_lookup(upload["_id"])
+    if attachment_data is None:
         logging.info("Skipping unknown attachment of message_id: %s", message_id)
         return "", False
 
@@ -397,7 +398,7 @@ def process_message_attachment(
         logging.info("Skipping attachment without type of message_id: %s", message_id)
         return "", False
 
-    upload_file_data = upload_id_to_upload_data_map[upload["_id"]]
+    upload_file_data, content_iterator = attachment_data
     file_name = upload["name"]
     file_ext = f".{upload['type'].split('/')[-1]}"
 
@@ -415,18 +416,18 @@ def process_message_attachment(
         logging.info("Replacing too long attachment name with random uuid: %s", file_name)
         sanitized_name = uuid.uuid4().hex
 
-    attachment_data = get_attachment_path_and_content(
+    attachment_link = get_attachment_path_and_content(
         link_name=file_name, filename=file_name, realm_id=realm_id
     )
 
     # Build the attachment from chunks and save it to s3_path.
-    file_out_path = os.path.join(output_dir, "uploads", attachment_data.path_id)
+    file_out_path = os.path.join(output_dir, "uploads", attachment_link.path_id)
     os.makedirs(os.path.dirname(file_out_path), exist_ok=True)
     with open(file_out_path, "wb") as upload_file:
-        upload_file.write(b"".join(upload_file_data["chunk"]))
+        upload_file.writelines(content_iterator)
 
     attachment_content = (
-        f"{upload_file_data.get('description', '')}\n\n{attachment_data.markdown_link}"
+        f"{upload_file_data.get('description', '')}\n\n{attachment_link.markdown_link}"
     )
 
     fileinfo = {
@@ -439,9 +440,9 @@ def process_message_attachment(
         UploadRecordData(
             content_type=upload["type"],
             last_modified=fileinfo["created"],
-            path=attachment_data.path_id,
+            path=attachment_link.path_id,
             realm_id=realm_id,
-            s3_path=attachment_data.path_id,
+            s3_path=attachment_link.path_id,
             size=fileinfo["size"],
             user_profile_id=user_id,
         )
@@ -452,7 +453,7 @@ def process_message_attachment(
         message_ids={message_id},
         user_id=user_id,
         fileinfo=fileinfo,
-        s3_path=attachment_data.path_id,
+        s3_path=attachment_link.path_id,
         zerver_attachment=zerver_attachment,
     )
 
@@ -469,7 +470,7 @@ def process_raw_message_batch(
     total_reactions: list[ZerverFieldsT],
     uploads_list: list[UploadRecordData],
     zerver_attachment: list[ZerverFieldsT],
-    upload_id_to_upload_data_map: dict[str, dict[str, Any]],
+    attachment_lookup: Callable[[str], None | tuple[dict[str, Any], Iterator[bytes]]],
 ) -> None:
     def fix_mentions(
         content: str, mention_user_ids: set[int], rc_channel_mention_data: list[dict[str, str]]
@@ -532,7 +533,7 @@ def process_raw_message_batch(
                 user_id=sender_user_id,
                 uploads_list=uploads_list,
                 zerver_attachment=zerver_attachment,
-                upload_id_to_upload_data_map=upload_id_to_upload_data_map,
+                attachment_lookup=attachment_lookup,
                 output_dir=output_dir,
             )
 
@@ -626,7 +627,7 @@ def process_messages(
     total_reactions: list[ZerverFieldsT],
     uploads_list: list[UploadRecordData],
     zerver_attachment: list[ZerverFieldsT],
-    upload_id_to_upload_data_map: dict[str, dict[str, Any]],
+    attachment_lookup: Callable[[str], None | tuple[dict[str, Any], Iterator[bytes]]],
     output_dir: str,
 ) -> None:
     private_channels_set = {
@@ -826,29 +827,8 @@ def process_messages(
             total_reactions=total_reactions,
             uploads_list=uploads_list,
             zerver_attachment=zerver_attachment,
-            upload_id_to_upload_data_map=upload_id_to_upload_data_map,
+            attachment_lookup=attachment_lookup,
         )
-
-
-def map_upload_id_to_upload_data(
-    upload_data: dict[str, list[dict[str, Any]]],
-) -> dict[str, dict[str, Any]]:
-    upload_id_to_upload_data_map: dict[str, dict[str, Any]] = {}
-
-    for upload in upload_data["upload"]:
-        upload_id_to_upload_data_map[upload["_id"]] = {**upload, "chunk": []}
-
-    for chunk in sorted(upload_data["chunk"], key=lambda c: c["n"]):
-        if chunk["files_id"] not in upload_id_to_upload_data_map:  # nocoverage
-            logging.info("Skipping chunk %s without metadata", chunk["files_id"])
-            # It's unclear why this apparent data corruption in the
-            # Rocket.Chat database is possible, but empirically, some
-            # chunks don't have any associated metadata.
-            continue
-
-        upload_id_to_upload_data_map[chunk["files_id"]]["chunk"].append(chunk["data"])
-
-    return upload_id_to_upload_data_map
 
 
 def map_receiver_id_to_recipient_id(
@@ -953,9 +933,6 @@ def rocketchat_data_to_dict(
     export. Defaults to fetching everything, which is convenient for tests, but
     we prefer to fetch only those sections that are needed for a given stage to
     provide a faster debug cycle for metadata data corruption issues.
-
-    TODO: Ideally, we'd read the big data sets, like messages and
-    uploads, with a streaming BSON parser, or pre-paginate the data.
     """
     rocketchat_data: dict[str, Any] = {}
 
@@ -1013,26 +990,6 @@ def rocketchat_data_to_dict(
                 os.path.join(rocketchat_data_dir, "custom_emoji.chunks.bson"), "rb"
             ) as fcache:
                 rocketchat_data["custom_emoji"]["chunk"] = bson.decode_all(
-                    fcache.read(), bson_codec_options
-                )
-
-    if sections is None or "upload" in sections:
-        rocketchat_data["upload"] = {"upload": [], "file": [], "chunk": []}
-        with open(os.path.join(rocketchat_data_dir, "rocketchat_uploads.bson"), "rb") as fcache:
-            rocketchat_data["upload"]["upload"] = bson.decode_all(fcache.read(), bson_codec_options)
-
-        if rocketchat_data["upload"]["upload"]:
-            with open(
-                os.path.join(rocketchat_data_dir, "rocketchat_uploads.files.bson"), "rb"
-            ) as fcache:
-                rocketchat_data["upload"]["file"] = bson.decode_all(
-                    fcache.read(), bson_codec_options
-                )
-
-            with open(
-                os.path.join(rocketchat_data_dir, "rocketchat_uploads.chunks.bson"), "rb"
-            ) as fcache:
-                rocketchat_data["upload"]["chunk"] = bson.decode_all(
                     fcache.read(), bson_codec_options
                 )
 
@@ -1175,38 +1132,71 @@ def do_convert_data(rocketchat_data_dir: str, output_dir: str) -> None:
     uploads_list: list[UploadRecordData] = []
     zerver_attachment: list[ZerverFieldsT] = []
 
-    rocketchat_upload_data = rocketchat_data_to_dict(rocketchat_data_dir, ["upload"])["upload"]
-    upload_id_to_upload_data_map = map_upload_id_to_upload_data(rocketchat_upload_data)
-
     def message_stream() -> Iterator[dict[str, Any]]:
         with open(f"{rocketchat_data_dir}/rocketchat_message.bson", "rb") as message_file:
             yield from KeyValueBSONInput(fh=message_file)
 
-    process_messages(
-        realm_id=realm_id,
-        rocketchat_messages=message_stream(),
-        subscriber_map=subscriber_map,
-        username_to_user_id_map=username_to_user_id_map,
-        user_id_mapper=user_id_mapper,
-        user_handler=user_handler,
-        user_id_to_recipient_id=user_id_to_recipient_id,
-        stream_id_mapper=stream_id_mapper,
-        stream_id_to_recipient_id=stream_id_to_recipient_id,
-        direct_message_group_id_mapper=direct_message_group_id_mapper,
-        direct_message_group_id_to_recipient_id=direct_message_group_id_to_recipient_id,
-        thread_id_mapper=thread_id_mapper,
-        room_id_to_room_map=room_id_to_room_map,
-        dsc_id_to_dsc_map=dsc_id_to_dsc_map,
-        direct_id_to_direct_map=direct_id_to_direct_map,
-        direct_message_group_id_to_direct_message_group_map=direct_message_group_id_to_direct_message_group_map,
-        livechat_id_to_livechat_map=livechat_id_to_livechat_map,
-        zerver_realmemoji=zerver_realmemoji,
-        total_reactions=total_reactions,
-        uploads_list=uploads_list,
-        zerver_attachment=zerver_attachment,
-        upload_id_to_upload_data_map=upload_id_to_upload_data_map,
-        output_dir=output_dir,
-    )
+    with (
+        open(os.path.join(rocketchat_data_dir, "rocketchat_uploads.bson"), "rb") as uploads_fh,
+        open(
+            os.path.join(rocketchat_data_dir, "rocketchat_uploads.chunks.bson"), "rb"
+        ) as chunks_fh,
+    ):
+
+        def attachment_lookup(file_id: str) -> None | tuple[dict[str, Any], Iterator[bytes]]:
+            uploads_fh.seek(0)
+            uploads = [
+                doc
+                for doc in KeyValueBSONInput(fh=uploads_fh, fast_string_prematch=file_id.encode())
+                if doc.get("_id") == file_id
+            ]
+            if len(uploads) == 0:  # nocoverage
+                return None
+            if len(uploads) > 1:  # nocoverage
+                logging.info(
+                    "Found %d metadata entries for upload %s, using first", len(uploads), file_id
+                )
+
+            def iterate_chunks() -> Iterator[bytes]:
+                chunks_fh.seek(0)
+                matching = [
+                    chunk
+                    for chunk in KeyValueBSONInput(
+                        fh=chunks_fh, fast_string_prematch=file_id.encode()
+                    )
+                    if chunk.get("files_id") == file_id
+                ]
+                matching.sort(key=lambda c: c.get("n", 0))
+                for chunk in matching:
+                    yield chunk.get("data", b"")
+
+            return uploads[0], iterate_chunks()
+
+        process_messages(
+            realm_id=realm_id,
+            rocketchat_messages=message_stream(),
+            subscriber_map=subscriber_map,
+            username_to_user_id_map=username_to_user_id_map,
+            user_id_mapper=user_id_mapper,
+            user_handler=user_handler,
+            user_id_to_recipient_id=user_id_to_recipient_id,
+            stream_id_mapper=stream_id_mapper,
+            stream_id_to_recipient_id=stream_id_to_recipient_id,
+            direct_message_group_id_mapper=direct_message_group_id_mapper,
+            direct_message_group_id_to_recipient_id=direct_message_group_id_to_recipient_id,
+            thread_id_mapper=thread_id_mapper,
+            room_id_to_room_map=room_id_to_room_map,
+            dsc_id_to_dsc_map=dsc_id_to_dsc_map,
+            direct_id_to_direct_map=direct_id_to_direct_map,
+            direct_message_group_id_to_direct_message_group_map=direct_message_group_id_to_direct_message_group_map,
+            livechat_id_to_livechat_map=livechat_id_to_livechat_map,
+            zerver_realmemoji=zerver_realmemoji,
+            total_reactions=total_reactions,
+            uploads_list=uploads_list,
+            zerver_attachment=zerver_attachment,
+            attachment_lookup=attachment_lookup,
+            output_dir=output_dir,
+        )
     realm["zerver_reaction"] = total_reactions
     realm["zerver_userprofile"] = user_handler.get_all_users()
     realm["sort_by_date"] = True
