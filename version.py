@@ -48,4 +48,4 @@ API_FEATURE_LEVEL = 488
 #   historical commits sharing the same major version, in which case a
 #   minor version bump suffices.
 
-PROVISION_VERSION = (374, 1)  # bumped 2026-04-13 to add 'ua-parser[regex]'
+PROVISION_VERSION = (374, 2)  # bumped 2026-04-10 to add bsonstream
