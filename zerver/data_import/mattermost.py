@@ -660,7 +660,6 @@ def process_raw_message_batch(
     zerver_usermessage = make_user_messages(
         zerver_message=zerver_message,
         subscriber_map=subscriber_map,
-        is_pm_data=is_pm_data,
         mention_map=mention_map,
     )
 

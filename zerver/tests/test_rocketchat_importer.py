@@ -26,7 +26,6 @@ from zerver.data_import.rocketchat import (
     process_message_attachment,
     process_users,
     rocketchat_data_to_dict,
-    separate_channel_private_and_livechat_messages,
     truncate_name,
 )
 from zerver.data_import.sequencer import IdMapper
@@ -744,109 +743,6 @@ class RocketChatImporter(ZulipTestCase):
             zerver_recipient[12]["id"],
         )
 
-    @override_settings(PREFER_DIRECT_MESSAGE_GROUP=False)
-    def test_separate_channel_private_and_livechat_messages(self) -> None:
-        fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
-        rocketchat_data = rocketchat_data_to_dict(fixture_dir_name)
-
-        room_id_to_room_map: dict[str, dict[str, Any]] = {}
-        team_id_to_team_map: dict[str, dict[str, Any]] = {}
-        dsc_id_to_dsc_map: dict[str, dict[str, Any]] = {}
-        direct_id_to_direct_map: dict[str, dict[str, Any]] = {}
-        direct_message_group_id_to_direct_message_group_map: dict[str, dict[str, Any]] = {}
-        livechat_id_to_livechat_map: dict[str, dict[str, Any]] = {}
-
-        with self.assertLogs(level="INFO"):
-            categorize_channels_and_map_with_id(
-                channel_data=rocketchat_data["room"],
-                room_id_to_room_map=room_id_to_room_map,
-                team_id_to_team_map=team_id_to_team_map,
-                dsc_id_to_dsc_map=dsc_id_to_dsc_map,
-                direct_id_to_direct_map=direct_id_to_direct_map,
-                direct_message_group_id_to_direct_message_group_map=direct_message_group_id_to_direct_message_group_map,
-                livechat_id_to_livechat_map=livechat_id_to_livechat_map,
-            )
-
-        channel_messages: list[dict[str, Any]] = []
-        private_messages: list[dict[str, Any]] = []
-        livechat_messages: list[dict[str, Any]] = []
-
-        separate_channel_private_and_livechat_messages(
-            messages=rocketchat_data["message"],
-            dsc_id_to_dsc_map=dsc_id_to_dsc_map,
-            direct_id_to_direct_map=direct_id_to_direct_map,
-            direct_message_group_id_to_direct_message_group_map=direct_message_group_id_to_direct_message_group_map,
-            livechat_id_to_livechat_map=livechat_id_to_livechat_map,
-            channel_messages=channel_messages,
-            private_messages=private_messages,
-            livechat_messages=livechat_messages,
-        )
-
-        self.assert_length(rocketchat_data["message"], 87)
-        self.assert_length(channel_messages, 68)
-        self.assert_length(private_messages, 11)
-        self.assert_length(livechat_messages, 8)
-
-        self.assertIn(rocketchat_data["message"][0], channel_messages)
-        self.assertIn(rocketchat_data["message"][1], channel_messages)
-        self.assertIn(rocketchat_data["message"][4], channel_messages)
-
-        self.assertIn(rocketchat_data["message"][11], private_messages)
-        self.assertIn(rocketchat_data["message"][12], private_messages)
-        self.assertIn(rocketchat_data["message"][50], private_messages)  # Group direct message
-
-        self.assertIn(rocketchat_data["message"][79], livechat_messages)
-        self.assertIn(rocketchat_data["message"][83], livechat_messages)
-        self.assertIn(rocketchat_data["message"][86], livechat_messages)
-
-        # Message in a Discussion originating from a direct channel
-        self.assertIn(rocketchat_data["message"][70], private_messages)
-        self.assertIn(rocketchat_data["message"][70]["rid"], direct_id_to_direct_map)
-
-        # Add a message with no `rid`
-        rocketchat_data["message"].append(
-            {
-                "_id": "p4v37myxc6yLZ8AHh",
-                "t": "livechat_navigation_history",
-                "ts": datetime(2019, 11, 6, 0, 38, 42, 796000, tzinfo=timezone.utc),
-                "msg": " - applewebdata://9124F033-BFEF-43C5-9215-DA369E4DA22D",
-                "u": {"_id": "rocket.cat", "username": "cat"},
-                "groupable": False,
-                "unread": True,
-                "navigation": {
-                    "page": {
-                        "change": "url",
-                        "title": "",
-                        "location": {"href": "applewebdata://9124F033-BFEF-43C5-9215-DA369E4DA22D"},
-                    },
-                    "token": "ebxuypgh0updo6klkobzhp",
-                },
-                "expireAt": 1575592722794.0,
-                "_hidden": True,
-                "_updatedAt": datetime(2019, 11, 6, 0, 38, 42, 796000, tzinfo=timezone.utc),
-            }
-        )
-
-        channel_messages = []
-        private_messages = []
-        livechat_messages = []
-
-        separate_channel_private_and_livechat_messages(
-            messages=rocketchat_data["message"],
-            dsc_id_to_dsc_map=dsc_id_to_dsc_map,
-            direct_id_to_direct_map=direct_id_to_direct_map,
-            direct_message_group_id_to_direct_message_group_map=direct_message_group_id_to_direct_message_group_map,
-            livechat_id_to_livechat_map=livechat_id_to_livechat_map,
-            channel_messages=channel_messages,
-            private_messages=private_messages,
-            livechat_messages=livechat_messages,
-        )
-
-        # No new message added to channel, private or livechat messages
-        self.assert_length(channel_messages, 68)
-        self.assert_length(private_messages, 11)
-        self.assert_length(livechat_messages, 8)
-
     def test_map_upload_id_to_upload_data(self) -> None:
         fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
         rocketchat_data = rocketchat_data_to_dict(fixture_dir_name)
@@ -1008,6 +904,45 @@ class RocketChatImporter(ZulipTestCase):
         self.assertTrue(os.path.exists(attachment_out_path))
         self.assertTrue(os.path.isfile(attachment_out_path))
 
+    def test_make_user_messages_mixed_batch(self) -> None:
+        """Test that make_user_messages correctly sets the is_private flag
+        per-message even when a batch contains both channel and DM messages."""
+        from zerver.data_import.import_util import make_user_messages
+
+        # Build a batch with a channel message followed by a DM message
+        zerver_message = [
+            {
+                "id": 1,
+                "recipient": 10,
+                "sender": 100,
+                "is_channel_message": True,
+            },
+            {
+                "id": 2,
+                "recipient": 20,
+                "sender": 200,
+                "is_channel_message": False,
+            },
+        ]
+        subscriber_map: dict[int, set[int]] = {10: {100, 101}, 20: {200, 201}}
+        mention_map: dict[int, set[int]] = {1: set(), 2: set()}
+
+        user_messages = make_user_messages(
+            zerver_message=zerver_message,
+            subscriber_map=subscriber_map,
+            mention_map=mention_map,
+        )
+
+        # Channel message (id=1) should not have is_private flag (2048)
+        channel_ums = [um for um in user_messages if um["message"] == 1]
+        for um in channel_ums:
+            self.assertFalse(um["flags_mask"] & 2048)
+
+        # DM message (id=2) should have is_private flag (2048)
+        dm_ums = [um for um in user_messages if um["message"] == 2]
+        for um in dm_ums:
+            self.assertTrue(um["flags_mask"] & 2048)
+
     def read_file(self, team_output_dir: str, output_file: str) -> Any:
         full_path = os.path.join(team_output_dir, output_file)
         with open(full_path, "rb") as f:
@@ -1035,8 +970,6 @@ class RocketChatImporter(ZulipTestCase):
                 "INFO:root:Done processing emoji",
                 "INFO:root:Direct message group channel found. UIDs: ['LdBZ7kPxtKESyHPEe', 'M2sXGqoQRJQwQoXY2', 'os6N2Xg2JkNMCSW9Z']",
                 "INFO:root:skipping direct messages discussion mention: Discussion with Hermione",
-                "INFO:root:Processed messages up to 35 / 35",
-                "INFO:root:Processed messages up to 8 / 8",
                 "INFO:root:Exporting migration status",
             ],
         )
