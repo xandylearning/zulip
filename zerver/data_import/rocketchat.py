@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import bson
+from bsonstream import KeyValueBSONInput
 from django.conf import settings
 from django.forms.models import model_to_dict
 
@@ -39,6 +40,8 @@ from zerver.lib.upload import sanitize_name
 from zerver.models import Reaction, RealmEmoji, Recipient, UserProfile
 
 bson_codec_options = bson.DEFAULT_CODEC_OPTIONS.with_options(tz_aware=True)
+
+MESSAGE_BATCH_SIZE = 1000
 
 
 def make_realm(
@@ -603,7 +606,7 @@ def get_topic_name(
 
 def process_messages(
     realm_id: int,
-    rocketchat_messages: list[dict[str, Any]],
+    rocketchat_messages: Iterator[dict[str, Any]],
     subscriber_map: dict[int, set[int]],
     username_to_user_id_map: dict[str, str],
     user_id_mapper: IdMapper[str],
@@ -716,7 +719,9 @@ def process_messages(
                 if parent_channel_id in private_channels_set:
                     # Messages in discussions originating from direct channels
                     # are treated as if they were posted in the parent direct
-                    # channel only.
+                    # channel only.  This mutates the dict yielded by the
+                    # streaming BSON parser, which is safe since each
+                    # iteration yields a fresh dict.
                     message["rid"] = parent_channel_id
             if message["rid"] in livechat_id_to_livechat_map:
                 # TODO: Handle livechat messages
@@ -810,7 +815,7 @@ def process_messages(
 
             yield message_dict
 
-    for message_batch in batched(messages_to_dict(iter(rocketchat_messages)), n=1000):
+    for message_batch in batched(messages_to_dict(rocketchat_messages), n=MESSAGE_BATCH_SIZE):
         process_raw_message_batch(
             realm_id=realm_id,
             raw_messages=message_batch,
@@ -988,11 +993,6 @@ def rocketchat_data_to_dict(
         rocketchat_data["room"] = []
         with open(os.path.join(rocketchat_data_dir, "rocketchat_room.bson"), "rb") as fcache:
             rocketchat_data["room"] = bson.decode_all(fcache.read(), bson_codec_options)
-
-    if sections is None or "message" in sections:
-        rocketchat_data["message"] = []
-        with open(os.path.join(rocketchat_data_dir, "rocketchat_message.bson"), "rb") as fcache:
-            rocketchat_data["message"] = bson.decode_all(fcache.read(), bson_codec_options)
 
     if sections is None or "custom_emoji" in sections:
         rocketchat_data["custom_emoji"] = {"emoji": [], "file": [], "chunk": []}
@@ -1178,11 +1178,13 @@ def do_convert_data(rocketchat_data_dir: str, output_dir: str) -> None:
     rocketchat_upload_data = rocketchat_data_to_dict(rocketchat_data_dir, ["upload"])["upload"]
     upload_id_to_upload_data_map = map_upload_id_to_upload_data(rocketchat_upload_data)
 
-    rocketchat_message_data = rocketchat_data_to_dict(rocketchat_data_dir, ["message"])["message"]
-    print(f"About to process {len(rocketchat_message_data)} messages")
+    def message_stream() -> Iterator[dict[str, Any]]:
+        with open(f"{rocketchat_data_dir}/rocketchat_message.bson", "rb") as message_file:
+            yield from KeyValueBSONInput(fh=message_file)
+
     process_messages(
         realm_id=realm_id,
-        rocketchat_messages=rocketchat_message_data,
+        rocketchat_messages=message_stream(),
         subscriber_map=subscriber_map,
         username_to_user_id_map=username_to_user_id_map,
         user_id_mapper=user_id_mapper,

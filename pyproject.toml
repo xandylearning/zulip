@@ -423,6 +423,7 @@ module = [
     "backports.datetime_fromisoformat.*",
     "bitfield.*",
     "bmemcached.*",
+    "bsonstream.*",
     "digitalocean.*",
     "django_auth_ldap.*",
     "django_bmemcached.*",

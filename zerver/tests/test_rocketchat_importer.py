@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timezone
 from typing import Any
+from unittest import mock
 
 import orjson
 from django.test import override_settings
@@ -42,7 +43,7 @@ class RocketChatImporter(ZulipTestCase):
     def test_rocketchat_data_to_dict(self) -> None:
         fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
         rocketchat_data = rocketchat_data_to_dict(fixture_dir_name)
-        self.assert_length(rocketchat_data, 7)
+        self.assert_length(rocketchat_data, 6)
 
         self.assert_length(rocketchat_data["user"], 6)
         self.assertEqual(rocketchat_data["user"][2]["username"], "harry.potter")
@@ -51,11 +52,6 @@ class RocketChatImporter(ZulipTestCase):
         self.assert_length(rocketchat_data["room"], 16)
         self.assertEqual(rocketchat_data["room"][0]["_id"], "GENERAL")
         self.assertEqual(rocketchat_data["room"][0]["name"], "general")
-
-        self.assert_length(rocketchat_data["message"], 87)
-        self.assertEqual(rocketchat_data["message"][1]["msg"], "Hey everyone, how's it going??")
-        self.assertEqual(rocketchat_data["message"][1]["rid"], "GENERAL")
-        self.assertEqual(rocketchat_data["message"][1]["u"]["username"], "priyansh3133")
 
         self.assert_length(rocketchat_data["custom_emoji"]["emoji"], 3)
         self.assertEqual(rocketchat_data["custom_emoji"]["emoji"][0]["name"], "tick")
@@ -875,10 +871,8 @@ class RocketChatImporter(ZulipTestCase):
 
         upload_id_to_upload_data_map = map_upload_id_to_upload_data(rocketchat_data["upload"])
 
-        message_with_attachment = rocketchat_data["message"][55]
-
         process_message_attachment(
-            upload=message_with_attachment["file"],
+            upload={"_id": "MmgXWQbD3hXYyGSai", "name": "harry-ron.jpg", "type": "image/jpeg"},
             realm_id=3,
             message_id=1,
             user_id=3,
@@ -948,6 +942,21 @@ class RocketChatImporter(ZulipTestCase):
         with open(full_path, "rb") as f:
             return orjson.loads(f.read())
 
+    def read_message_files(self, output_dir: str) -> dict[str, list[Any]]:
+        """Read all messages-NNNNNN.json files and combine them."""
+        all_messages: list[Any] = []
+        all_usermessages: list[Any] = []
+        dump_file_id = 1
+        while True:
+            message_file = os.path.join(output_dir, f"messages-{dump_file_id:06}.json")
+            if not os.path.exists(message_file):
+                break
+            data = self.read_file(output_dir, f"messages-{dump_file_id:06}.json")
+            all_messages.extend(data["zerver_message"])
+            all_usermessages.extend(data["zerver_usermessage"])
+            dump_file_id += 1
+        return {"zerver_message": all_messages, "zerver_usermessage": all_usermessages}
+
     @override_settings(PREFER_DIRECT_MESSAGE_GROUP=False)
     def test_do_convert_data_using_personal_recipient(self) -> None:
         rocketchat_data_dir = self.fixture_file_name("", "rocketchat_fixtures")
@@ -956,6 +965,7 @@ class RocketChatImporter(ZulipTestCase):
         with (
             self.assertLogs(level="INFO") as info_log,
             self.settings(EXTERNAL_HOST="zulip.example.com"),
+            mock.patch("zerver.data_import.rocketchat.MESSAGE_BATCH_SIZE", 5),
         ):
             # We need to mock EXTERNAL_HOST to be a valid domain because rocketchat's importer
             # uses it to generate email addresses for users without an email specified.
@@ -1047,7 +1057,7 @@ class RocketChatImporter(ZulipTestCase):
         exported_subscription_recipients = self.get_set(realm["zerver_subscription"], "recipient")
         self.assert_length(exported_subscription_recipients, 13)
 
-        messages = self.read_file(output_dir, "messages-000001.json")
+        messages = self.read_message_files(output_dir)
 
         exported_messages_id = self.get_set(messages["zerver_message"], "id")
         self.assertIn(messages["zerver_message"][0]["sender"], exported_user_ids)
@@ -1081,14 +1091,16 @@ class RocketChatImporter(ZulipTestCase):
         self.assertFalse(get_user("hermionegranger@email.com", realm).is_mirror_dummy)
         self.assertFalse(get_user("hermionegranger@email.com", realm).is_bot)
 
-        messages = Message.objects.filter(realm_id=realm.id)
-        for message in messages:
+        imported_messages = Message.objects.filter(realm_id=realm.id)
+        for message in imported_messages:
             self.assertIsNotNone(message.rendered_content)
         # After removing user_joined, added_user, discussion_created, etc.
         # messages. (Total messages were 66.)
-        self.assert_length(messages, 58)
+        self.assert_length(imported_messages, 58)
 
-        stream_messages = messages.filter(recipient__type=Recipient.STREAM).order_by("date_sent")
+        stream_messages = imported_messages.filter(recipient__type=Recipient.STREAM).order_by(
+            "date_sent"
+        )
         stream_recipients = stream_messages.values_list("recipient", flat=True)
         self.assert_length(stream_messages, 44)
         self.assert_length(set(stream_recipients), 5)
@@ -1104,7 +1116,7 @@ class RocketChatImporter(ZulipTestCase):
         self.assertTrue(stream_messages[23].has_image)
         self.assertTrue(stream_messages[23].has_link)
 
-        group_direct_messages = messages.filter(
+        group_direct_messages = imported_messages.filter(
             recipient__type=Recipient.DIRECT_MESSAGE_GROUP
         ).order_by("date_sent")
         direct_message_group_recipients = group_direct_messages.values_list("recipient", flat=True)
@@ -1123,7 +1135,7 @@ class RocketChatImporter(ZulipTestCase):
         self.assertFalse(group_direct_messages[2].has_image)
         self.assertTrue(group_direct_messages[2].has_link)
 
-        personal_messages = messages.filter(recipient__type=Recipient.PERSONAL).order_by(
+        personal_messages = imported_messages.filter(recipient__type=Recipient.PERSONAL).order_by(
             "date_sent"
         )
         personal_recipients = personal_messages.values_list("recipient", flat=True)
