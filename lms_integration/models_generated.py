@@ -654,6 +654,7 @@ class SyncSchedules(models.Model):
 
 
 class UserAnswerAttemptSections(models.Model):
+    id = models.BigAutoField(primary_key=True)
     order = models.IntegerField()
     sectionid = models.ForeignKey(Sections, models.DO_NOTHING, db_column='sectionId')  # Field name made lowercase.
     sectionname = models.TextField(db_column='sectionName')  # Field name made lowercase.
