@@ -146,7 +146,10 @@ function load_dashboard_status(): void {
         success(response: any) {
             dashboard_data = response;
             update_dashboard_ui(response);
-            update_status_badge("connected", "Connected");
+            // Reflect actual DB status from the backend instead of assuming success
+            const status = response.db_status || "disconnected";
+            const statusText = status === "connected" ? "Connected" : "Disconnected";
+            update_status_badge(status, statusText);
         },
         error(xhr) {
             update_status_badge("disconnected", "Disconnected");

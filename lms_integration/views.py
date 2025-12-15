@@ -1116,7 +1116,9 @@ def lms_get_batch_groups(
 
         # Get active batches from LMS
         try:
-            batches = Batches.objects.using('lms_db').filter(is_active=True).order_by('name')
+            # The LMS Batches table (external DB) does not have an `is_active` field.
+            # We fetch all batches and treat them as active for display purposes.
+            batches = Batches.objects.using('lms_db').all().order_by('name')
 
             # Paginate
             paginator = Paginator(batches, 50)
@@ -1142,15 +1144,16 @@ def lms_get_batch_groups(
                 batch_data.append({
                     'id': batch.id,
                     'batch_name': batch.name,
-                    'batch_code': batch.batch_code,
-                    'description': batch.description,
+                    # External schema does not provide these fields; fall back to sensible defaults.
+                    'batch_code': getattr(batch, 'batch_code', None) or batch.id,
+                    'description': getattr(batch, 'description', None) or batch.url,
                     'student_count': student_count,
                     'mentor_count': mentor_count,
-                    'is_active': batch.is_active,
-                    'created_date': batch.created_date.isoformat() if batch.created_date else None,
+                    'is_active': True,  # treat as active since LMS schema lacks is_active
+                    'created_date': batch.created.isoformat() if getattr(batch, 'created', None) else None,
                     'zulip_group_exists': False,  # TODO: Implement group checking
                     'last_sync': None,  # TODO: Implement batch sync tracking
-                    'status': 'active' if batch.is_active else 'inactive',
+                    'status': 'active',
                 })
 
         except DatabaseError as e:
