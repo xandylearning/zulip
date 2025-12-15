@@ -1,10 +1,17 @@
 # LMS Database Router
-# Routes LMS model queries to lms_db database
+# Routes LMS model queries to lms_db database (read-only)
+# Zulip-managed models (admin config, sync history, logs, user mappings) 
+# are stored in Zulip's default database and NEVER touch the LMS database
 
 class LMSRouter:
     """
     Database router for LMS integration.
-    Routes LMS external models to lms_db database.
+    
+    - External LMS models (Students, Mentors, Courses, etc.) are read-only 
+      and routed to 'lms_db' database
+    - Zulip-managed models (LMSIntegrationConfig, LMSSyncHistory, LMSAdminLog, 
+      LMSUserMapping, LMSActivityEvent, LMSEventLog) are stored in Zulip's 
+      default database and never touch the LMS database
     """
     
     # All LMS models that should use the lms_db database
@@ -43,16 +50,22 @@ class LMSRouter:
         'AdaptiveQuestionPools', 'Bookmarks'
     }
     
-    # Zulip-managed models that should use the default database
+    # Zulip-managed models that should use the default database (Zulip DB)
+    # These models are created and managed by Zulip, stored in Zulip's database
     zulip_managed_models = {
-        'LMSActivityEvent', 'LMSEventLog'
+        # Activity tracking models
+        'LMSActivityEvent', 'LMSEventLog',
+        # Admin configuration models (stored in Zulip DB, not LMS DB)
+        'LMSIntegrationConfig', 'LMSSyncHistory', 'LMSAdminLog', 'LMSUserMapping'
     }
     
     def db_for_read(self, model, **hints):
-        """Route read operations for LMS models to lms_db"""
+        """Route read operations - LMS models to lms_db, Zulip models to default DB"""
         if model.__name__ in self.lms_models:
-            return 'lms_db'
-        return None
+            return 'lms_db'  # External LMS models (read-only)
+        if model.__name__ in self.zulip_managed_models:
+            return 'default'  # Zulip-managed models in Zulip database
+        return None  # Other models use default database
     
     def db_for_write(self, model, **hints):
         """Route write operations - LMS models are read-only, Zulip models use default DB"""

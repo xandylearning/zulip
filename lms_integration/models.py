@@ -778,3 +778,338 @@ class LMSEventLog(models.Model):
         managed = True
         db_table = 'lms_event_logs'
         ordering = ['-processed_at']
+
+
+# =============================================================================
+# ADMIN CONFIGURATION MODELS
+# =============================================================================
+
+class LMSIntegrationConfig(models.Model):
+    """
+    Stores LMS integration configuration per realm.
+    Allows realm administrators to configure LMS settings through the UI.
+    """
+
+    # Link to realm
+    realm = models.OneToOneField(
+        'zerver.Realm',
+        on_delete=models.CASCADE,
+        primary_key=True,
+        help_text="The Zulip realm this configuration applies to"
+    )
+
+    # Core integration settings
+    enabled = models.BooleanField(
+        default=False,
+        help_text="Whether LMS integration is enabled for this realm"
+    )
+
+    # Database configuration
+    lms_db_host = models.CharField(
+        max_length=255,
+        default='',
+        help_text="LMS database host"
+    )
+    lms_db_port = models.IntegerField(
+        default=5432,
+        help_text="LMS database port"
+    )
+    lms_db_name = models.CharField(
+        max_length=128,
+        default='',
+        help_text="LMS database name"
+    )
+    lms_db_username = models.CharField(
+        max_length=128,
+        default='',
+        help_text="LMS database username"
+    )
+    lms_db_password = models.CharField(
+        max_length=255,
+        default='',
+        help_text="LMS database password (encrypted)"
+    )
+
+    # Webhook configuration
+    webhook_secret = models.CharField(
+        max_length=255,
+        default='',
+        help_text="Secret for webhook authentication"
+    )
+
+    # JWT authentication
+    jwt_enabled = models.BooleanField(
+        default=False,
+        help_text="Whether JWT authentication is enabled"
+    )
+    testpress_api_url = models.URLField(
+        default='',
+        help_text="TestPress API base URL for JWT validation"
+    )
+
+    # Activity monitoring
+    activity_monitor_enabled = models.BooleanField(
+        default=False,
+        help_text="Whether activity monitoring is enabled"
+    )
+    poll_interval = models.IntegerField(
+        default=60,
+        help_text="Activity polling interval in seconds"
+    )
+    notify_mentors = models.BooleanField(
+        default=True,
+        help_text="Whether to send notifications to mentors"
+    )
+
+    # Audit fields
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        'zerver.UserProfile',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="The admin user who last updated this configuration"
+    )
+
+    class Meta:
+        managed = True
+        db_table = 'lms_integration_config'
+
+    def __str__(self):
+        return f"LMS Config for {self.realm.name}"
+
+
+class LMSSyncHistory(models.Model):
+    """
+    Tracks history of user sync operations for audit and monitoring.
+    """
+
+    # Basic sync info
+    realm = models.ForeignKey(
+        'zerver.Realm',
+        on_delete=models.CASCADE,
+        help_text="The realm this sync was performed for"
+    )
+    sync_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('all', 'All Users'),
+            ('students', 'Students Only'),
+            ('mentors', 'Mentors Only'),
+        ],
+        help_text="Type of sync performed"
+    )
+
+    # Sync results
+    users_created = models.IntegerField(default=0)
+    users_updated = models.IntegerField(default=0)
+    users_skipped = models.IntegerField(default=0)
+    users_errors = models.IntegerField(default=0)
+
+    # Batch sync results
+    batches_synced = models.IntegerField(default=0)
+    batch_sync_enabled = models.BooleanField(default=False)
+    batch_sync_error = models.TextField(blank=True, null=True)
+
+    # Timing
+    started_at = models.DateTimeField()
+    completed_at = models.DateTimeField()
+    duration_seconds = models.FloatField(
+        help_text="Total sync duration in seconds"
+    )
+
+    # Status and errors
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('success', 'Success'),
+            ('partial', 'Partial Success'),
+            ('failed', 'Failed'),
+        ],
+        default='success'
+    )
+    error_message = models.TextField(blank=True, null=True)
+
+    # Who triggered the sync
+    triggered_by = models.ForeignKey(
+        'zerver.UserProfile',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="The admin user who triggered this sync"
+    )
+    trigger_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('manual', 'Manual'),
+            ('webhook', 'Webhook'),
+            ('scheduled', 'Scheduled'),
+        ],
+        default='manual'
+    )
+
+    class Meta:
+        managed = True
+        db_table = 'lms_sync_history'
+        ordering = ['-started_at']
+        indexes = [
+            models.Index(fields=['realm', '-started_at']),
+            models.Index(fields=['sync_type']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return f"Sync {self.sync_type} for {self.realm.name} - {self.status}"
+
+
+class LMSAdminLog(models.Model):
+    """
+    Logs admin actions and system events for the LMS integration.
+    Provides audit trail and debugging information.
+    """
+
+    # Basic log info
+    realm = models.ForeignKey(
+        'zerver.Realm',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="The realm this log entry relates to"
+    )
+
+    level = models.CharField(
+        max_length=10,
+        choices=[
+            ('DEBUG', 'Debug'),
+            ('INFO', 'Info'),
+            ('WARNING', 'Warning'),
+            ('ERROR', 'Error'),
+            ('CRITICAL', 'Critical'),
+        ],
+        default='INFO'
+    )
+
+    source = models.CharField(
+        max_length=50,
+        choices=[
+            ('user_sync', 'User Sync'),
+            ('activity_monitor', 'Activity Monitor'),
+            ('webhook', 'Webhook'),
+            ('jwt_auth', 'JWT Auth'),
+            ('admin_ui', 'Admin UI'),
+            ('configuration', 'Configuration'),
+            ('database', 'Database'),
+            ('system', 'System'),
+        ],
+        help_text="The component that generated this log"
+    )
+
+    message = models.TextField(help_text="The log message")
+
+    # Additional context
+    details = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="Additional structured data for this log entry"
+    )
+
+    # User context
+    user = models.ForeignKey(
+        'zerver.UserProfile',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="The user who triggered this action (if applicable)"
+    )
+
+    # Error context
+    exception_type = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Exception class name if this is an error"
+    )
+    stack_trace = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Full stack trace if this is an error"
+    )
+
+    # Timestamp
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = True
+        db_table = 'lms_admin_logs'
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['realm', '-timestamp']),
+            models.Index(fields=['level']),
+            models.Index(fields=['source']),
+            models.Index(fields=['timestamp']),
+        ]
+
+    def __str__(self):
+        return f"[{self.level}] {self.source}: {self.message[:50]}..."
+
+
+class LMSUserMapping(models.Model):
+    """
+    Maps LMS users to Zulip users for tracking and synchronization.
+    Stores metadata about the sync relationship.
+    """
+
+    # User mapping
+    zulip_user = models.OneToOneField(
+        'zerver.UserProfile',
+        on_delete=models.CASCADE,
+        help_text="The Zulip user"
+    )
+
+    # LMS user info
+    lms_user_id = models.IntegerField(help_text="LMS user ID")
+    lms_user_type = models.CharField(
+        max_length=10,
+        choices=[
+            ('student', 'Student'),
+            ('mentor', 'Mentor'),
+        ],
+        help_text="Type of user in the LMS"
+    )
+    lms_username = models.CharField(
+        max_length=255,
+        help_text="Username in the LMS"
+    )
+
+    # Sync tracking
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_synced_at = models.DateTimeField(auto_now=True)
+    sync_count = models.IntegerField(
+        default=1,
+        help_text="Number of times this user has been synced"
+    )
+
+    # Status tracking
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this mapping is currently active"
+    )
+    last_error = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Last error encountered during sync"
+    )
+
+    class Meta:
+        managed = True
+        db_table = 'lms_user_mapping'
+        unique_together = [['lms_user_id', 'lms_user_type']]
+        indexes = [
+            models.Index(fields=['lms_user_id', 'lms_user_type']),
+            models.Index(fields=['zulip_user']),
+            models.Index(fields=['last_synced_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.lms_user_type} {self.lms_username} -> {self.zulip_user.email}"

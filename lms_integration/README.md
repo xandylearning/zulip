@@ -14,6 +14,7 @@ This system provides real-time monitoring of student activities (exam attempts, 
 - **Mentor Mapping**: Automatically finds and notifies assigned mentors
 - **AI-Ready Data**: Events stored with metadata for future AI analysis
 - **Production Ready**: Daemon mode, graceful shutdown, and comprehensive error handling
+- **Admin Interface**: Comprehensive web-based administration panel for monitoring and management
 
 ## Architecture
 
@@ -35,6 +36,61 @@ This system provides real-time monitoring of student activities (exam attempts, 
                         │  (Zulip DMs)     │
                         └──────────────────┘
 ```
+
+## Admin Interface
+
+The LMS Integration system includes a comprehensive web-based admin interface accessible through Zulip's settings panel. This interface provides real-time monitoring, configuration management, and administrative controls for the entire LMS integration system.
+
+### Key Features
+
+- **Real-time Dashboard**: Live status monitoring with connection health, sync statistics, and system metrics
+- **User Management**: View synchronized users, track sync history, and manually resync individual users
+- **Activity Monitoring**: Browse activity events, view detailed event information, and manage notification status
+- **Batch Management**: Create and manage batch groups, sync batch data, and view batch details
+- **Configuration Management**: Test database connections, configure JWT authentication, and manage system settings
+- **Advanced Logging**: View system logs with filtering, detailed error information, and export capabilities
+
+### Dashboard Overview
+
+The dashboard provides at-a-glance information about:
+- Total synchronized users (students and mentors)
+- Active batches and groups
+- Recent sync activity and status
+- Pending notifications and events
+- System health and connectivity status
+
+### User Sync Management
+
+- **Sync Types**: Support for incremental, full, and selective synchronization
+- **Real-time Progress**: Live sync progress indicators with detailed statistics
+- **History Tracking**: Complete audit trail of all synchronization operations
+- **Individual Controls**: Resync specific users or troubleshoot sync issues
+- **Batch Operations**: Bulk synchronization with progress tracking
+
+### Activity Event Monitoring
+
+- **Event Browser**: Paginated view of all activity events with filtering capabilities
+- **Event Details**: Comprehensive event information including metadata and notification status
+- **Retry Controls**: Manually retry failed notifications or process pending events
+- **Search and Filter**: Filter by event type, user, date range, and notification status
+
+### Configuration Management
+
+- **Database Testing**: One-click database connection testing with detailed diagnostics
+- **JWT Validation**: Test and validate JWT authentication configuration
+- **Webhook Management**: Generate and copy webhook URLs for external integrations
+- **Real-time Updates**: Configuration changes take effect immediately
+
+### Logging and Debugging
+
+- **Comprehensive Logs**: View all system logs with level-based filtering (ERROR, WARNING, INFO, DEBUG)
+- **Error Details**: Detailed error information with stack traces and context
+- **Export Functionality**: Download logs in CSV format for external analysis
+- **Real-time Updates**: Live log streaming for active monitoring
+
+### Access Control
+
+The admin interface is restricted to Zulip administrators and integrates with Zulip's existing permission system. All administrative actions are logged for security and audit purposes.
 
 ## Installation
 
@@ -75,6 +131,23 @@ This system provides real-time monitoring of student activities (exam attempts, 
    ```
 
 ## Usage
+
+### Admin Interface Access
+
+Access the LMS Integration admin interface through Zulip's settings panel:
+
+1. **Login as Administrator**: Log into your Zulip server as an administrator
+2. **Navigate to Settings**: Click the gear icon (⚙️) and select "Organization settings"
+3. **LMS Integration Tab**: Find and click the "LMS Integration" tab in the settings panel
+4. **Dashboard Access**: The admin interface opens with the dashboard showing system status
+
+The admin interface provides six main sections:
+- **Dashboard**: System overview and health status
+- **User Sync**: User management and synchronization controls
+- **Activity Monitoring**: Event tracking and notification management
+- **Batch Management**: Batch group creation and synchronization
+- **Configuration**: System settings and database configuration
+- **Logs**: System logs and debugging information
 
 ### Management Command
 
@@ -338,14 +411,26 @@ class CustomMessageFormatter(MessageFormatter):
 - **Custom Rules**: Configurable notification rules
 - **Integration APIs**: REST APIs for external integrations
 
+## Documentation
+
+For detailed information, see the documentation in the `docs/` directory:
+
+- **[Admin Interface Guide](docs/ADMIN_INTERFACE.md)**: Comprehensive admin interface documentation
+- **[API Reference](docs/API.md)**: Complete API documentation including admin endpoints
+- **[Installation Guide](docs/INSTALLATION.md)**: Step-by-step installation instructions
+- **[User Sync Guide](docs/USER_SYNC.md)**: User synchronization configuration and usage
+- **[JWT Authentication](docs/README_JWT_AUTH.md)**: JWT setup and configuration
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)**: Common issues and solutions
+
 ## Support
 
 For issues and questions:
 
-1. Check the troubleshooting section
-2. Review logs with `--verbose` flag
-3. Check system statistics with `--stats`
-4. Contact the development team
+1. Check the [admin interface documentation](docs/ADMIN_INTERFACE.md)
+2. Review the [troubleshooting guide](docs/TROUBLESHOOTING.md)
+3. Review logs with `--verbose` flag
+4. Check system statistics with `--stats`
+5. Contact the development team
 
 ## License
 

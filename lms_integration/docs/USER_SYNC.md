@@ -4,10 +4,155 @@ This document explains how to sync users from the LMS database to Zulip.
 
 ## Overview
 
-The LMS integration provides two methods to sync users:
+The LMS integration provides three methods to sync users:
 
-1. **Daily Morning Sync**: A management command that syncs all users from LMS to Zulip
-2. **Webhook Endpoint**: An API endpoint that LMS can call when a new user is created
+1. **Admin Interface**: Web-based administration panel for interactive sync management
+2. **Daily Morning Sync**: A management command that syncs all users from LMS to Zulip
+3. **Webhook Endpoint**: An API endpoint that LMS can call when a new user is created
+
+## Admin Interface Sync
+
+The admin interface provides an intuitive web-based method for managing user synchronization with real-time progress monitoring and detailed control options.
+
+### Accessing the Admin Interface
+
+1. **Login as Administrator**: Access your Zulip server with administrator credentials
+2. **Navigate to Settings**: Click the gear icon (⚙️) and select "Organization settings"
+3. **LMS Integration Tab**: Click the "LMS Integration" tab in the settings panel
+4. **User Sync Section**: Navigate to the "User Sync" tab within the admin interface
+
+### Sync Types
+
+The admin interface supports three sync types:
+
+#### Incremental Sync (Recommended)
+- **Description**: Syncs only new or modified users since the last sync
+- **Use Case**: Regular daily operations
+- **Performance**: Fast execution, minimal resource usage
+- **Safety**: Low risk, preserves existing data
+
+#### Full Sync
+- **Description**: Complete resynchronization of all users
+- **Use Case**: Initial setup, major data corrections, periodic comprehensive updates
+- **Performance**: Slower execution, higher resource usage
+- **Safety**: Medium risk, may update all existing users
+
+#### Selective Sync
+- **Description**: Sync specific users or groups based on custom criteria
+- **Use Case**: Targeted updates, troubleshooting specific user issues
+- **Performance**: Variable, depends on selection criteria
+- **Safety**: High control, minimal impact
+
+### Sync Options
+
+#### Batch Synchronization
+- **Enable**: Check "Include Batches" to synchronize batch group information
+- **Function**: Creates Zulip user groups corresponding to LMS batch groups
+- **Membership**: Automatically adds students and mentors to appropriate groups
+- **Naming**: Groups named using batch naming convention
+
+#### Update Preferences
+- **Update Existing**: Refresh information for already synchronized users
+- **Create Missing**: Create new Zulip accounts for users not yet synced
+- **Preserve Custom**: Maintain user customizations in Zulip
+
+### Using the Admin Interface Sync
+
+#### Step 1: Configure Sync Options
+1. Select your preferred sync type (Incremental recommended for regular use)
+2. Choose whether to include batch synchronization
+3. Configure update preferences as needed
+
+#### Step 2: Initiate Synchronization
+1. Click the "Start Sync" button
+2. Monitor the real-time progress bar
+3. Watch live statistics updates:
+   - **Created**: New users added to Zulip
+   - **Updated**: Existing users refreshed
+   - **Skipped**: Users that didn't need changes
+   - **Errors**: Users that failed to sync
+
+#### Step 3: Review Results
+1. Check the completion summary for statistics
+2. Review any error messages if present
+3. Verify user counts in the dashboard
+4. Test user access and permissions
+
+### Real-Time Monitoring
+
+The admin interface provides live feedback during synchronization:
+
+- **Progress Bar**: Visual indicator showing completion percentage
+- **Status Text**: Current operation description
+- **Live Statistics**: Real-time counts of sync operations
+- **Error Tracking**: Immediate notification of any issues
+
+### Sync History
+
+The admin interface maintains a complete audit trail:
+
+- **Sync Records**: All synchronization operations are logged
+- **Duration Tracking**: Time taken for each sync operation
+- **Result Analysis**: Success rates and error patterns
+- **User Impact**: Detailed statistics for each sync
+
+### Individual User Management
+
+#### User Table Features
+- **Searchable**: Find users by name, email, or LMS ID
+- **Filterable**: Filter by user type (student/mentor) or sync status
+- **Sortable**: Sort by any column for easy management
+- **Paginated**: Navigate through large user lists efficiently
+
+#### Individual User Actions
+- **Resync User**: Manually resynchronize specific user data
+- **View Details**: Access detailed user information and sync history
+- **Update Status**: Modify user sync status or preferences
+
+### Troubleshooting Sync Issues
+
+#### Common Admin Interface Issues
+
+**Sync Button Disabled**
+- Verify administrator permissions
+- Check LMS database connectivity
+- Ensure no other sync operations are running
+
+**Progress Not Updating**
+- Check browser console for JavaScript errors
+- Verify API endpoint connectivity
+- Refresh the page and retry
+
+**Incomplete Sync Results**
+- Review error messages in the interface
+- Check LMS database for data issues
+- Verify Zulip user creation permissions
+
+#### Using Logs for Debugging
+1. Navigate to the "Logs" tab in the admin interface
+2. Filter logs by source="sync" and level="ERROR"
+3. Review detailed error messages and stack traces
+4. Use log search functionality to find specific issues
+
+### Best Practices for Admin Interface Sync
+
+#### Regular Operations
+1. **Use Incremental Sync**: For daily operations to minimize resource usage
+2. **Schedule Full Sync**: Run comprehensive sync weekly or monthly
+3. **Monitor Progress**: Always monitor sync operations for issues
+4. **Review Logs**: Regularly check logs for warning signs
+
+#### Data Management
+1. **Backup Before Major Sync**: Create backups before full synchronization
+2. **Test Configuration**: Use database test tools before syncing
+3. **Validate Results**: Always verify sync results in the dashboard
+4. **Document Changes**: Keep records of major sync operations
+
+#### Performance Optimization
+1. **Off-Peak Timing**: Run large sync operations during low-usage periods
+2. **Batch Size**: Configure appropriate batch sizes for your system
+3. **Resource Monitoring**: Monitor system resources during sync operations
+4. **Network Bandwidth**: Consider network impact for large synchronizations
 
 ## Daily Morning Sync
 

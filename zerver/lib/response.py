@@ -112,8 +112,13 @@ def json_response(
     )
 
 
-def json_success(request: HttpRequest, data: Mapping[str, Any] = {}) -> MutableJsonResponse:
+def json_success(request: HttpRequest | None = None, data: Mapping[str, Any] = {}) -> MutableJsonResponse:
     return json_response(data=data)
+
+
+def json_error(msg: str, status: int = 400) -> MutableJsonResponse:
+    """Return a JSON error response with the given message and status code."""
+    return json_response(res_type="error", msg=msg, status=status)
 
 
 def json_response_from_error(exception: JsonableError) -> MutableJsonResponse:

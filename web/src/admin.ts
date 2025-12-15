@@ -18,6 +18,7 @@ import type {AllNotifications} from "./settings_config.ts";
 import * as settings_config from "./settings_config.ts";
 import * as settings_data from "./settings_data.ts";
 import * as settings_invites from "./settings_invites.ts";
+import * as settings_lms_integration from "./settings_lms_integration.ts";
 import * as settings_org from "./settings_org.ts";
 import * as settings_panel_menu from "./settings_panel_menu.ts";
 import * as settings_sections from "./settings_sections.ts";
@@ -297,6 +298,7 @@ export function build_page(): void {
 
     settings_bots.update_bot_settings_tip($("#admin-bot-settings-tip"));
     settings_invites.update_invite_user_panel();
+    settings_lms_integration.lms_integration_admin_init();
     insert_tip_box();
 
     if (realm.demo_organization_scheduled_deletion_date && current_user.is_admin) {

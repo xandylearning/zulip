@@ -426,6 +426,20 @@ LMS_EVENT_TYPES_TO_MONITOR = get_config("lms_activity_monitor", "event_types", [
     'content_started', 'content_completed', 'content_watched'
 ])
 
+# TestPress Integration Settings
+TESTPRESS_API_BASE_URL = get_config("testpress", "api_base_url", "https://learn.xandylearning.com/api/v2.5/")
+TESTPRESS_TOKEN_CACHE_SECONDS = get_config("testpress", "token_cache_seconds", 300)
+TESTPRESS_REQUEST_TIMEOUT = get_config("testpress", "request_timeout", 10)
+
+# Enable TestPress JWT Authentication Backend
+TESTPRESS_JWT_ENABLED = get_config("testpress", "jwt_auth_enabled", True)
+if TESTPRESS_JWT_ENABLED:
+    AUTHENTICATION_BACKENDS += ("lms_integration.auth_backend.TestPressJWTAuthBackend",)
+
+# LMS User Sync Settings
+LMS_WEBHOOK_SECRET = get_secret("lms_webhook_secret")
+LMS_USER_SYNC_REALM = get_config("lms_user_sync", "realm", None)
+
 ########################################################################
 # RABBITMQ CONFIGURATION
 ########################################################################

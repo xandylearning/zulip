@@ -5,13 +5,14 @@ This guide helps you diagnose and resolve common issues with the LMS Activity Ev
 ## Table of Contents
 
 1. [Common Issues](#common-issues)
-2. [Database Issues](#database-issues)
-3. [Notification Issues](#notification-issues)
-4. [Performance Issues](#performance-issues)
-5. [Configuration Issues](#configuration-issues)
-6. [Debugging Tools](#debugging-tools)
-7. [Log Analysis](#log-analysis)
-8. [Recovery Procedures](#recovery-procedures)
+2. [Admin Interface Issues](#admin-interface-issues)
+3. [Database Issues](#database-issues)
+4. [Notification Issues](#notification-issues)
+5. [Performance Issues](#performance-issues)
+6. [Configuration Issues](#configuration-issues)
+7. [Debugging Tools](#debugging-tools)
+8. [Log Analysis](#log-analysis)
+9. [Recovery Procedures](#recovery-procedures)
 
 ## Common Issues
 
@@ -94,6 +95,313 @@ python manage.py shell
 >>> from lms_integration.models import Attempts
 >>> Attempts.objects.using('lms_db').filter(date__gte=timezone.now() - timedelta(hours=1)).count()
 ```
+
+## Admin Interface Issues
+
+### Admin Tab Not Visible
+
+#### Symptoms
+- LMS Integration tab missing from Zulip settings
+- "Permission denied" when accessing settings
+- Admin interface returns 404 errors
+
+#### Solutions
+
+1. **Verify Administrator Privileges**
+   ```bash
+   # Check user permissions
+   python manage.py shell -c "
+   from django.contrib.auth.models import User
+   user = User.objects.get(email='your-admin@example.com')
+   print(f'Is superuser: {user.is_superuser}')
+   print(f'Is staff: {user.is_staff}')
+   print(f'Is active: {user.is_active}')
+   "
+   ```
+
+2. **Check LMS Integration Installation**
+   ```bash
+   # Verify LMS integration is properly installed
+   python manage.py shell -c "
+   import lms_integration
+   from django.conf import settings
+   print('LMS Integration installed successfully')
+   print(f'INSTALLED_APPS includes lms_integration: {\"lms_integration\" in settings.INSTALLED_APPS}')
+   "
+   ```
+
+3. **Verify Frontend Assets**
+   ```bash
+   # Check if frontend files exist
+   ls -la web/src/settings_lms_integration.ts
+   ls -la web/templates/settings/lms_integration_admin.hbs
+
+   # Check if assets are built
+   ls -la static/js/settings_lms_integration.js
+   ```
+
+4. **Rebuild Frontend Assets**
+   ```bash
+   # Navigate to Zulip root and rebuild
+   cd /srv/zulip
+   npm run build:dev
+
+   # For production
+   npm run build
+   ```
+
+### Dashboard Loading Issues
+
+#### Symptoms
+- Dashboard shows "Loading..." indefinitely
+- Status badge shows "Disconnected" despite working system
+- Statistics cards display "—" for all values
+
+#### Solutions
+
+1. **Check API Endpoint Accessibility**
+   ```bash
+   # Test dashboard API endpoint
+   curl -H "Authorization: Bearer <admin_token>" \
+        -H "Content-Type: application/json" \
+        https://your-zulip-domain.com/api/v1/lms/admin/dashboard/status
+   ```
+
+2. **Verify Database Connectivity**
+   ```bash
+   # Test LMS database connection
+   python manage.py shell -c "
+   from django.db import connections
+   try:
+       db = connections['lms_db']
+       cursor = db.cursor()
+       cursor.execute('SELECT 1')
+       print('LMS database connection successful')
+   except Exception as e:
+       print(f'Database connection failed: {e}')
+   "
+   ```
+
+3. **Check JavaScript Console Errors**
+   - Open browser developer tools (F12)
+   - Navigate to Console tab
+   - Look for JavaScript errors related to LMS integration
+   - Common errors:
+     - "Failed to load resource" (API endpoint issues)
+     - "Unauthorized" (authentication problems)
+     - "TypeError" (data structure issues)
+
+### User Sync Issues in Admin Interface
+
+#### Symptoms
+- Sync button appears disabled or unresponsive
+- Sync progress bar doesn't update
+- Sync completes but no users are shown
+
+#### Solutions
+
+1. **Check Sync Permissions**
+   ```bash
+   # Verify sync endpoint permissions
+   curl -X POST \
+        -H "Authorization: Bearer <admin_token>" \
+        -H "Content-Type: application/json" \
+        -d '{"sync_type": "incremental", "sync_batches": false}' \
+        https://your-zulip-domain.com/api/v1/lms/admin/users/sync
+   ```
+
+2. **Monitor Sync Progress**
+   ```bash
+   # Watch sync logs in real-time
+   tail -f /var/log/zulip/lms_integration.log
+
+   # Check for sync-related errors
+   grep -i "sync" /var/log/zulip/errors.log
+   ```
+
+3. **Verify Database Query Performance**
+   ```python
+   # Test sync queries manually
+   python manage.py shell
+   >>> from lms_integration.user_sync import UserSynchronizer
+   >>> sync = UserSynchronizer()
+   >>> # Test student query
+   >>> students = sync.get_students_from_lms()
+   >>> print(f"Found {len(students)} students")
+   ```
+
+### Activity Monitoring Tab Issues
+
+#### Symptoms
+- Activity events table empty despite system activity
+- Event details modals fail to open
+- Filter controls not working
+
+#### Solutions
+
+1. **Check Activity Polling Status**
+   ```bash
+   # Verify activity monitoring is running
+   python manage.py shell -c "
+   from django.conf import settings
+   print(f'Activity monitoring enabled: {settings.LMS_ACTIVITY_MONITOR_ENABLED}')
+   "
+
+   # Test manual activity poll
+   python manage.py monitor_lms_activities --once
+   ```
+
+2. **Verify Activity Event Data**
+   ```python
+   # Check if events exist in database
+   python manage.py shell
+   >>> from lms_integration.models import LMSActivityEvent
+   >>> event_count = LMSActivityEvent.objects.count()
+   >>> print(f"Total events in database: {event_count}")
+   >>>
+   >>> # Check recent events
+   >>> recent = LMSActivityEvent.objects.order_by('-timestamp')[:5]
+   >>> for event in recent:
+   ...     print(f"{event.timestamp}: {event.event_type} - {event.student_username}")
+   ```
+
+3. **Test Event Detail API**
+   ```bash
+   # Test event details endpoint
+   EVENT_ID=123  # Replace with actual event ID
+   curl -H "Authorization: Bearer <admin_token>" \
+        https://your-zulip-domain.com/api/v1/lms/admin/activities/events/$EVENT_ID
+   ```
+
+### Configuration Tab Problems
+
+#### Symptoms
+- Configuration form fields not saving
+- Database test button not working
+- JWT test fails despite correct configuration
+
+#### Solutions
+
+1. **Verify Configuration API**
+   ```bash
+   # Test configuration get endpoint
+   curl -H "Authorization: Bearer <admin_token>" \
+        https://your-zulip-domain.com/api/v1/lms/admin/config/get
+
+   # Test configuration update
+   curl -X POST \
+        -H "Authorization: Bearer <admin_token>" \
+        -H "Content-Type: application/json" \
+        -d '{"lms_enabled": true, "poll_interval": 60}' \
+        https://your-zulip-domain.com/api/v1/lms/admin/config/update
+   ```
+
+2. **Check Database Test Functionality**
+   ```bash
+   # Test database connection endpoint
+   curl -X POST \
+        -H "Authorization: Bearer <admin_token>" \
+        https://your-zulip-domain.com/api/v1/lms/admin/config/test-db
+   ```
+
+3. **Verify Configuration Storage**
+   ```python
+   # Check if configuration is properly stored
+   python manage.py shell
+   >>> from zerver.models import Realm
+   >>> from zproject.config import get_config
+   >>>
+   >>> # Check configuration values
+   >>> realm = Realm.objects.first()
+   >>> print(f"LMS enabled: {get_config('LMS_ACTIVITY_MONITOR_ENABLED')}")
+   ```
+
+### Log Viewer Issues
+
+#### Symptoms
+- Log table shows "No logs found" despite system activity
+- Log filtering not working
+- Log export download fails
+
+#### Solutions
+
+1. **Verify Log Generation**
+   ```bash
+   # Check log files exist
+   ls -la /var/log/zulip/lms_integration.log
+   ls -la /var/log/zulip/lms_activities.log
+
+   # Check log content
+   tail -20 /var/log/zulip/lms_integration.log
+   ```
+
+2. **Test Log API Endpoints**
+   ```bash
+   # Test logs endpoint
+   curl -H "Authorization: Bearer <admin_token>" \
+        "https://your-zulip-domain.com/api/v1/lms/admin/logs?page=1&level=INFO"
+
+   # Test log details
+   LOG_ID=456  # Replace with actual log ID
+   curl -H "Authorization: Bearer <admin_token>" \
+        "https://your-zulip-domain.com/api/v1/lms/admin/logs/$LOG_ID"
+   ```
+
+3. **Check Log Database Storage**
+   ```python
+   # Verify logs are stored in database
+   python manage.py shell
+   >>> from lms_integration.models import LMSEventLog
+   >>> log_count = LMSEventLog.objects.count()
+   >>> print(f"Total logs in database: {log_count}")
+   ```
+
+### Performance Issues in Admin Interface
+
+#### Symptoms
+- Admin interface loads slowly
+- Large delays when switching tabs
+- Browser becomes unresponsive during operations
+
+#### Solutions
+
+1. **Optimize Database Queries**
+   ```sql
+   -- Add missing indexes for admin interface
+   CREATE INDEX IF NOT EXISTS lms_events_dashboard_idx
+   ON lms_activity_events (created_at, event_type);
+
+   CREATE INDEX IF NOT EXISTS lms_logs_admin_idx
+   ON lms_event_logs (processed_at, source);
+   ```
+
+2. **Enable Caching**
+   ```python
+   # Add to settings.py
+   CACHES = {
+       'default': {
+           'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+           'LOCATION': 'redis://127.0.0.1:6379/1',
+       }
+   }
+
+   # LMS admin specific caching
+   LMS_ADMIN_CACHE_TIMEOUT = 300  # 5 minutes
+   ```
+
+3. **Monitor Resource Usage**
+   ```bash
+   # Monitor system resources during admin usage
+   top -p $(pgrep -f "zulip")
+
+   # Check database performance
+   sudo -u postgres psql zulip -c "
+   SELECT query, mean_time, calls
+   FROM pg_stat_statements
+   WHERE query LIKE '%lms_%'
+   ORDER BY mean_time DESC LIMIT 10;
+   "
+   ```
 
 ### Notifications Not Being Sent
 

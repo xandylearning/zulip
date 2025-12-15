@@ -8,9 +8,10 @@ This guide provides step-by-step instructions for installing and configuring the
 2. [Installation Steps](#installation-steps)
 3. [Configuration](#configuration)
 4. [Database Setup](#database-setup)
-5. [Testing](#testing)
-6. [Production Deployment](#production-deployment)
-7. [Troubleshooting](#troubleshooting)
+5. [Admin Interface Setup](#admin-interface-setup)
+6. [Testing](#testing)
+7. [Production Deployment](#production-deployment)
+8. [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -278,6 +279,299 @@ CREATE INDEX lms_activit_student_c7a329_idx ON lms_activity_events (student_id);
 CREATE INDEX lms_activit_event_t_ff9bbf_idx ON lms_activity_events (event_type);
 CREATE INDEX lms_activit_timesta_bcc866_idx ON lms_activity_events (timestamp);
 CREATE INDEX lms_activit_process_19da29_idx ON lms_activity_events (processed_for_ai);
+```
+
+## Admin Interface Setup
+
+The LMS Integration system includes a comprehensive admin interface that provides web-based management and monitoring capabilities.
+
+### Frontend Dependencies
+
+Install required frontend dependencies:
+
+```bash
+# Navigate to Zulip root directory
+cd /srv/zulip
+
+# Install TypeScript dependencies (if not already installed)
+npm install
+
+# Build frontend assets
+npm run build:dev
+```
+
+### Template Integration
+
+The admin interface is automatically integrated into Zulip's settings panel. Ensure the following files are properly installed:
+
+#### Backend Templates
+```bash
+# Verify admin template exists
+ls -la web/templates/settings/lms_integration_admin.hbs
+
+# Verify main settings template includes LMS integration
+grep -n "lms_integration" web/templates/settings_overlay.hbs
+```
+
+#### Frontend Assets
+```bash
+# Verify TypeScript module exists
+ls -la web/src/settings_lms_integration.ts
+
+# Verify integration in admin.ts
+grep -n "lms_integration" web/src/admin.ts
+```
+
+### Access Configuration
+
+#### Administrator Permissions
+
+Ensure the admin interface is accessible to administrators:
+
+```python
+# In your Zulip settings (zproject/settings.py)
+# Verify LMS integration is enabled in INSTALLED_APPS
+INSTALLED_APPS = [
+    # ... other apps
+    'lms_integration',
+    # ... rest of apps
+]
+
+# Admin interface settings
+LMS_ADMIN_INTERFACE_ENABLED = True
+```
+
+#### URL Configuration
+
+The admin interface routes are automatically included when LMS integration is enabled:
+
+```python
+# Verify in lms_integration/urls.py
+urlpatterns = [
+    # Admin API endpoints
+    path('api/v1/lms/admin/', include('lms_integration.admin_urls')),
+    # ... other patterns
+]
+```
+
+### Initial Admin Setup
+
+#### 1. Access the Admin Interface
+
+1. Log into Zulip as an administrator
+2. Click the gear icon (⚙️) in the top navigation
+3. Select "Organization settings"
+4. Click the "LMS Integration" tab
+
+If the tab doesn't appear, verify:
+- LMS integration is properly installed
+- Your account has administrator privileges
+- Frontend assets have been built
+
+#### 2. Initial Configuration
+
+Complete the initial setup through the admin interface:
+
+##### Database Configuration
+1. Navigate to the "Configuration" tab
+2. Enter LMS database connection details:
+   - **Host**: Your LMS database hostname
+   - **Port**: Database port (usually 5432)
+   - **Database Name**: LMS database name
+   - **Username**: Read-only database user
+   - **Password**: Database password
+
+3. Click "Test Database Connection" to verify connectivity
+
+##### System Settings
+1. Enable LMS Integration: ✅ Checked
+2. Set Poll Interval: 60 seconds (recommended)
+3. Enable Activity Monitoring: ✅ Checked
+4. Enable Mentor Notifications: ✅ Checked
+
+#### 3. Verify Admin Interface Functionality
+
+##### Dashboard Test
+1. Navigate to the "Dashboard" tab
+2. Verify status badge shows "Connected" (green)
+3. Check that statistics load properly
+4. Confirm last sync and activity times are displayed
+
+##### User Sync Test
+1. Navigate to the "User Sync" tab
+2. Select "Incremental" sync type
+3. Click "Start Sync" button
+4. Monitor progress in real-time
+5. Verify sync completion statistics
+
+##### Activity Monitoring Test
+1. Navigate to the "Activity Monitoring" tab
+2. Click "Poll Activities" button
+3. Verify events are detected and displayed
+4. Test event details modal functionality
+
+### Admin Interface Customization
+
+#### Branding and Styling
+
+Customize the admin interface appearance:
+
+```css
+/* Add to web/styles/admin.css */
+.lms-integration-admin {
+    /* Custom styling for LMS admin interface */
+    --primary-color: #your-brand-color;
+}
+
+.lms-status-badge.connected {
+    background-color: var(--success-color);
+}
+
+.lms-integration-tabs .nav-link.active {
+    border-bottom: 2px solid var(--primary-color);
+}
+```
+
+#### Feature Configuration
+
+Control which admin features are available:
+
+```python
+# In your settings.py
+LMS_ADMIN_FEATURES = {
+    'dashboard': True,
+    'user_sync': True,
+    'activity_monitoring': True,
+    'batch_management': True,
+    'configuration': True,
+    'logs': True,
+}
+
+# Disable specific features if needed
+LMS_ADMIN_FEATURES['batch_management'] = False
+```
+
+### Security Configuration
+
+#### Admin Access Control
+
+Ensure proper access control for the admin interface:
+
+```python
+# In lms_integration/views.py (already implemented)
+@require_http_methods(["GET"])
+@admin_required
+def admin_dashboard(request):
+    # Admin interface views require administrator privileges
+    pass
+```
+
+#### API Security
+
+The admin REST API includes security measures:
+
+- **Authentication Required**: All endpoints require valid administrator authentication
+- **CSRF Protection**: POST requests include CSRF token validation
+- **Rate Limiting**: API calls are rate-limited to prevent abuse
+- **Input Validation**: All input parameters are validated and sanitized
+
+#### Audit Logging
+
+Admin actions are automatically logged:
+
+```python
+# Verify audit logging is enabled
+LMS_ADMIN_AUDIT_LOGGING = True
+
+# Check audit logs
+python manage.py shell
+>>> from lms_integration.models import LMSEventLog
+>>> # View recent admin actions
+>>> logs = LMSEventLog.objects.filter(source='admin').order_by('-created_at')[:10]
+```
+
+### Performance Optimization
+
+#### Database Optimization
+
+Ensure optimal database performance for the admin interface:
+
+```sql
+-- Add additional indexes for admin queries
+CREATE INDEX lms_events_admin_dashboard_idx ON lms_activity_events (created_at, event_type);
+CREATE INDEX lms_sync_history_idx ON lms_sync_history (started_at);
+CREATE INDEX lms_logs_admin_idx ON lms_event_logs (processed_at, error_message);
+```
+
+#### Caching Configuration
+
+Enable caching for improved admin interface performance:
+
+```python
+# In your settings.py
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
+    }
+}
+
+# LMS admin interface caching
+LMS_ADMIN_CACHE_TIMEOUT = 300  # 5 minutes
+```
+
+#### Frontend Optimization
+
+Optimize frontend performance:
+
+```javascript
+// Ensure admin interface uses efficient loading
+// Already implemented in settings_lms_integration.ts
+const debounce = (func, delay) => {
+    // Debounced search to reduce API calls
+};
+```
+
+### Troubleshooting Admin Interface Issues
+
+#### Common Setup Issues
+
+**Admin Tab Not Visible**
+```bash
+# Check if LMS integration is properly installed
+python manage.py shell -c "import lms_integration; print('LMS Integration installed')"
+
+# Verify admin user permissions
+python manage.py shell -c "
+from django.contrib.auth.models import User
+user = User.objects.get(email='your-admin@example.com')
+print(f'Is superuser: {user.is_superuser}')
+print(f'Is staff: {user.is_staff}')
+"
+```
+
+**Frontend Assets Not Loading**
+```bash
+# Rebuild frontend assets
+npm run build:dev
+
+# Check for TypeScript compilation errors
+npm run lint
+
+# Verify admin.ts includes LMS integration
+grep -n "lms_integration" web/src/admin.ts
+```
+
+**Database Connection Issues**
+```bash
+# Test database connection manually
+python manage.py shell -c "
+from django.db import connections
+db = connections['lms_db']
+cursor = db.cursor()
+cursor.execute('SELECT 1')
+print('LMS database connection successful')
+"
 ```
 
 ## Testing

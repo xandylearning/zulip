@@ -745,3 +745,9 @@ SCIM_CONFIG: dict[str, SCIMConfigDict] = {}
 # Minimum number of subscribers in a channel for us to no longer
 # send full subscriber data to the client.
 MIN_PARTIAL_SUBSCRIBERS_CHANNEL_SIZE = 1000
+
+# LMS User Sync Configuration
+# Secret token for webhook authentication (stored in secrets file)
+LMS_WEBHOOK_SECRET: str | None = None
+# Realm string_id for user sync (optional, defaults to first realm)
+LMS_USER_SYNC_REALM: str | None = None

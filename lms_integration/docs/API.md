@@ -10,8 +10,9 @@ This document provides comprehensive API documentation for the LMS Activity Even
 4. [Message Formatter API](#message-formatter-api)
 5. [User Mapper API](#user-mapper-api)
 6. [Management Command API](#management-command-api)
-7. [Database Queries](#database-queries)
-8. [Configuration API](#configuration-api)
+7. [Admin REST API](#admin-rest-api)
+8. [Database Queries](#database-queries)
+9. [Configuration API](#configuration-api)
 
 ## Models API
 
@@ -449,6 +450,530 @@ python manage.py monitor_lms_activities --stats
 # Enable verbose logging
 python manage.py monitor_lms_activities --daemon --verbose
 ```
+
+## Admin REST API
+
+The LMS Integration system provides a comprehensive REST API for the admin interface. All endpoints require administrator authentication and return JSON responses.
+
+### Dashboard Endpoints
+
+#### Get Dashboard Status
+
+```http
+GET /api/v1/lms/admin/dashboard/status
+```
+
+Returns system status and statistics for the dashboard.
+
+**Response:**
+```json
+{
+    "data": {
+        "total_synced_users": 1234,
+        "total_students": 890,
+        "total_mentors": 344,
+        "total_batches": 25,
+        "last_sync_time": "2024-01-15T14:30:00Z",
+        "last_activity_check": "2024-01-15T14:35:00Z",
+        "pending_notifications": 5,
+        "monitor_status": "running",
+        "events_today": 147,
+        "notifications_sent": 142
+    }
+}
+```
+
+### User Synchronization Endpoints
+
+#### Start User Sync
+
+```http
+POST /api/v1/lms/admin/users/sync
+Content-Type: application/json
+
+{
+    "sync_type": "incremental",  // "incremental", "full", or "selective"
+    "sync_batches": true
+}
+```
+
+Initiates user synchronization process.
+
+**Response:**
+```json
+{
+    "stats": {
+        "created": 25,
+        "updated": 134,
+        "skipped": 890,
+        "errors": 2,
+        "batches_synced": 5
+    }
+}
+```
+
+#### Get Synced Users List
+
+```http
+GET /api/v1/lms/admin/users/list?page=1&user_type=student&search=john
+```
+
+**Query Parameters:**
+- `page`: Page number (default: 1)
+- `user_type`: Filter by user type (`student`, `mentor`)
+- `search`: Search by name or email
+
+**Response:**
+```json
+{
+    "users": [
+        {
+            "id": 123,
+            "name": "John Doe",
+            "email": "john.doe@example.com",
+            "type": "student",
+            "lms_id": "LMS001",
+            "last_sync": "2024-01-15T10:30:00Z",
+            "status": "active"
+        }
+    ],
+    "pagination": {
+        "current_page": 1,
+        "total_pages": 15,
+        "total_count": 1234,
+        "per_page": 25
+    }
+}
+```
+
+#### Get Sync History
+
+```http
+GET /api/v1/lms/admin/sync/history?page=1
+```
+
+**Response:**
+```json
+{
+    "history": [
+        {
+            "started_at": "2024-01-15T14:30:00Z",
+            "sync_type": "incremental",
+            "status": "success",
+            "users_created": 5,
+            "users_updated": 25,
+            "users_skipped": 890,
+            "users_errors": 0,
+            "duration_seconds": 45
+        }
+    ],
+    "pagination": {
+        "current_page": 1,
+        "total_pages": 5,
+        "total_count": 123
+    }
+}
+```
+
+#### Resync Individual User
+
+```http
+POST /api/v1/lms/admin/users/{user_id}/resync
+```
+
+Resynchronizes a specific user from the LMS.
+
+### Activity Monitoring Endpoints
+
+#### Poll Activities
+
+```http
+POST /api/v1/lms/admin/activities/poll
+```
+
+Manually trigger activity polling.
+
+**Response:**
+```json
+{
+    "new_events_count": 12
+}
+```
+
+#### Process Pending Events
+
+```http
+POST /api/v1/lms/admin/activities/process-pending
+```
+
+Process pending notification events.
+
+**Response:**
+```json
+{
+    "processed_count": 8
+}
+```
+
+#### Get Activity Events
+
+```http
+GET /api/v1/lms/admin/activities/events?page=1&event_type=exam_passed&search=john
+```
+
+**Query Parameters:**
+- `page`: Page number
+- `event_type`: Filter by event type
+- `search`: Search by student name or activity title
+
+**Response:**
+```json
+{
+    "events": [
+        {
+            "id": 456,
+            "timestamp": "2024-01-15T14:25:00Z",
+            "event_type": "exam_passed",
+            "student_username": "john_doe",
+            "activity_title": "Mathematics Final Exam",
+            "notification_status": "sent"
+        }
+    ],
+    "pagination": {
+        "current_page": 1,
+        "total_pages": 8,
+        "total_count": 789
+    }
+}
+```
+
+#### Get Event Details
+
+```http
+GET /api/v1/lms/admin/activities/events/{event_id}
+```
+
+**Response:**
+```json
+{
+    "event": {
+        "id": 456,
+        "event_type": "exam_passed",
+        "student_username": "john_doe",
+        "activity_title": "Mathematics Final Exam",
+        "timestamp": "2024-01-15T14:25:00Z",
+        "notification_status": "sent",
+        "notification_sent_at": "2024-01-15T14:26:00Z",
+        "retry_count": 0,
+        "event_data": {
+            "score": 85,
+            "percentage": 85,
+            "result": "pass"
+        }
+    }
+}
+```
+
+#### Retry Notification
+
+```http
+POST /api/v1/lms/admin/activities/events/{event_id}/retry
+```
+
+Retry a failed notification.
+
+### Batch Management Endpoints
+
+#### Get Batch Groups
+
+```http
+GET /api/v1/lms/admin/batches/list?page=1
+```
+
+**Response:**
+```json
+{
+    "batches": [
+        {
+            "id": 789,
+            "batch_name": "Spring 2024 Batch A",
+            "zulip_group_exists": true,
+            "zulip_group_name": "spring-2024-a",
+            "student_count": 25,
+            "mentor_count": 3,
+            "last_sync": "2024-01-15T10:00:00Z",
+            "status": "active"
+        }
+    ],
+    "pagination": {
+        "current_page": 1,
+        "total_pages": 3,
+        "total_count": 25
+    }
+}
+```
+
+#### Get Batch Details
+
+```http
+GET /api/v1/lms/admin/batches/{batch_id}
+```
+
+**Response:**
+```json
+{
+    "batch": {
+        "id": 789,
+        "batch_name": "Spring 2024 Batch A",
+        "description": "Advanced programming batch for spring semester",
+        "status": "active",
+        "created_at": "2024-01-01T00:00:00Z",
+        "last_sync": "2024-01-15T10:00:00Z",
+        "zulip_group_exists": true,
+        "zulip_group_name": "spring-2024-a",
+        "student_count": 25,
+        "mentor_count": 3,
+        "active_users_count": 22,
+        "last_activity": "2024-01-15T13:45:00Z",
+        "students": [
+            {
+                "name": "John Doe",
+                "email": "john.doe@example.com",
+                "status": "active"
+            }
+        ],
+        "mentors": [
+            {
+                "name": "Jane Smith",
+                "email": "jane.smith@example.com",
+                "status": "active"
+            }
+        ]
+    }
+}
+```
+
+#### Create Batch Group
+
+```http
+POST /api/v1/lms/admin/batches/create
+Content-Type: application/json
+
+{
+    "batch_name": "New Batch",
+    "description": "Description of the new batch",
+    "student_ids": ["123", "124", "125"],
+    "mentor_ids": ["200", "201"]
+}
+```
+
+#### Sync Individual Batch
+
+```http
+POST /api/v1/lms/admin/batches/{batch_id}/sync
+```
+
+**Response:**
+```json
+{
+    "stats": {
+        "users_synced": 25,
+        "groups_updated": 1
+    }
+}
+```
+
+### Configuration Endpoints
+
+#### Get Configuration
+
+```http
+GET /api/v1/lms/admin/config/get
+```
+
+**Response:**
+```json
+{
+    "lms_enabled": true,
+    "lms_db_host": "lms.example.com",
+    "lms_db_port": 5432,
+    "lms_db_name": "lms_prod",
+    "lms_db_username": "lms_readonly",
+    "lms_db_password_set": true,
+    "jwt_enabled": true,
+    "testpress_api_url": "https://api.testpress.in",
+    "activity_monitor_enabled": true,
+    "poll_interval": 60,
+    "notify_mentors": true,
+    "webhook_secret_set": true,
+    "webhook_endpoint_url": "https://zulip.example.com/api/v1/external/lms/webhook"
+}
+```
+
+#### Update Configuration
+
+```http
+POST /api/v1/lms/admin/config/update
+Content-Type: application/json
+
+{
+    "lms_enabled": true,
+    "lms_db_host": "lms.example.com",
+    "lms_db_port": 5432,
+    "lms_db_name": "lms_prod",
+    "lms_db_username": "lms_readonly",
+    "lms_db_password": "new_password",
+    "jwt_enabled": true,
+    "testpress_api_url": "https://api.testpress.in",
+    "activity_monitor_enabled": true,
+    "poll_interval": 60,
+    "notify_mentors": true,
+    "webhook_secret": "new_secret"
+}
+```
+
+#### Test Database Connection
+
+```http
+POST /api/v1/lms/admin/config/test-db
+```
+
+**Response:**
+```json
+{
+    "message": "Database connection successful",
+    "details": {
+        "students_available": 1234,
+        "mentors_available": 456
+    }
+}
+```
+
+#### Test JWT Configuration
+
+```http
+POST /api/v1/lms/admin/config/test-jwt
+```
+
+**Response:**
+```json
+{
+    "message": "JWT configuration valid",
+    "details": {
+        "token_valid": true,
+        "expires_at": "2024-02-15T14:30:00Z"
+    }
+}
+```
+
+### Logging Endpoints
+
+#### Get Logs
+
+```http
+GET /api/v1/lms/admin/logs?page=1&level=ERROR&source=sync
+```
+
+**Query Parameters:**
+- `page`: Page number
+- `level`: Log level filter (`DEBUG`, `INFO`, `WARNING`, `ERROR`)
+- `source`: Log source filter (`sync`, `webhook`, `auth`, etc.)
+
+**Response:**
+```json
+{
+    "logs": [
+        {
+            "id": 123,
+            "timestamp": "2024-01-15T14:30:00Z",
+            "level": "ERROR",
+            "source": "sync",
+            "message": "Failed to sync user data",
+            "details": "Detailed error information..."
+        }
+    ],
+    "error_counts": {
+        "sync_errors": 5,
+        "webhook_errors": 2,
+        "auth_errors": 1
+    },
+    "pagination": {
+        "current_page": 1,
+        "total_pages": 10,
+        "total_count": 245
+    }
+}
+```
+
+#### Get Log Details
+
+```http
+GET /api/v1/lms/admin/logs/{log_id}
+```
+
+**Response:**
+```json
+{
+    "log": {
+        "id": 123,
+        "timestamp": "2024-01-15T14:30:00Z",
+        "level": "ERROR",
+        "source": "sync",
+        "message": "Failed to sync user data",
+        "user_id": 456,
+        "request_id": "req-789",
+        "details": "Detailed error information...",
+        "stack_trace": "Stack trace information...",
+        "context": {
+            "user_id": 456,
+            "sync_type": "incremental"
+        }
+    }
+}
+```
+
+#### Download Logs
+
+```http
+GET /api/v1/lms/admin/logs/download?format=csv&level=ERROR&source=sync
+```
+
+Downloads logs in CSV format with optional filtering.
+
+### Error Handling
+
+All admin API endpoints return consistent error responses:
+
+```json
+{
+    "error": "Invalid request",
+    "message": "Detailed error message",
+    "code": "INVALID_SYNC_TYPE"
+}
+```
+
+**Common HTTP Status Codes:**
+- `200`: Success
+- `400`: Bad Request (invalid parameters)
+- `401`: Unauthorized (authentication required)
+- `403`: Forbidden (insufficient permissions)
+- `404`: Not Found (resource not found)
+- `500`: Internal Server Error
+
+### Authentication
+
+All admin API endpoints require administrator authentication. Include the authentication token in the request headers:
+
+```http
+Authorization: Bearer <admin_token>
+```
+
+### Rate Limiting
+
+Admin API endpoints are rate-limited to prevent abuse:
+- Dashboard endpoints: 30 requests per minute
+- Configuration endpoints: 10 requests per minute
+- Bulk operations (sync): 5 requests per minute
 
 ## Database Queries
 
