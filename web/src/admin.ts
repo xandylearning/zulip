@@ -290,6 +290,14 @@ export function build_page(): void {
             information_density.get_string_display_value_for_line_height(
                 realm_user_settings_defaults.web_line_height_percent,
             ),
+        // LMS Integration default values
+        lms_enabled: false,
+        lms_db_host: "",
+        lms_db_port: 5432,
+        lms_db_name: "",
+        lms_db_username: "",
+        testpress_api_url: "",
+        poll_interval: 60,
     };
 
     const rendered_admin_tab = render_admin_tab(options);
