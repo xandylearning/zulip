@@ -8,7 +8,7 @@ The LMS integration provides three methods to sync users:
 
 1. **Admin Interface**: Web-based administration panel for interactive sync management
 2. **Daily Morning Sync**: A management command that syncs all users from LMS to Zulip
-3. **Webhook Endpoint**: An API endpoint that LMS can call when a new user is created
+3. **Webhook Endpoint**: An API endpoint that LMS can call when a new user is created 
 
 ## Admin Interface Sync
 
