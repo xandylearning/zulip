@@ -20,6 +20,7 @@ import * as settings_realm_user_settings_defaults from "./settings_realm_user_se
 import * as settings_streams from "./settings_streams.ts";
 import * as settings_user_topics from "./settings_user_topics.ts";
 import * as settings_users from "./settings_users.ts";
+import * as settings_lms_integration from "./settings_lms_integration.ts";
 
 const load_func_dict = new Map<string, () => void>(); // key is a group
 const loaded_groups = new Set();
@@ -80,6 +81,7 @@ export function initialize(): void {
         settings_realm_user_settings_defaults.set_up,
     );
     load_func_dict.set("channel-folders", settings_folders.set_up);
+    load_func_dict.set("lms-integration", settings_lms_integration.set_up);
 }
 
 export function load_settings_section(section: string): void {
@@ -118,5 +120,6 @@ export function reset_sections(): void {
     settings_muted_users.reset();
     alert_words_ui.reset();
     settings_folders.reset();
+    settings_lms_integration.reset();
     // settings_users doesn't need a reset()
 }

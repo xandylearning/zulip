@@ -21,6 +21,7 @@ from zerver.decorator import require_realm_admin, require_post
 from zerver.lib.typed_endpoint import typed_endpoint, typed_endpoint_without_parameters
 from zerver.lib.response import json_success, json_error
 from zerver.models import UserProfile, Realm
+from pydantic import Json
 
 from lms_integration.lib.user_sync import UserSync
 from lms_integration.lib.activity_monitor import ActivityMonitor
@@ -74,22 +75,29 @@ def log_admin_action(
 
 def get_or_create_lms_config(realm: Realm) -> LMSIntegrationConfig:
     """Get or create LMS configuration for a realm."""
+    # Ensure webhook_secret defaults to empty string, never None
+    webhook_secret_default = getattr(settings, 'LMS_WEBHOOK_SECRET', '') or ''
+    
     config, created = LMSIntegrationConfig.objects.get_or_create(
         realm=realm,
         defaults={
             'enabled': False,
-            'lms_db_host': getattr(settings, 'LMS_DB_HOST', ''),
+            'lms_db_host': getattr(settings, 'LMS_DB_HOST', '') or '',
             'lms_db_port': getattr(settings, 'LMS_DB_PORT', 5432),
-            'lms_db_name': getattr(settings, 'LMS_DB_NAME', ''),
-            'lms_db_username': getattr(settings, 'LMS_DB_USERNAME', ''),
-            'webhook_secret': getattr(settings, 'LMS_WEBHOOK_SECRET', ''),
+            'lms_db_name': getattr(settings, 'LMS_DB_NAME', '') or '',
+            'lms_db_username': getattr(settings, 'LMS_DB_USERNAME', '') or '',
+            'webhook_secret': webhook_secret_default,
             'jwt_enabled': getattr(settings, 'TESTPRESS_JWT_ENABLED', False),
-            'testpress_api_url': getattr(settings, 'TESTPRESS_API_BASE_URL', ''),
+            'testpress_api_url': getattr(settings, 'TESTPRESS_API_BASE_URL', '') or '',
             'activity_monitor_enabled': getattr(settings, 'LMS_ACTIVITY_MONITOR_ENABLED', False),
             'poll_interval': getattr(settings, 'LMS_ACTIVITY_POLL_INTERVAL', 60),
             'notify_mentors': getattr(settings, 'LMS_NOTIFY_MENTORS_ENABLED', True),
         }
     )
+    # Ensure existing configs also have webhook_secret set (migration safety)
+    if config.webhook_secret is None:
+        config.webhook_secret = ''
+        config.save(update_fields=['webhook_secret'])
     return config
 
 
@@ -336,9 +344,9 @@ def lms_dashboard_status(
 
         log_admin_action(realm, 'INFO', 'admin_ui', "Dashboard status requested", user_profile)
 
-        return json_success({
-            'status': 'success',
-            'data': {
+        return json_success(
+            request,
+            data={
                 'total_synced_users': total_synced_users,
                 'total_students': total_students,
                 'total_mentors': total_mentors,
@@ -352,7 +360,7 @@ def lms_dashboard_status(
                 'db_status': db_status,
                 'integration_enabled': config.enabled,
             }
-        })
+        )
 
     except Exception as e:
         log_admin_action(realm, 'ERROR', 'admin_ui', f"Dashboard status error: {e}", user_profile, exception=e)
@@ -460,18 +468,21 @@ def lms_start_user_sync(
 
             log_admin_action(realm, 'INFO', 'user_sync', success_message, user_profile, details=stats)
 
-            return json_success({
-                'status': 'success',
-                'message': success_message,
-                'stats': {
-                    **stats,
-                    'batches_synced': batch_stats.get('synced', 0),
-                    'batch_sync_error': batch_error,
-                    'start_time': start_time.isoformat(),
-                    'end_time': end_time.isoformat(),
-                    'duration_seconds': duration,
+            return json_success(
+                request,
+                data={
+                    'status': 'success',
+                    'message': success_message,
+                    'stats': {
+                        **stats,
+                        'batches_synced': batch_stats.get('synced', 0),
+                        'batch_sync_error': batch_error,
+                        'start_time': start_time.isoformat(),
+                        'end_time': end_time.isoformat(),
+                        'duration_seconds': duration,
+                    }
                 }
-            })
+            )
 
         except Exception as e:
             # Update sync history with error
@@ -570,7 +581,7 @@ def lms_get_synced_users(
     request: HttpRequest,
     user_profile: UserProfile,
     *,
-    page: int = 1,
+    page: Json[int] = 1,
     user_type: Optional[str] = None,
     search: Optional[str] = None,
 ) -> JsonResponse:
@@ -620,14 +631,17 @@ def lms_get_synced_users(
 
         log_admin_action(realm, 'INFO', 'admin_ui', f"Synced users list requested (page {page})", user_profile)
 
-        return json_success({
-            'users': users_data,
-            'total_count': paginator.count,
-            'page': page,
-            'total_pages': paginator.num_pages,
-            'has_next': page_obj.has_next(),
-            'has_previous': page_obj.has_previous(),
-        })
+        return json_success(
+            request,
+            data={
+                'users': users_data,
+                'total_count': paginator.count,
+                'page': page,
+                'total_pages': paginator.num_pages,
+                'has_next': page_obj.has_next(),
+                'has_previous': page_obj.has_previous(),
+            }
+        )
 
     except Exception as e:
         log_admin_action(realm, 'ERROR', 'admin_ui', f"Failed to get synced users: {e}", user_profile, exception=e)
@@ -641,7 +655,7 @@ def lms_get_activity_events(
     request: HttpRequest,
     user_profile: UserProfile,
     *,
-    page: int = 1,
+    page: Json[int] = 1,
     event_type: Optional[str] = None,
     search: Optional[str] = None,
 ) -> JsonResponse:
@@ -691,14 +705,17 @@ def lms_get_activity_events(
                 'processed_for_ai': event.processed_for_ai,
             })
 
-        return json_success({
-            'events': events_data,
-            'total_count': paginator.count,
-            'page': page,
-            'total_pages': paginator.num_pages,
-            'has_next': page_obj.has_next(),
-            'has_previous': page_obj.has_previous(),
-        })
+        return json_success(
+            request,
+            data={
+                'events': events_data,
+                'total_count': paginator.count,
+                'page': page,
+                'total_pages': paginator.num_pages,
+                'has_next': page_obj.has_next(),
+                'has_previous': page_obj.has_previous(),
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error getting activity events: {e}", exc_info=True)
@@ -719,20 +736,23 @@ def lms_poll_activities(
         # Poll for new activities
         new_events = activity_monitor.poll_for_new_activities()
 
-        return json_success({
-            'status': 'success',
-            'message': f'Activity polling completed. Found {len(new_events)} new events.',
-            'new_events_count': len(new_events),
-            'events': [
+        return json_success(
+            request,
+            data={
+                'status': 'success',
+                'message': f'Activity polling completed. Found {len(new_events)} new events.',
+                'new_events_count': len(new_events),
+                'events': [
                 {
                     'event_type': event.event_type,
                     'student_username': event.student_username,
                     'activity_title': event.activity_title,
                     'timestamp': event.timestamp.isoformat(),
                 }
-                for event in new_events[:10]  # Return first 10 for preview
-            ]
-        })
+                    for event in new_events[:10]  # Return first 10 for preview
+                ]
+            }
+        )
 
     except Exception as e:
         logger.error(f"Error polling activities: {e}", exc_info=True)
@@ -760,9 +780,11 @@ def lms_test_database_connection(
             student_count = Students.objects.using('lms_db').count()
             mentor_count = Mentors.objects.using('lms_db').count()
 
-            return json_success({
-                'status': 'success',
-                'message': 'Database connection successful',
+            return json_success(
+                request,
+                data={
+                    'status': 'success',
+                    'message': 'Database connection successful',
                 'details': {
                     'students_available': student_count,
                     'mentors_available': mentor_count,
@@ -837,7 +859,8 @@ def lms_update_configuration(
         if webhook_secret is not None:
             if len(webhook_secret) < 32:
                 return json_error("Webhook secret must be at least 32 characters long")
-            config.webhook_secret = webhook_secret
+            # Ensure webhook_secret is never None (use empty string instead)
+            config.webhook_secret = webhook_secret if webhook_secret else ''
             updated_settings['webhook_secret'] = "••••••••"
 
         if jwt_enabled is not None:
@@ -875,11 +898,14 @@ def lms_update_configuration(
             user_profile, details=updated_settings
         )
 
-        return json_success({
-            'status': 'success',
-            'message': 'Configuration updated successfully',
-            'updated_settings': updated_settings
-        })
+        return json_success(
+            request,
+            data={
+                'status': 'success',
+                'message': 'Configuration updated successfully',
+                'updated_settings': updated_settings
+            }
+        )
 
     except Exception as e:
         log_admin_action(realm, 'ERROR', 'configuration', f"Failed to update configuration: {e}", user_profile, exception=e)
@@ -895,7 +921,7 @@ def lms_get_logs(
     *,
     level: Optional[str] = None,
     source: Optional[str] = None,
-    page: int = 1,
+    page: Json[int] = 1,
 ) -> JsonResponse:
     """Get LMS integration logs with filtering."""
     try:
@@ -955,15 +981,18 @@ def lms_get_logs(
 
         log_admin_action(realm, 'INFO', 'admin_ui', f"Admin logs requested (page {page})", user_profile)
 
-        return json_success({
-            'logs': logs_data,
-            'total_count': paginator.count,
-            'page': page,
-            'total_pages': paginator.num_pages,
-            'has_next': page_obj.has_next(),
-            'has_previous': page_obj.has_previous(),
-            'error_counts': error_counts,
-        })
+        return json_success(
+            request,
+            data={
+                'logs': logs_data,
+                'total_count': paginator.count,
+                'page': page,
+                'total_pages': paginator.num_pages,
+                'has_next': page_obj.has_next(),
+                'has_previous': page_obj.has_previous(),
+                'error_counts': error_counts,
+            }
+        )
 
     except Exception as e:
         log_admin_action(realm, 'ERROR', 'admin_ui', f"Failed to get logs: {e}", user_profile, exception=e)
@@ -1003,7 +1032,7 @@ def lms_get_current_config(
 
         log_admin_action(realm, 'INFO', 'admin_ui', "Configuration requested", user_profile)
 
-        return json_success(config_data)
+        return json_success(request, data=config_data)
 
     except Exception as e:
         log_admin_action(realm, 'ERROR', 'admin_ui', f"Failed to get configuration: {e}", user_profile, exception=e)
@@ -1018,7 +1047,7 @@ def lms_get_sync_history(
     request: HttpRequest,
     user_profile: UserProfile,
     *,
-    page: int = 1,
+    page: Json[int] = 1,
 ) -> JsonResponse:
     """Get sync history for the realm."""
     try:
@@ -1054,14 +1083,17 @@ def lms_get_sync_history(
 
         log_admin_action(realm, 'INFO', 'admin_ui', f"Sync history requested (page {page})", user_profile)
 
-        return json_success({
-            'history': history_data,
-            'total_count': paginator.count,
-            'page': page,
-            'total_pages': paginator.num_pages,
-            'has_next': page_obj.has_next(),
-            'has_previous': page_obj.has_previous(),
-        })
+        return json_success(
+            request,
+            data={
+                'history': history_data,
+                'total_count': paginator.count,
+                'page': page,
+                'total_pages': paginator.num_pages,
+                'has_next': page_obj.has_next(),
+                'has_previous': page_obj.has_previous(),
+            }
+        )
 
     except Exception as e:
         log_admin_action(realm, 'ERROR', 'admin_ui', f"Failed to get sync history: {e}", user_profile, exception=e)
@@ -1076,7 +1108,7 @@ def lms_get_batch_groups(
     request: HttpRequest,
     user_profile: UserProfile,
     *,
-    page: int = 1,
+    page: Json[int] = 1,
 ) -> JsonResponse:
     """Get LMS batches and their Zulip group mappings."""
     try:
@@ -1127,14 +1159,17 @@ def lms_get_batch_groups(
 
         log_admin_action(realm, 'INFO', 'admin_ui', f"Batch groups requested (page {page})", user_profile)
 
-        return json_success({
-            'batches': batch_data,
-            'total_count': paginator.count,
-            'page': page,
-            'total_pages': paginator.num_pages,
-            'has_next': page_obj.has_next(),
-            'has_previous': page_obj.has_previous(),
-        })
+        return json_success(
+            request,
+            data={
+                'batches': batch_data,
+                'total_count': paginator.count,
+                'page': page,
+                'total_pages': paginator.num_pages,
+                'has_next': page_obj.has_next(),
+                'has_previous': page_obj.has_previous(),
+            }
+        )
 
     except Exception as e:
         log_admin_action(realm, 'ERROR', 'admin_ui', f"Failed to get batch groups: {e}", user_profile, exception=e)

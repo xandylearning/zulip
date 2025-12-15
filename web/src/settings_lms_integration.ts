@@ -30,12 +30,17 @@ interface Mentor {
 // Global state for the LMS integration admin interface
 let dashboard_data: any = null;
 let sync_in_progress = false;
+let initialized = false;
 
 // ===================================
 // INITIALIZATION AND TAB MANAGEMENT
 // ===================================
 
 export function initialize(): void {
+    if (initialized) {
+        return;
+    }
+    initialized = true;
     // Initialize tab switching
     $(".lms-integration-tabs .nav-link").on("click", function (e) {
         e.preventDefault();
@@ -88,9 +93,12 @@ export function initialize(): void {
     // Copy webhook URL functionality
     $("#copy-webhook-url").on("click", copy_webhook_url);
 
-    // Load initial data
-    load_dashboard_status();
-    load_current_configuration();
+    // Load initial data only if dashboard tab is visible
+    // Otherwise, data will be loaded when user navigates to the section
+    if ($("#lms-dashboard").hasClass("active") || $("#lms-dashboard").is(":visible")) {
+        load_dashboard_status();
+        load_current_configuration();
+    }
 }
 
 function switch_to_tab(tab_id: string): void {
@@ -134,10 +142,10 @@ function load_dashboard_status(): void {
     loading.make_indicator($("#lms-status-badge"));
 
     channel.get({
-        url: "/api/v1/lms/admin/dashboard/status",
+        url: "/json/lms/admin/dashboard/status",
         success(response: any) {
-            dashboard_data = response.data;
-            update_dashboard_ui(response.data);
+            dashboard_data = response;
+            update_dashboard_ui(response);
             update_status_badge("connected", "Connected");
         },
         error(xhr) {
@@ -168,7 +176,13 @@ function update_dashboard_ui(data: any): void {
 
 function update_status_badge(status: string, text: string): void {
     const $badge = $("#lms-status-badge");
-    $badge.removeClass("connected disconnected warning").addClass(status);
+    // Destroy any loading indicator first
+    loading.destroy_indicator($badge);
+    // Restore badge structure - ensure it's empty and reset styles that loading indicator might have set
+    $badge.empty();
+    $badge.css({width: "", height: "", "white-space": ""});
+    // Restore badge classes and text
+    $badge.removeClass("connected disconnected warning").addClass(`lms-status-badge ${status}`);
     $badge.text(text);
 }
 
@@ -192,7 +206,7 @@ function start_user_sync(): void {
     update_sync_progress(0, "Starting sync...");
 
     channel.post({
-        url: "/api/v1/lms/admin/users/sync",
+        url: "/json/lms/admin/users/sync",
         data: {
             sync_type,
             sync_batches,
@@ -226,10 +240,13 @@ function update_sync_progress(percentage: number, text: string): void {
 }
 
 function load_synced_users(page: number = 1): void {
+    // Ensure page is a valid positive integer
+    const pageNum = Number.isFinite(page) && Number.isInteger(page) && page > 0 ? Math.floor(page) : 1;
+    
     const user_type = $("#user-type-filter").val() as string;
     const search = $("#user-search").val() as string;
 
-    const data: any = {page};
+    const data: any = {page: pageNum};
     if (user_type) {
         data.user_type = user_type;
     }
@@ -238,11 +255,23 @@ function load_synced_users(page: number = 1): void {
     }
 
     channel.get({
-        url: "/api/v1/lms/admin/users/list",
+        url: "/json/lms/admin/users/list",
         data,
         success(response: any) {
             render_users_table(response.users);
-            update_pagination("#synced-users-table", response);
+            // Transform response to match expected pagination structure
+            const transformed_response = {
+                ...response,
+                pagination: {
+                    current_page: response.page,
+                    total_pages: response.total_pages,
+                    total_count: response.total_count,
+                    per_page: 50, // Synced users uses 50 per page
+                    has_next: response.has_next,
+                    has_previous: response.has_previous,
+                },
+            };
+            update_pagination("#synced-users-table", transformed_response);
         },
         error(xhr) {
             ui_report.error("Failed to load users", xhr, $("#lms-integration-status"));
@@ -251,12 +280,27 @@ function load_synced_users(page: number = 1): void {
 }
 
 function load_sync_history(page: number = 1): void {
+    // Ensure page is a valid positive integer
+    const pageNum = Number.isFinite(page) && Number.isInteger(page) && page > 0 ? Math.floor(page) : 1;
+    
     channel.get({
-        url: "/api/v1/lms/admin/sync/history",
-        data: {page},
+        url: "/json/lms/admin/sync/history",
+        data: {page: pageNum},
         success(response: any) {
             render_sync_history_table(response.history);
-            update_pagination("#sync-history-table", response);
+            // Transform response to match expected pagination structure
+            const transformed_response = {
+                ...response,
+                pagination: {
+                    current_page: response.page,
+                    total_pages: response.total_pages,
+                    total_count: response.total_count,
+                    per_page: 20, // Sync history uses 20 per page
+                    has_next: response.has_next,
+                    has_previous: response.has_previous,
+                },
+            };
+            update_pagination("#sync-history-table", transformed_response);
         },
         error(xhr) {
             ui_report.error("Failed to load sync history", xhr, $("#lms-integration-status"));
@@ -322,7 +366,7 @@ function poll_activities(): void {
     loading.make_indicator($("#poll-activities"));
 
     channel.post({
-        url: "/api/v1/lms/admin/activities/poll",
+        url: "/json/lms/admin/activities/poll",
         success(response: any) {
             loading.destroy_indicator($("#poll-activities"));
             const message = `Found ${response.new_events_count} new activities`;
@@ -344,7 +388,7 @@ function process_pending_events(): void {
     loading.make_indicator($("#process-pending-events"));
 
     channel.post({
-        url: "/api/v1/lms/admin/activities/process-pending",
+        url: "/json/lms/admin/activities/process-pending",
         success(response: any) {
             loading.destroy_indicator($("#process-pending-events"));
             const message = `Processed ${response.processed_count} pending events`;
@@ -363,10 +407,13 @@ function process_pending_events(): void {
 }
 
 function load_activity_events(page: number = 1): void {
+    // Ensure page is a valid positive integer
+    const pageNum = Number.isFinite(page) && Number.isInteger(page) && page > 0 ? Math.floor(page) : 1;
+    
     const event_type = $("#activity-type-filter").val() as string;
     const search = $("#activity-search").val() as string;
 
-    const data: any = {page};
+    const data: any = {page: pageNum};
     if (event_type) {
         data.event_type = event_type;
     }
@@ -375,11 +422,23 @@ function load_activity_events(page: number = 1): void {
     }
 
     channel.get({
-        url: "/api/v1/lms/admin/activities/events",
+        url: "/json/lms/admin/activities/events",
         data,
         success(response: any) {
             render_activity_events_table(response.events);
-            update_pagination("#activity-events-table", response);
+            // Transform response to match expected pagination structure
+            const transformed_response = {
+                ...response,
+                pagination: {
+                    current_page: response.page,
+                    total_pages: response.total_pages,
+                    total_count: response.total_count,
+                    per_page: 50, // Activity events uses 50 per page
+                    has_next: response.has_next,
+                    has_previous: response.has_previous,
+                },
+            };
+            update_pagination("#activity-events-table", transformed_response);
         },
         error(xhr) {
             ui_report.error("Failed to load activity events", xhr, $("#lms-integration-status"));
@@ -439,7 +498,7 @@ function get_notification_status_badge(status: string): string {
 
 function load_current_configuration(): void {
     channel.get({
-        url: "/api/v1/lms/admin/config/get",
+        url: "/json/lms/admin/config/get",
         success(response: any) {
             populate_configuration_form(response);
         },
@@ -501,7 +560,7 @@ function save_configuration(): void {
     }
 
     channel.post({
-        url: "/api/v1/lms/admin/config/update",
+        url: "/json/lms/admin/config/update",
         data,
         success(response: any) {
             ui_report.success("Configuration saved successfully", $("#lms-integration-status"));
@@ -518,7 +577,7 @@ function test_database_connection(): void {
     loading.make_indicator($("#test-db-connection"));
 
     channel.post({
-        url: "/api/v1/lms/admin/config/test-db",
+        url: "/json/lms/admin/config/test-db",
         success(response: any) {
             loading.destroy_indicator($("#test-db-connection"));
             const $status = $("#db-connection-status");
@@ -542,7 +601,7 @@ function test_jwt_configuration(): void {
     loading.make_indicator($("#test-jwt-config"));
 
     channel.post({
-        url: "/api/v1/lms/admin/config/test-jwt",
+        url: "/json/lms/admin/config/test-jwt",
         success(response: any) {
             loading.destroy_indicator($("#test-jwt-config"));
             const $status = $("#jwt-config-status");
@@ -599,12 +658,27 @@ function copy_webhook_url(): void {
 // ===================================
 
 function load_batch_groups(page: number = 1): void {
+    // Ensure page is a valid positive integer
+    const pageNum = Number.isFinite(page) && Number.isInteger(page) && page > 0 ? Math.floor(page) : 1;
+    
     channel.get({
-        url: "/api/v1/lms/admin/batches/list",
-        data: {page},
+        url: "/json/lms/admin/batches/list",
+        data: {page: pageNum},
         success(response: any) {
             render_batch_groups_table(response.batches);
-            update_pagination("#batch-groups-table", response);
+            // Transform response to match expected pagination structure
+            const transformed_response = {
+                ...response,
+                pagination: {
+                    current_page: response.page,
+                    total_pages: response.total_pages,
+                    total_count: response.total_count,
+                    per_page: 50, // Batch groups uses 50 per page
+                    has_next: response.has_next,
+                    has_previous: response.has_previous,
+                },
+            };
+            update_pagination("#batch-groups-table", transformed_response);
         },
         error(xhr) {
             ui_report.error("Failed to load batch groups", xhr, $("#lms-integration-status"));
@@ -649,7 +723,7 @@ function sync_all_batches(): void {
 
     // Use the same user sync endpoint with batch sync enabled
     channel.post({
-        url: "/api/v1/lms/admin/users/sync",
+        url: "/json/lms/admin/users/sync",
         data: {
             sync_type: 'all',
             sync_batches: true,
@@ -741,7 +815,7 @@ function create_batch_group(): void {
         };
 
         channel.post({
-            url: "/api/v1/lms/admin/batches/create",
+            url: "/json/lms/admin/batches/create",
             data,
             success(response: any) {
                 $("#create-batch-modal").modal("hide");
@@ -762,10 +836,13 @@ function create_batch_group(): void {
 // ===================================
 
 function load_logs(page: number = 1): void {
+    // Ensure page is a valid positive integer
+    const pageNum = Number.isFinite(page) && Number.isInteger(page) && page > 0 ? Math.floor(page) : 1;
+    
     const level = $("#log-level-filter").val() as string;
     const source = $("#log-source-filter").val() as string;
 
-    const data: any = {page};
+    const data: any = {page: pageNum};
     if (level) {
         data.level = level;
     }
@@ -774,12 +851,24 @@ function load_logs(page: number = 1): void {
     }
 
     channel.get({
-        url: "/api/v1/lms/admin/logs",
+        url: "/json/lms/admin/logs",
         data,
         success(response: any) {
             render_logs_table(response.logs);
             update_error_counts(response.error_counts);
-            update_pagination("#lms-logs-table", response);
+            // Transform response to match expected pagination structure
+            const transformed_response = {
+                ...response,
+                pagination: {
+                    current_page: response.page,
+                    total_pages: response.total_pages,
+                    total_count: response.total_count,
+                    per_page: 100, // Logs uses 100 per page
+                    has_next: response.has_next,
+                    has_previous: response.has_previous,
+                },
+            };
+            update_pagination("#lms-logs-table", transformed_response);
         },
         error(xhr) {
             ui_report.error("Failed to load logs", xhr, $("#lms-integration-status"));
@@ -828,7 +917,7 @@ function download_logs(): void {
         params.append("source", source);
     }
 
-    const download_url = `/api/v1/lms/admin/logs/download?${params.toString()}`;
+    const download_url = `/json/lms/admin/logs/download?${params.toString()}`;
 
     // Create a temporary link element to trigger download
     const link = document.createElement("a");
@@ -940,7 +1029,16 @@ function update_pagination(table_selector: string, response: any): void {
     // Handle pagination clicks
     pagination_container.find(".page-link[data-page]").on("click", function (e) {
         e.preventDefault();
-        const page = parseInt($(this).data("page"), 10);
+        const pageValue = $(this).data("page");
+        // jQuery's data() can return various types, ensure we parse it correctly
+        const page = typeof pageValue === "number" 
+            ? pageValue 
+            : parseInt(String(pageValue || "1"), 10);
+        
+        // Validate page is a valid positive integer
+        if (!Number.isFinite(page) || !Number.isInteger(page) || page < 1) {
+            return;
+        }
 
         // Determine which table and load function to call based on table selector
         if (table_selector.includes("synced-users")) {
@@ -973,7 +1071,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 (window as any).resync_user = function (user_id: number): void {
     if (confirm("Are you sure you want to resync this user?")) {
         channel.post({
-            url: `/api/v1/lms/admin/users/${user_id}/resync`,
+            url: `/json/lms/admin/users/${user_id}/resync`,
             success(response: any) {
                 ui_report.success("User resync completed successfully", $("#lms-integration-status"));
                 // Refresh the user list to show updated data
@@ -990,7 +1088,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 (window as any).view_event_details = function (event_id: number): void {
     // Fetch event details and show modal
     channel.get({
-        url: `/api/v1/lms/admin/activities/events/${event_id}`,
+        url: `/json/lms/admin/activities/events/${event_id}`,
         success(response: any) {
             const event = response.event;
 
@@ -1058,7 +1156,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 (window as any).view_log_details = function (log_id: number): void {
     // Fetch log details and show modal
     channel.get({
-        url: `/api/v1/lms/admin/logs/${log_id}`,
+            url: `/json/lms/admin/logs/${log_id}`,
         success(response: any) {
             const log = response.log;
 
@@ -1127,7 +1225,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
         $button.prop("disabled", true).html('<i class="fa fa-spinner fa-spin"></i> Syncing...');
 
         channel.post({
-            url: `/api/v1/lms/admin/batches/${batch_id}/sync`,
+            url: `/json/lms/admin/batches/${batch_id}/sync`,
             success(response: any) {
                 $button.prop("disabled", false).html(original_html);
                 const stats = response.stats;
@@ -1149,7 +1247,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 (window as any).view_batch_details = function (batch_id: number): void {
     // Fetch batch details and show modal
     channel.get({
-        url: `/api/v1/lms/admin/batches/${batch_id}`,
+        url: `/json/lms/admin/batches/${batch_id}`,
         success(response: any) {
             const batch = response.batch;
 
@@ -1277,7 +1375,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 (window as any).retry_notification = function (event_id: number): void {
     if (confirm("Are you sure you want to retry this notification?")) {
         channel.post({
-            url: `/api/v1/lms/admin/activities/events/${event_id}/retry`,
+            url: `/json/lms/admin/activities/events/${event_id}/retry`,
             success(response: any) {
                 ui_report.success("Notification retry initiated", $("#lms-integration-status"));
                 // Close the modal and refresh the events list
@@ -1323,3 +1421,14 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 
 // Export main initialization function
 export {initialize as lms_integration_admin_init};
+
+export function set_up(): void {
+    // Only initialize if not already done and if the LMS integration section exists
+    if (!initialized && $("#lms-integration-settings").length > 0) {
+        initialize();
+    }
+}
+
+export function reset(): void {
+    initialized = false;
+}

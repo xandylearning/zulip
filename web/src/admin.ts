@@ -298,6 +298,10 @@ export function build_page(): void {
         lms_db_username: "",
         testpress_api_url: "",
         poll_interval: 60,
+        jwt_enabled: false,
+        activity_monitor_enabled: false,
+        notify_mentors: false,
+        webhook_endpoint_url: "",
     };
 
     const rendered_admin_tab = render_admin_tab(options);
