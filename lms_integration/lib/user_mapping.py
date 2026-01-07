@@ -141,19 +141,22 @@ class UserMapper:
             from lms_integration.models import Mentortostudent
             
             # Find mentor-student relationship
-            mentor_student = Mentortostudent.objects.using('lms_db').filter(
+            # Use values_list to avoid selecting non-existent 'id' column
+            mentor_id = Mentortostudent.objects.using('lms_db').filter(
                 b_id=student_id  # b is the student in the relationship
-            ).select_related('a').first()  # a is the mentor
+            ).values_list('a_id', flat=True).first()  # a is the mentor
             
-            if mentor_student and mentor_student.a:
-                mentor = mentor_student.a
-                result = (mentor.user_id, mentor.username)
-                
-                # Cache the result
-                if self.cache_enabled:
-                    cache.set(cache_key, result, self.CACHE_TIMEOUT)
-                
-                return result
+            if mentor_id:
+                from lms_integration.models import Mentors
+                mentor = Mentors.objects.using('lms_db').filter(user_id=mentor_id).first()
+                if mentor:
+                    result = (mentor.user_id, mentor.username)
+                    
+                    # Cache the result
+                    if self.cache_enabled:
+                        cache.set(cache_key, result, self.CACHE_TIMEOUT)
+                    
+                    return result
             else:
                 logger.warning(f"No mentor found for student {student_id}")
                 return None

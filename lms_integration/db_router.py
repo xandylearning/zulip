@@ -54,7 +54,7 @@ class LMSRouter:
     # These models are created and managed by Zulip, stored in Zulip's database
     zulip_managed_models = {
         # Activity tracking models
-        'LMSActivityEvent', 'LMSEventLog',
+        'LMSActivityEvent', 'LMSEventLog','LMSSyncProgress',
         # Admin configuration models (stored in Zulip DB, not LMS DB)
         'LMSIntegrationConfig', 'LMSSyncHistory', 'LMSAdminLog', 'LMSUserMapping'
     }

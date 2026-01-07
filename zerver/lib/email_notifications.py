@@ -838,6 +838,17 @@ def send_account_registered_email(user: UserProfile, realm_creation: bool = Fals
         assert user.realm.demo_organization_scheduled_deletion_date is not None and realm_creation
         return
 
+    # Check for placeholder emails (LMS integration feature)
+    # Skip account_registered emails for users with placeholder emails to avoid sending to non-existent addresses
+    try:
+        from lms_integration.lib.email_utils import is_placeholder_email, should_send_email_notification
+        if is_placeholder_email(user.delivery_email) and not should_send_email_notification(user):
+            # User has placeholder email and email delivery is disabled for placeholders
+            return
+    except ImportError:
+        # LMS integration not available, continue normally
+        pass
+
     from_name, from_address = welcome_sender_information()
     realm_url = user.realm.url
 
@@ -894,6 +905,17 @@ def enqueue_welcome_emails(
         # this condition should be possible.
         assert user.realm.demo_organization_scheduled_deletion_date is not None and realm_creation
         return
+
+    # Check for placeholder emails (LMS integration feature)
+    # Skip welcome emails for users with placeholder emails to avoid sending to non-existent addresses
+    try:
+        from lms_integration.lib.email_utils import is_placeholder_email, should_send_email_notification
+        if is_placeholder_email(user.delivery_email) and not should_send_email_notification(user):
+            # User has placeholder email and email delivery is disabled for placeholders
+            return
+    except ImportError:
+        # LMS integration not available, continue normally
+        pass
 
     from_name, from_address = welcome_sender_information()
     other_account_count = (

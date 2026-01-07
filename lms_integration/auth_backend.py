@@ -1,228 +1,378 @@
 """
-TestPress JWT Authentication Backend
+Simple TestPress JWT Authentication Backend
 
-This module provides authentication backend that validates JWT tokens
-from TestPress LMS and creates/updates Zulip user profiles based on
-the TestPress user data.
+Simple authentication backend that:
+1. Validates JWT token with TestPress
+2. Gets user profile from TestPress
+3. Creates/updates Zulip user
+4. That's it!
 """
 
 import logging
 from typing import Any, Dict, Optional
 
 from django.contrib.auth.backends import BaseBackend
+from django.db import transaction
 from django.http import HttpRequest
 
 from zerver.lib.exceptions import JsonableError
 from zerver.models import Realm, UserProfile
+from zerver.models.users import ExternalAuthID
 from zerver.lib.users import check_full_name
 from zerver.actions.create_user import do_create_user, do_reactivate_user
-from zerver.actions.users import do_deactivate_user
-from zerver.lib.email_validation import email_allowed_for_realm
-from zproject.backends import ZulipAuthMixin, common_get_active_user, rate_limit_auth, log_auth_attempts
+from zproject.backends import ZulipAuthMixin, common_get_active_user, log_auth_attempts
 
 from .jwt_validator import testpress_jwt_validator
-from .user_sync import sync_testpress_user_profile
+from .lib.email_utils import validate_and_prepare_email
 
 logger = logging.getLogger(__name__)
+
+# External auth method name for storing LMS usernames
+LMS_USERNAME_AUTH_METHOD = "testpress-username"
 
 
 class TestPressJWTAuthBackend(ZulipAuthMixin, BaseBackend):
     """
-    Authentication backend that validates TestPress JWT tokens.
+    TestPress JWT authentication backend with username-based user lookup.
 
-    This backend:
-    1. Accepts JWT tokens from TestPress LMS
-    2. Validates tokens by calling TestPress /me API endpoint
-    3. Creates or updates Zulip user profiles based on TestPress user data
-    4. Maps TestPress user roles to Zulip roles
+    Flow:
+    1. Validate JWT token with TestPress
+    2. Get user profile from TestPress (username + optional email)
+    3. Find existing Zulip user by LMS username (primary lookup)
+    4. Fallback to email lookup for migration purposes
+    5. Create new user if not found, with username mapping
+    6. Done!
+
+    Uses ExternalAuthID to map LMS usernames to Zulip users for reliable identification.
     """
 
     name = "testpress-jwt"
 
-    def _extract_user_info_from_testpress_data(self, testpress_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract and normalize user information from TestPress API response."""
-        # Extract email (primary identifier)
+    def _get_user_info_from_testpress(self, testpress_data: Dict[str, Any], realm: Realm) -> Dict[str, Any]:
+        """Extract user info from TestPress data and prepare for Zulip."""
+        # Get basic info
         email = testpress_data.get('email')
-        if not email:
-            raise JsonableError("No email found in TestPress user data")
-
-        # Extract full name
+        username = testpress_data.get('username')
         first_name = testpress_data.get('first_name', '')
         last_name = testpress_data.get('last_name', '')
-        full_name = f"{first_name} {last_name}".strip()
 
-        if not full_name:
-            # Fallback to username or email prefix
-            full_name = testpress_data.get('username') or email.split('@')[0]
+        # Need at least username
+        if not username:
+            if email:
+                username = email.split('@')[0]
+            else:
+                username = f"user_{testpress_data.get('id', 'unknown')}"
 
-        # Validate full name format
-        try:
-            check_full_name(full_name)
-        except JsonableError:
-            # If name validation fails, use email prefix as fallback
-            full_name = email.split('@')[0]
+        # Build full name
+        full_name = f"{first_name} {last_name}".strip() or username
 
-        # Extract other user information
-        user_info = {
-            'email': email,
+        # Get email (real or placeholder)
+        final_email, is_placeholder = validate_and_prepare_email(email, username, realm)
+
+        return {
+            'email': final_email,
             'full_name': full_name,
-            'username': testpress_data.get('username', email),
+            'username': username,
             'is_active': testpress_data.get('is_active', True),
-            'testpress_id': testpress_data.get('id'),
-            'testpress_data': testpress_data,  # Store full data for role mapping
+            'testpress_data': testpress_data
         }
 
-        logger.debug(f"Extracted user info: {user_info['email']}, active: {user_info['is_active']}")
-        return user_info
-
-    def _determine_user_role(self, testpress_data: Dict[str, Any]) -> int:
-        """
-        Determine Zulip user role based on TestPress user data.
-
-        This method can be customized to map TestPress roles/permissions
-        to appropriate Zulip roles (Member, Moderator, Administrator, etc.)
-        """
-        # Default to Member role
-        from zerver.models import UserProfile
-
-        # Check if user is staff/admin in TestPress
-        if testpress_data.get('is_staff', False) or testpress_data.get('is_superuser', False):
-            return UserProfile.ROLE_REALM_ADMINISTRATOR
-
-        # Check for moderator-like permissions (customize as needed)
-        # This is where you can add your existing role mapping logic
-
-        # Default to Member role
-        return UserProfile.ROLE_MEMBER
-
-    def _get_or_create_user(self, user_info: Dict[str, Any], realm: Realm) -> Optional[UserProfile]:
-        """Get existing user or create new user in Zulip."""
-        email = user_info['email']
-
-        # Check if email is allowed in this realm
-        if not email_allowed_for_realm(email, realm):
-            logger.warning(f"Email {email} not allowed for realm {realm.subdomain}")
+    def _find_existing_user_by_username(self, username: str, realm: Realm) -> Optional[UserProfile]:
+        """Find existing user by LMS username."""
+        try:
+            external_auth = ExternalAuthID.objects.get(
+                realm=realm,
+                external_auth_method_name=LMS_USERNAME_AUTH_METHOD,
+                external_auth_id=username
+            )
+            user_profile = external_auth.user
+            if user_profile.is_active:
+                return user_profile
+            else:
+                logger.info(f"Found deactivated user with username '{username}': {user_profile.delivery_email}")
+                return user_profile  # Return even if deactivated, we can reactivate later
+        except ExternalAuthID.DoesNotExist:
+            logger.debug(f"No user found with LMS username: {username}")
             return None
 
-        # Try to get existing user
-        existing_user = common_get_active_user(email, realm)
+    def _find_existing_user_by_email(self, email: str, realm: Realm) -> Optional[UserProfile]:
+        """Find existing user by email (fallback method)."""
+        # First try to get active user (preferred)
+        active_user = common_get_active_user(email, realm)
+        if active_user:
+            return active_user
+        
+        # Also check for inactive users - we can reactivate them
+        try:
+            from zerver.models.users import get_user_by_delivery_email
+            inactive_user = get_user_by_delivery_email(email, realm)
+            if inactive_user:
+                logger.info(f"Found inactive user by email: {email}")
+                return inactive_user
+        except UserProfile.DoesNotExist:
+            # User doesn't exist
+            pass
+        except Exception as e:
+            # Log unexpected errors but don't fail
+            logger.warning(f"Unexpected error checking for user by email {email}: {e}")
+        
+        return None
 
+    def _add_username_mapping(self, user_profile: UserProfile, username: str, realm: Realm) -> None:
+        """Add LMS username mapping to ExternalAuthID for future lookups."""
+        try:
+            ExternalAuthID.objects.create(
+                user=user_profile,
+                realm=realm,
+                external_auth_method_name=LMS_USERNAME_AUTH_METHOD,
+                external_auth_id=username
+            )
+            logger.info(f"Added username mapping '{username}' for user {user_profile.delivery_email}")
+        except Exception as e:
+            logger.warning(f"Failed to add username mapping '{username}' for user {user_profile.delivery_email}: {e}")
+
+    def _get_or_create_user(self, user_info: Dict[str, Any], realm: Realm) -> Optional[UserProfile]:
+        """Get existing user or create new user."""
+        email = user_info["email"]
+        full_name = user_info["full_name"]
+        username = user_info["username"]
+
+        logger.debug(f"Looking up user: email={email}, username={username}, realm={realm.string_id}")
+
+        # Try to find existing user by username first (primary lookup)
+        existing_user = self._find_existing_user_by_username(username, realm)
         if existing_user:
-            # Update existing user's profile if needed
-            if existing_user.is_active and user_info['is_active']:
-                # Sync user data from TestPress
-                sync_testpress_user_profile(existing_user, user_info['testpress_data'])
-                logger.debug(f"Updated existing user: {email}")
-                return existing_user
-            elif not existing_user.is_active and user_info['is_active']:
-                # Reactivate deactivated user
+            logger.info(f"Found existing user by username '{username}': {existing_user.delivery_email} (ID: {existing_user.id})")
+
+            # Reactivate if needed
+            if not existing_user.is_active and user_info["is_active"]:
                 do_reactivate_user(existing_user, acting_user=None)
-                sync_testpress_user_profile(existing_user, user_info['testpress_data'])
+                logger.info(f"Reactivated user: {existing_user.delivery_email}")
+
+            return existing_user
+
+        # Fallback: try to find by email (for migration purposes)
+        existing_user = self._find_existing_user_by_email(email, realm)
+        if existing_user:
+            logger.info(f"Found existing user by email (fallback): {email} (ID: {existing_user.id})")
+
+            # Add the LMS username mapping for future lookups
+            self._add_username_mapping(existing_user, username, realm)
+
+            # Reactivate if needed
+            if not existing_user.is_active and user_info["is_active"]:
+                do_reactivate_user(existing_user, acting_user=None)
                 logger.info(f"Reactivated user: {email}")
+
+            return existing_user
+
+        # Before creating, do a final comprehensive check to ensure user doesn't exist
+        # This handles race conditions and edge cases
+        from zerver.models.users import get_user_by_delivery_email
+        from django.contrib.auth.models import UserManager
+        
+        # Normalize email the same way create_user does
+        normalized_email = UserManager.normalize_email(email)
+        logger.debug(f"Normalized email: {email} -> {normalized_email}")
+        
+        # Try multiple lookup strategies
+        try:
+            existing_user = get_user_by_delivery_email(normalized_email, realm)
+            if existing_user:
+                logger.info(f"Found existing user by normalized email (final check): {normalized_email} (ID: {existing_user.id})")
+                # Add username mapping if not already present
+                self._add_username_mapping(existing_user, username, realm)
+                # Reactivate if needed
+                if not existing_user.is_active and user_info["is_active"]:
+                    do_reactivate_user(existing_user, acting_user=None)
+                    logger.info(f"Reactivated user: {normalized_email}")
                 return existing_user
-            elif existing_user.is_active and not user_info['is_active']:
-                # Deactivate user if they're inactive in TestPress
-                do_deactivate_user(existing_user, acting_user=None)
-                logger.info(f"Deactivated user: {email}")
-                return None
-            else:
-                # User is inactive in both systems
-                return None
-        else:
-            # Create new user if they're active in TestPress
-            if not user_info['is_active']:
-                logger.debug(f"Not creating inactive user: {email}")
-                return None
-
+        except UserProfile.DoesNotExist:
+            pass  # User doesn't exist with normalized email
+        
+        # Also try original email (in case normalization changed it)
+        if normalized_email != email:
             try:
-                # Determine user role
-                user_role = self._determine_user_role(user_info['testpress_data'])
+                existing_user = get_user_by_delivery_email(email, realm)
+                if existing_user:
+                    logger.info(f"Found existing user by original email (final check): {email} (ID: {existing_user.id})")
+                    # Add username mapping if not already present
+                    self._add_username_mapping(existing_user, username, realm)
+                    # Reactivate if needed
+                    if not existing_user.is_active and user_info["is_active"]:
+                        do_reactivate_user(existing_user, acting_user=None)
+                        logger.info(f"Reactivated user: {email}")
+                    return existing_user
+            except UserProfile.DoesNotExist:
+                pass
+        
+        # Last resort: query database directly with case-insensitive match
+        # This catches any edge cases with email formatting
+        try:
+            existing_user = UserProfile.objects.get(
+                delivery_email__iexact=email.strip(),
+                realm=realm
+            )
+            logger.info(f"Found existing user by direct DB query: {email} (ID: {existing_user.id})")
+            # Add username mapping if not already present
+            self._add_username_mapping(existing_user, username, realm)
+            # Reactivate if needed
+            if not existing_user.is_active and user_info["is_active"]:
+                do_reactivate_user(existing_user, acting_user=None)
+                logger.info(f"Reactivated user: {email}")
+            return existing_user
+        except UserProfile.DoesNotExist:
+            pass  # User truly doesn't exist, proceed with creation
+        except UserProfile.MultipleObjectsReturned:
+            # This shouldn't happen, but if it does, get the first one
+            logger.warning(f"Multiple users found with email {email}, using first one")
+            existing_user = UserProfile.objects.filter(
+                delivery_email__iexact=email.strip(),
+                realm=realm
+            ).first()
+            if existing_user:
+                self._add_username_mapping(existing_user, username, realm)
+                if not existing_user.is_active and user_info["is_active"]:
+                    do_reactivate_user(existing_user, acting_user=None)
+                return existing_user
 
-                # Create new user
+        # Create new user
+        logger.info(f"Creating new user: {email} (username: {username})")
+
+        try:
+            # Validate full name
+            validated_full_name = check_full_name(full_name, user_profile=None, realm=realm)
+        except JsonableError:
+            # Use email prefix as fallback
+            validated_full_name = email.split("@")[0]
+            logger.warning(f"Invalid full name '{full_name}' for {email}, using '{validated_full_name}'")
+
+        try:
+            with transaction.atomic():
+                # Create the external auth ID mapping for LMS username
+                external_auth_id_dict = {
+                    LMS_USERNAME_AUTH_METHOD: username
+                }
+
                 new_user = do_create_user(
                     email=email,
-                    password=None,  # No password needed for JWT auth
+                    password=None,  # No password for JWT auth
                     realm=realm,
-                    full_name=user_info['full_name'],
+                    full_name=validated_full_name,
                     acting_user=None,
-                    role=user_role,
+                    external_auth_id_dict=external_auth_id_dict,
                 )
-
-                # Sync additional profile data
-                sync_testpress_user_profile(new_user, user_info['testpress_data'])
-
-                logger.info(f"Created new user: {email}")
+                logger.info(f"Created new user: {email} (ID: {new_user.id}) with LMS username: {username}")
                 return new_user
 
-            except Exception as e:
-                logger.error(f"Failed to create user {email}: {str(e)}")
-                return None
+        except Exception as e:
+            error_str = str(e)
+            logger.error(f"Error creating user {email}: {e}")
+            
+            # Check if this is a duplicate key error (user already exists)
+            if "duplicate key" in error_str.lower() or "already exists" in error_str.lower():
+                logger.warning(f"User {email} appears to already exist (duplicate key error), attempting to find existing user")
+            
+            # Try one more time to find if user was created by another process or already exists
+            # Use comprehensive lookup strategy
+            existing_user = None
+            
+            # First try by username
+            existing_user = self._find_existing_user_by_username(username, realm)
+            if existing_user:
+                logger.info(f"Found existing user by username after creation error: {existing_user.delivery_email} (ID: {existing_user.id})")
+                self._add_username_mapping(existing_user, username, realm)
+                if not existing_user.is_active and user_info["is_active"]:
+                    do_reactivate_user(existing_user, acting_user=None)
+                return existing_user
+            
+            # Then try by email (comprehensive)
+            existing_user = self._find_existing_user_by_email(email, realm)
+            if existing_user:
+                logger.info(f"Found existing user by email after creation error: {email} (ID: {existing_user.id})")
+                self._add_username_mapping(existing_user, username, realm)
+                if not existing_user.is_active and user_info["is_active"]:
+                    do_reactivate_user(existing_user, acting_user=None)
+                return existing_user
+            
+            # Last resort: direct database query
+            try:
+                from django.contrib.auth.models import UserManager
+                normalized_email = UserManager.normalize_email(email)
+                existing_user = UserProfile.objects.get(
+                    delivery_email__iexact=normalized_email.strip(),
+                    realm=realm
+                )
+                logger.info(f"Found existing user by direct DB query after creation error: {email} (ID: {existing_user.id})")
+                self._add_username_mapping(existing_user, username, realm)
+                if not existing_user.is_active and user_info["is_active"]:
+                    do_reactivate_user(existing_user, acting_user=None)
+                return existing_user
+            except (UserProfile.DoesNotExist, UserProfile.MultipleObjectsReturned):
+                pass
+            
+            # If we still can't find the user, return None (will cause auth to fail)
+            logger.error(f"Could not find or create user {email} after error: {e}")
+            return None
 
-    @rate_limit_auth
     @log_auth_attempts
     def authenticate(
         self,
         request: HttpRequest,
         *,
+        username: str | None = None,
         testpress_jwt_token: Optional[str] = None,
         realm: Realm,
         return_data: Optional[Dict[str, Any]] = None,
     ) -> Optional[UserProfile]:
         """
-        Authenticate user using TestPress JWT token.
+        Simple JWT authentication.
 
-        Args:
-            request: Django HTTP request
-            testpress_jwt_token: JWT token from TestPress
-            realm: Zulip realm for authentication
-            return_data: Dictionary to store return data for error handling
-
-        Returns:
-            UserProfile if authentication successful, None otherwise
+        1. Validate JWT token with TestPress
+        2. Get user profile from TestPress
+        3. Create or update Zulip user
         """
         if return_data is None:
             return_data = {}
 
-        # Check if JWT token is provided
+        # Need JWT token
         if not testpress_jwt_token:
-            logger.warning("No TestPress JWT token provided")
             return_data['testpress_jwt_missing'] = True
             return None
 
-        # Validate token against TestPress API
+        # Step 1: Validate JWT token with TestPress
         try:
             testpress_data = testpress_jwt_validator.validate_token(testpress_jwt_token)
         except Exception as e:
-            logger.error(f"Error validating TestPress JWT token: {str(e)}")
-            return_data['testpress_api_error'] = True
-            return None
-
-        if not testpress_data:
-            logger.warning("TestPress JWT token validation failed")
+            logger.error(f"JWT validation failed: {e}")
             return_data['testpress_jwt_invalid'] = True
             return None
 
-        # Extract user information
+        if not testpress_data:
+            return_data['testpress_jwt_invalid'] = True
+            return None
+
+        # Step 2: Get user profile from TestPress data
         try:
-            user_info = self._extract_user_info_from_testpress_data(testpress_data)
+            user_info = self._get_user_info_from_testpress(testpress_data, realm)
         except Exception as e:
-            logger.error(f"Error extracting user info from TestPress data: {str(e)}")
+            logger.error(f"Error extracting user info: {e}")
             return_data['testpress_data_invalid'] = True
             return None
 
-        # Get or create user in Zulip
+        # Step 3: Create or update Zulip user
         try:
             user_profile = self._get_or_create_user(user_info, realm)
         except Exception as e:
-            logger.error(f"Error getting/creating user: {str(e)}")
+            logger.error(f"Error creating/updating user: {e}")
             return_data['user_creation_failed'] = True
             return None
 
         if not user_profile:
-            return_data['user_inactive_or_invalid'] = True
+            return_data['user_creation_failed'] = True
             return None
 
-        logger.info(f"TestPress JWT authentication successful for user: {user_profile.delivery_email}")
+        logger.info(f"JWT auth successful: {user_profile.delivery_email}")
         return user_profile
 
     def get_user(self, user_id: int) -> Optional[UserProfile]:

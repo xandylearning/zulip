@@ -228,15 +228,39 @@
 }
 
 .sync-progress {
-    margin-top: 0.625em;
+    margin-top: 1em;
+    padding: 1em;
+    background: var(--color-background);
+    border: 1px solid hsl(0deg 0% 80%);
+    border-radius: 0.5em;
+}
+
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75em;
+}
+
+.progress-stage {
+    font-weight: 600;
+    font-size: 1em;
+    color: var(--color-text-default);
+}
+
+.progress-percentage {
+    font-weight: 600;
+    font-size: 1em;
+    color: var(--color-text-link);
 }
 
 .progress-bar {
     width: 100%;
-    height: 0.375em;
+    height: 0.5em;
     background-color: var(--color-bg-secondary);
-    border-radius: 0.1875em;
+    border-radius: 0.25em;
     overflow: hidden;
+    margin-bottom: 0.75em;
 }
 
 .progress-fill {
@@ -247,9 +271,18 @@
 }
 
 .progress-text {
-    font-size: 0.75em;
-    color: hsl(0deg 0% 50%);
-    margin-top: 0.3125em;
+    font-size: 0.875em;
+    color: var(--color-text-default);
+    margin-bottom: 0.75em;
+    font-weight: 500;
+}
+
+.progress-stats {
+    display: flex;
+    gap: 1.5em;
+    flex-wrap: wrap;
+    padding-top: 0.75em;
+    border-top: 1px solid hsl(0deg 0% 80%);
 }
 
 .user_filters,
@@ -295,8 +328,25 @@
 
 .stat-item {
     display: flex;
-    flex-direction: column;
-    text-align: center;
+    align-items: center;
+    gap: 0.5em;
+    font-size: 0.875em;
+}
+
+.progress-stats .stat-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    font-size: 0.875em;
+}
+
+.progress-stats .stat-item i {
+    font-size: 1em;
+}
+
+.progress-stats .stat-item span {
+    font-weight: 600;
+    color: var(--color-text-default);
 }
 
 .stat-value {
@@ -474,5 +524,196 @@
 .lms-logs-content {
     max-width: 100%;
     overflow-x: auto;
+}
+
+/* LMS Integration Modals - Wider width for forms with multiple fields */
+#create-batch-modal .modal__container,
+#bulk-update-emails-modal .modal__container,
+#batch-details-modal .modal__container,
+#update-user-email-modal .modal__container,
+#event-details-modal .modal__container,
+#log-details-modal .modal__container {
+    width: 71.4285em; /* 1000px at 14px em - wider for detailed content */
+    max-width: calc(100% - 32px);
+}
+
+/* Batch details modal - even wider for better readability */
+#batch-details-modal .modal__container {
+    width: 85.7142em; /* 1200px at 14px em - extra wide for batch details */
+    max-width: calc(100% - 32px);
+    max-height: 90vh; /* Allow modal to be taller */
+}
+
+/* Ensure modal body content doesn't overflow */
+#create-batch-modal .modal__body,
+#bulk-update-emails-modal .modal__body,
+#batch-details-modal .modal__body,
+#update-user-email-modal .modal__body,
+#event-details-modal .modal__body,
+#log-details-modal .modal__body {
+    padding: 1.5em;
+    overflow-y: auto;
+}
+
+/* Batch details modal specific styling */
+#batch-details-modal .modal__body {
+    padding: 2em;
+    max-height: calc(90vh - 120px); /* Account for header and footer */
+}
+
+/* Better spacing for rows in batch details */
+#batch-details-modal .row {
+    margin-bottom: 1.5em;
+}
+
+#batch-details-modal .row.mt-3 {
+    margin-top: 1.5em;
+}
+
+/* Improve table styling in batch details modal */
+#batch-details-modal .table {
+    width: 100%;
+    margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+#batch-details-modal .table-sm td,
+#batch-details-modal .table-sm th {
+    padding: 0.75em 1em;
+    vertical-align: middle;
+    border-top: 1px solid hsl(0deg 0% 80%);
+}
+
+#batch-details-modal .table-sm thead th {
+    background-color: var(--color-background);
+    font-weight: 600;
+    border-bottom: 2px solid hsl(0deg 0% 80%);
+    padding: 0.875em 1em;
+}
+
+#batch-details-modal .table-sm tbody tr:hover {
+    background-color: var(--color-bg-secondary);
+}
+
+/* Better column layout for batch details */
+#batch-details-modal .col-md-6 {
+    padding-left: 1em;
+    padding-right: 1em;
+}
+
+#batch-details-modal .col-md-6:first-child {
+    padding-left: 0;
+}
+
+#batch-details-modal .col-md-6:last-child {
+    padding-right: 0;
+}
+
+/* Section headings */
+#batch-details-modal h6 {
+    font-size: 1em;
+    font-weight: 600;
+    margin-bottom: 0.75em;
+    color: var(--color-text-default);
+    padding-bottom: 0.5em;
+    border-bottom: 2px solid hsl(0deg 0% 80%);
+}
+
+/* Scrollable areas for students/mentors lists */
+#batch-details-modal div[style*="max-height"] {
+    border: 1px solid hsl(0deg 0% 80%);
+    border-radius: 0.25em;
+    padding: 0.5em;
+    background-color: var(--color-background);
+}
+
+#batch-details-modal div[style*="max-height"] .table {
+    margin-bottom: 0;
+}
+
+/* Status badges */
+#batch-details-modal .status-badge {
+    display: inline-block;
+    padding: 0.25em 0.625em;
+    border-radius: 0.25em;
+    font-size: 0.875em;
+    font-weight: 500;
+    text-transform: capitalize;
+}
+
+#batch-details-modal .status-badge.active {
+    background-color: var(--green-100);
+    color: var(--green-700);
+}
+
+#batch-details-modal .badge {
+    display: inline-block;
+    padding: 0.25em 0.625em;
+    border-radius: 0.25em;
+    font-size: 0.875em;
+    font-weight: 500;
+}
+
+#batch-details-modal .badge-primary {
+    background-color: hsl(240deg 96% 68%);
+    color: hsl(0deg 0% 100%);
+}
+
+#batch-details-modal .badge-success {
+    background-color: var(--green-500);
+    color: hsl(0deg 0% 100%);
+}
+
+/* Description section */
+#batch-details-modal .col-12 {
+    padding: 1em;
+    background-color: var(--color-bg-secondary);
+    border-radius: 0.25em;
+    margin-top: 1em;
+}
+
+#batch-details-modal .col-12 p {
+    margin-bottom: 0;
+    word-break: break-all;
+    overflow-wrap: break-word;
+}
+
+/* Form controls in modals should use full width */
+#create-batch-modal .form-control,
+#bulk-update-emails-modal .form-control,
+#batch-details-modal .form-control,
+#update-user-email-modal .form-control {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* Improve text readability in batch details */
+#batch-details-modal .text-muted {
+    color: hsl(0deg 0% 50%);
+    font-style: italic;
+}
+
+/* Better spacing for table cells */
+#batch-details-modal .table-sm td:first-child {
+    font-weight: 500;
+    color: var(--color-text-default);
+    width: 40%;
+}
+
+#batch-details-modal .table-sm td:last-child {
+    color: var(--color-text-default);
+}
+
+/* Improve modal footer button spacing */
+#batch-details-modal .modal__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75em;
+    padding: 1.25em 1.5em;
+}
+
+#batch-details-modal .modal__footer .modal__button {
+    min-width: 120px;
 }
 

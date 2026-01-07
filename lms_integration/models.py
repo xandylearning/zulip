@@ -481,8 +481,11 @@ class UserAnswerAttemptSections(models.Model):
 # =============================================================================
 
 class Batchtostudent(models.Model):
-    id = models.AutoField(primary_key=True)
-    a = models.ForeignKey('Batches', models.DO_NOTHING, db_column='A')  # Field name made lowercase.
+    # Note: This table uses a composite primary key (A, B) in the database
+    # Django doesn't support composite PKs natively, so we use 'a' as the PK
+    # (even though it's not unique) and use .values()/.values_list() in queries
+    # to avoid Django trying to SELECT a non-existent 'id' column
+    a = models.ForeignKey('Batches', models.DO_NOTHING, db_column='A', primary_key=True)  # Field name made lowercase.
     b = models.ForeignKey('Students', models.DO_NOTHING, db_column='B')  # Field name made lowercase.
 
     class Meta:
@@ -514,8 +517,11 @@ class Examcourse(models.Model):
 
 
 class Mentortostudent(models.Model):
-    id = models.AutoField(primary_key=True)
-    a = models.ForeignKey('Mentors', models.DO_NOTHING, db_column='A')  # Field name made lowercase.
+    # Note: This table uses a composite primary key (A, B) in the database
+    # Django doesn't support composite PKs natively, so we use 'a' as the PK
+    # (even though it's not unique) and use .values()/.values_list() in queries
+    # to avoid Django trying to SELECT a non-existent 'id' column
+    a = models.ForeignKey('Mentors', models.DO_NOTHING, db_column='A', primary_key=True)  # Field name made lowercase.
     b = models.ForeignKey('Students', models.DO_NOTHING, db_column='B')  # Field name made lowercase.
 
     class Meta:
@@ -926,6 +932,8 @@ class LMSSyncHistory(models.Model):
             ('success', 'Success'),
             ('partial', 'Partial Success'),
             ('failed', 'Failed'),
+            ('cancelled', 'Cancelled'),
+            ('running', 'Running'),
         ],
         default='success'
     )
@@ -1113,3 +1121,119 @@ class LMSUserMapping(models.Model):
 
     def __str__(self):
         return f"{self.lms_user_type} {self.lms_username} -> {self.zulip_user.email}"
+
+
+class LMSSyncProgress(models.Model):
+    """
+    Tracks real-time progress of ongoing sync operations.
+    Used to provide live progress updates to the admin UI.
+    """
+
+    # Sync identification
+    sync_id = models.CharField(
+        max_length=255,
+        primary_key=True,
+        help_text="Unique identifier for this sync operation"
+    )
+
+    realm = models.ForeignKey(
+        'zerver.Realm',
+        on_delete=models.CASCADE,
+        help_text="The realm this sync is for"
+    )
+
+    # Basic sync info
+    sync_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('all', 'All Users'),
+            ('students', 'Students Only'),
+            ('mentors', 'Mentors Only'),
+            ('batches', 'Batches Only'),
+        ],
+        help_text="Type of sync being performed"
+    )
+
+    # Progress tracking
+    current_stage = models.CharField(
+        max_length=50,
+        choices=[
+            ('initializing', 'Initializing'),
+            ('counting_records', 'Counting Records'),
+            ('syncing_students', 'Syncing Students'),
+            ('syncing_mentors', 'Syncing Mentors'),
+            ('syncing_batches', 'Syncing Batches'),
+            ('updating_mappings', 'Updating User Mappings'),
+            ('finalizing', 'Finalizing'),
+            ('completed', 'Completed'),
+            ('failed', 'Failed'),
+            ('cancelled', 'Cancelled'),
+        ],
+        default='initializing',
+        help_text="Current stage of the sync operation"
+    )
+
+    # Detailed progress numbers
+    total_records = models.IntegerField(
+        default=0,
+        help_text="Total number of records to process"
+    )
+    processed_records = models.IntegerField(
+        default=0,
+        help_text="Number of records processed so far"
+    )
+
+    # Results tracking
+    created_count = models.IntegerField(default=0)
+    updated_count = models.IntegerField(default=0)
+    skipped_count = models.IntegerField(default=0)
+    error_count = models.IntegerField(default=0)
+
+    # Status info
+    status_message = models.CharField(
+        max_length=500,
+        default='',
+        help_text="Current status message displayed to user"
+    )
+
+    # Timestamps
+    started_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # Triggering user
+    triggered_by = models.ForeignKey(
+        'zerver.UserProfile',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="The admin user who triggered this sync"
+    )
+
+    # Error tracking
+    last_error = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Last error message if sync failed"
+    )
+
+    class Meta:
+        managed = True
+        db_table = 'lms_sync_progress'
+        ordering = ['-started_at']
+        indexes = [
+            models.Index(fields=['realm', '-started_at']),
+            models.Index(fields=['current_stage']),
+        ]
+
+    def __str__(self):
+        return f"Sync {self.sync_type} for {self.realm.name} - {self.current_stage}"
+
+    def get_progress_percentage(self):
+        """Calculate progress percentage based on processed/total records."""
+        if self.total_records == 0:
+            return 0
+        return min(100, int((self.processed_records / self.total_records) * 100))
+
+    def is_active(self):
+        """Check if this sync operation is still active."""
+        return self.current_stage not in ['completed', 'failed', 'cancelled']

@@ -7,13 +7,7 @@ import $ from "jquery";
 import * as channel from "./channel.ts";
 import * as ui_report from "./ui_report.ts";
 import * as loading from "./loading.ts";
-
-// Type declarations for Bootstrap modal
-declare global {
-    interface JQuery {
-        modal(action?: string): JQuery;
-    }
-}
+import * as modals from "./modals.ts";
 
 interface Student {
     name: string;
@@ -31,6 +25,8 @@ interface Mentor {
 let dashboard_data: any = null;
 let sync_in_progress = false;
 let initialized = false;
+let progress_poll_interval: number | null = null;
+let current_sync_id: string | null = null;
 
 // ===================================
 // INITIALIZATION AND TAB MANAGEMENT
@@ -41,6 +37,13 @@ export function initialize(): void {
         return;
     }
     initialized = true;
+
+    // Reset sync state on page load to handle browser refresh during sync
+    sync_in_progress = false;
+    stop_progress_polling();
+
+    // Check for any active syncs and resume polling if needed
+    check_for_active_sync();
     // Initialize tab switching
     $(".lms-integration-tabs .nav-link").on("click", function (e) {
         e.preventDefault();
@@ -57,6 +60,7 @@ export function initialize(): void {
 
     // Initialize user sync controls
     $("#start-user-sync").on("click", start_user_sync);
+    $("#stop-user-sync").on("click", stop_user_sync);
     $("#trigger-full-sync").on("click", function () {
         start_user_sync();
     });
@@ -81,6 +85,11 @@ export function initialize(): void {
         save_configuration();
     });
 
+    // Initialize placeholder email management
+    $("#refresh-placeholder-stats").on("click", load_placeholder_email_stats);
+    $("#bulk-update-placeholder-emails").on("click", bulk_update_placeholder_emails);
+    $("#export-placeholder-users").on("click", export_placeholder_users);
+
     // Initialize log controls
     $("#refresh-logs").on("click", () => load_logs());
     $("#download-logs").on("click", () => download_logs());
@@ -99,6 +108,11 @@ export function initialize(): void {
         load_dashboard_status();
         load_current_configuration();
     }
+
+    // Cleanup progress polling when user navigates away
+    $(window).on("beforeunload", () => {
+        stop_progress_polling();
+    });
 }
 
 function switch_to_tab(tab_id: string): void {
@@ -117,6 +131,7 @@ function switch_to_tab(tab_id: string): void {
         case "lms-user-sync":
             load_synced_users();
             load_sync_history();
+            load_placeholder_users();
             break;
         case "lms-batch-management":
             load_batch_groups();
@@ -194,16 +209,25 @@ function update_status_badge(status: string, text: string): void {
 // ===================================
 
 function start_user_sync(): void {
+    // Enhanced double-click protection - check button state first
+    const $sync_button = $("#start-user-sync");
+    if ($sync_button.prop("disabled")) {
+        return; // Button was already clicked recently
+    }
+
     if (sync_in_progress) {
         ui_report.error("Sync already in progress", undefined, $("#lms-integration-status"));
         return;
     }
 
+    // Disable button IMMEDIATELY before any other operations
+    $sync_button.prop("disabled", true).html('<i class="fa fa-spinner fa-spin"></i> Initializing...');
+
     const sync_type = $('input[name="sync_type"]:checked').val() as string;
     const sync_batches = $("#sync_batches").is(":checked");
 
     sync_in_progress = true;
-    $("#start-user-sync").prop("disabled", true).html('<i class="fa fa-spinner fa-spin"></i> Syncing...');
+    $("#stop-user-sync").css("display", "inline-block").show();
     $("#sync-progress").show();
 
     update_sync_progress(0, "Starting sync...");
@@ -215,31 +239,385 @@ function start_user_sync(): void {
             sync_batches,
         },
         success(response: any) {
-            sync_in_progress = false;
-            $("#start-user-sync").prop("disabled", false).html('<i class="fa fa-play"></i> Start Sync');
-            $("#sync-progress").hide();
+            // Update button text to indicate sync is now actively running
+            $sync_button.html('<i class="fa fa-spinner fa-spin"></i> Syncing...');
 
-            const stats = response.stats;
-            const message = `Sync completed: ${stats.created} created, ${stats.updated} updated, ${stats.skipped} skipped, ${stats.errors} errors`;
-            ui_report.success(message, $("#lms-integration-status"));
-
-            // Refresh dashboard and user list
-            load_dashboard_status();
-            load_synced_users();
-            load_sync_history();
+            if (response.status === 'queued' && response.sync_id) {
+                // New queued sync - start polling for progress
+                current_sync_id = response.sync_id;
+                update_sync_progress(0, "Sync queued for background processing...", "initializing");
+                start_progress_polling();
+            } else if (response.sync_id) {
+                // Legacy immediate response with sync_id
+                current_sync_id = response.sync_id;
+                start_progress_polling();
+            } else {
+                // Fallback to old immediate completion behavior
+                handle_sync_completion(response);
+            }
         },
         error(xhr) {
+            let error_message = "Failed to start sync";
+            let recovery_suggestion = "";
+
+            // Parse different types of errors and provide helpful messages
+            try {
+                const response = JSON.parse(xhr.responseText);
+                if (response.msg) {
+                    if (response.msg.includes("already in progress")) {
+                        error_message = "Another sync is already running";
+                        recovery_suggestion = "Please wait for it to complete or refresh the page to check status.";
+                    } else if (response.msg.includes("not enabled")) {
+                        error_message = "LMS integration is not enabled";
+                        recovery_suggestion = "Please check the configuration settings.";
+                    } else if (response.msg.includes("database")) {
+                        error_message = "Database connection failed";
+                        recovery_suggestion = "Please check the LMS database configuration.";
+                    } else {
+                        error_message = response.msg;
+                    }
+                }
+            } catch (e) {
+                // Fallback to status-based messages
+                if (xhr.status === 403) {
+                    error_message = "Permission denied";
+                    recovery_suggestion = "You need administrator privileges to run sync operations.";
+                } else if (xhr.status === 500) {
+                    error_message = "Server error occurred";
+                    recovery_suggestion = "Please try again later or check the logs.";
+                } else if (xhr.status === 0) {
+                    error_message = "Network connection failed";
+                    recovery_suggestion = "Please check your internet connection and try again.";
+                }
+            }
+
+            // Reset our local state
             sync_in_progress = false;
-            $("#start-user-sync").prop("disabled", false).html('<i class="fa fa-play"></i> Start Sync');
-            $("#sync-progress").hide();
-            ui_report.error("Sync failed", xhr, $("#lms-integration-status"));
+            $sync_button.prop("disabled", false).html('<i class="fa fa-play"></i> Start Sync');
+            reset_progress_display();
+
+            // Show comprehensive error message
+            const full_message = recovery_suggestion
+                ? `${error_message}. ${recovery_suggestion}`
+                : error_message;
+
+            ui_report.error(full_message, undefined, $("#lms-integration-status"));
         },
     });
 }
 
-function update_sync_progress(percentage: number, text: string): void {
+function start_progress_polling(): void {
+    if (!current_sync_id) {
+        return;
+    }
+
+    // Poll every 1 second for progress updates
+    progress_poll_interval = window.setInterval(() => {
+        poll_sync_progress();
+    }, 1000);
+
+    // Also poll immediately
+    poll_sync_progress();
+}
+
+function poll_sync_progress(): void {
+    if (!current_sync_id) {
+        stop_progress_polling();
+        return;
+    }
+
+    // Store the sync ID we're polling for to prevent race conditions
+    const sync_id_for_this_poll = current_sync_id;
+
+    channel.get({
+        url: "/json/lms/admin/sync/progress",
+        data: { sync_id: current_sync_id },
+        success(response: any) {
+            // Validate that we're still polling for the same sync
+            // If current_sync_id changed while this request was in flight, ignore the response
+            if (current_sync_id !== sync_id_for_this_poll) {
+                return;
+            }
+
+            const progress_data = response;
+
+            // Update progress bar with all available information
+            update_sync_progress(
+                progress_data.progress_percentage,
+                progress_data.status_message,
+                progress_data.current_stage,
+                progress_data
+            );
+
+            // Check if sync is complete
+            if (!progress_data.is_active) {
+                stop_progress_polling();
+
+                if (progress_data.current_stage === 'completed') {
+                    // Sync completed successfully
+                    const stats = {
+                        created: progress_data.created_count,
+                        updated: progress_data.updated_count,
+                        skipped: progress_data.skipped_count,
+                        errors: progress_data.error_count
+                    };
+                    handle_sync_completion({ stats });
+                } else if (progress_data.current_stage === 'failed') {
+                    // Sync failed
+                    handle_sync_error({ responseText: progress_data.last_error });
+                } else if (progress_data.current_stage === 'cancelled') {
+                    // Sync was cancelled
+                    handle_sync_cancellation();
+                }
+            }
+        },
+        error(xhr) {
+            // If progress polling fails, try to recover gracefully
+            if (xhr.status === 0 || xhr.status >= 500) {
+                // Network or server error - might be temporary
+                // Give it one more chance before giving up
+                const retry_delay = 5000; // 5 seconds
+                setTimeout(() => {
+                    if (current_sync_id) {
+                        // Only retry if we're still supposed to be polling
+                        poll_sync_progress();
+                    }
+                }, retry_delay);
+            } else {
+                // Client error (400s) or sync not found - stop polling
+                stop_progress_polling();
+                if (xhr.status === 404) {
+                    // Sync record not found - likely completed and cleaned up
+                    ui_report.message(
+                        "Sync completed. Refreshing status...",
+                        $("#lms-integration-status"),
+                        "alert alert-info"
+                    );
+                    handle_sync_completion({ stats: { created: 0, updated: 0, skipped: 0, errors: 0 } });
+                    load_dashboard_status();
+                } else {
+                    handle_sync_error(xhr);
+                }
+            }
+        },
+    });
+}
+
+function stop_progress_polling(): void {
+    // Clear the polling interval first
+    if (progress_poll_interval) {
+        clearInterval(progress_poll_interval);
+        progress_poll_interval = null;
+    }
+
+    // Clear sync ID to prevent any in-flight polls from updating UI
+    current_sync_id = null;
+
+    // Also clear any pending setTimeout calls that might restart polling
+    // This helps with race conditions during rapid sync operations
+}
+
+function check_for_active_sync(): void {
+    // Check if there's an active sync we should resume polling for
+    channel.get({
+        url: "/json/lms/admin/sync/active",
+        success(response: any) {
+            if (response.active_syncs && response.active_syncs.length > 0) {
+                const active_sync = response.active_syncs[0]; // Resume the first active sync
+
+                // Validate that the sync is actually recent and not stuck
+                const sync_started = new Date(active_sync.started_at);
+                const now = new Date();
+                const minutes_since_start = (now.getTime() - sync_started.getTime()) / (1000 * 60);
+
+                if (minutes_since_start > 10) {
+                    // Sync has been running for over 10 minutes, likely stuck
+                    ui_report.message(
+                        "Detected a stale sync operation. It has been cleaned up automatically.",
+                        $("#lms-integration-status"),
+                        "alert alert-warning"
+                    );
+                    return;
+                }
+
+                current_sync_id = active_sync.sync_id;
+                sync_in_progress = true;
+
+                // Update UI to show sync in progress
+                $("#start-user-sync").prop("disabled", true).html('<i class="fa fa-spinner fa-spin"></i> Syncing...');
+                $("#stop-user-sync").css("display", "inline-block").show();
+                $("#sync-progress").show();
+
+                // Show current progress if available
+                if (active_sync.progress_percentage !== undefined) {
+                    update_sync_progress(
+                        active_sync.progress_percentage,
+                        active_sync.status_message || "Resuming sync...",
+                        active_sync.current_stage,
+                        active_sync
+                    );
+                }
+
+                // Start polling for this active sync
+                start_progress_polling();
+
+                // Show user-friendly message about resuming
+                ui_report.message(
+                    "Resumed monitoring an active sync operation.",
+                    $("#lms-integration-status"),
+                    "alert alert-info"
+                );
+            }
+        },
+        error() {
+            // Silently ignore errors - this is just a nice-to-have feature
+        },
+    });
+}
+
+function stop_user_sync(): void {
+    if (!current_sync_id) {
+        return;
+    }
+
+    channel.post({
+        url: "/json/lms/admin/users/sync/stop",
+        data: {
+            sync_id: current_sync_id,
+        },
+        success() {
+            ui_report.success("Sync cancellation requested", $("#lms-integration-status"));
+            // The progress polling will detect the cancelled status and call handle_sync_cancellation
+        },
+        error(xhr) {
+            ui_report.error("Failed to stop sync", xhr, $("#lms-integration-status"));
+        },
+    });
+}
+
+function handle_sync_cancellation(): void {
+    sync_in_progress = false;
+
+    // Stop polling BEFORE any UI updates
+    stop_progress_polling();
+
+    $("#start-user-sync").prop("disabled", false).html('<i class="fa fa-play"></i> Start Sync');
+    $("#stop-user-sync").hide();
+    update_sync_progress(0, "Sync cancelled", "cancelled");
+    ui_report.success("Sync has been cancelled", $("#lms-integration-status"));
+
+    // Reset after a short delay
+    setTimeout(() => {
+        reset_progress_display();
+    }, 2000);
+}
+
+function handle_sync_completion(response: any): void {
+    sync_in_progress = false;
+
+    // Stop polling BEFORE resetting display to avoid race conditions
+    stop_progress_polling();
+
+    $("#start-user-sync").prop("disabled", false).html('<i class="fa fa-play"></i> Start Sync');
+    $("#stop-user-sync").hide();
+    reset_progress_display();
+
+    const stats = response.stats;
+    let message: string;
+    if (stats.created === 0 && stats.updated === 0 && stats.skipped === 0 && stats.errors === 0) {
+        message = "Sync completed: No users found in LMS database to sync";
+    } else {
+        message = `Sync completed: ${stats.created} created, ${stats.updated} updated, ${stats.skipped} skipped, ${stats.errors} errors`;
+    }
+    ui_report.success(message, $("#lms-integration-status"));
+
+    // Refresh dashboard and user list
+    load_dashboard_status();
+    load_synced_users();
+    load_sync_history();
+}
+
+function handle_sync_error(xhr: any): void {
+    sync_in_progress = false;
+
+    // Stop polling BEFORE resetting display to avoid race conditions
+    stop_progress_polling();
+
+    $("#start-user-sync").prop("disabled", false).html('<i class="fa fa-play"></i> Start Sync');
+    $("#stop-user-sync").hide();
+    reset_progress_display();
+    ui_report.error("Sync failed", xhr, $("#lms-integration-status"));
+}
+
+function reset_progress_display(): void {
+    $("#sync-progress").hide();
+    $("#sync-progress-stats").hide();
+    $("#stop-user-sync").hide();
+    $("#sync-progress-fill").css("width", "0%");
+    $("#sync-progress-percentage").text("0%");
+    $("#sync-progress-stage").text("Initializing");
+    $("#sync-progress-text").text("Preparing sync...");
+    $("#progress-created, #progress-updated, #progress-skipped, #progress-errors").text("0");
+}
+
+function update_sync_progress(percentage: number, text: string, stage?: string, stats?: any): void {
     $("#sync-progress-fill").css("width", `${percentage}%`);
-    $("#sync-progress-text").text(text);
+    $("#sync-progress-percentage").text(`${Math.round(percentage)}%`);
+
+    if (stage) {
+        // Convert stage from backend format to user-friendly text
+        const stage_text = format_sync_stage(stage);
+        $("#sync-progress-stage").text(stage_text);
+    }
+
+    // Format progress text with detailed information
+    let progress_text = text;
+    if (stats) {
+        const processed = stats.processed_records || 0;
+        const total = stats.total_records || 0;
+        
+        if (total > 0 && processed > 0) {
+            // Show "Synced X of Y students..." format
+            const stage_lower = (stage || "").toLowerCase();
+            let item_type = "items";
+            if (stage_lower.includes("student")) {
+                item_type = "students";
+            } else if (stage_lower.includes("mentor")) {
+                item_type = "mentors";
+            } else if (stage_lower.includes("batch")) {
+                item_type = "batches";
+            }
+            
+            progress_text = `Synced ${processed.toLocaleString()} of ${total.toLocaleString()} ${item_type}...`;
+        }
+        
+        // Show detailed stats
+        $("#progress-created").text((stats.created_count || 0).toLocaleString());
+        $("#progress-updated").text((stats.updated_count || 0).toLocaleString());
+        $("#progress-skipped").text((stats.skipped_count || 0).toLocaleString());
+        $("#progress-errors").text((stats.error_count || 0).toLocaleString());
+
+        // Show stats section when we have stats data (always show during sync)
+        $("#sync-progress-stats").show();
+    }
+    
+    $("#sync-progress-text").text(progress_text);
+}
+
+function format_sync_stage(stage: string): string {
+    const stage_map: { [key: string]: string } = {
+        'initializing': 'Initializing',
+        'counting_records': 'Counting Records',
+        'syncing_students': 'Syncing Students',
+        'syncing_mentors': 'Syncing Mentors',
+        'syncing_batches': 'Syncing Batches',
+        'updating_mappings': 'Updating Mappings',
+        'finalizing': 'Finalizing',
+        'completed': 'Completed',
+        'failed': 'Failed',
+        'cancelled': 'Cancelled'
+    };
+    return stage_map[stage] || stage;
 }
 
 function load_synced_users(page: number = 1): void {
@@ -341,15 +719,50 @@ function render_sync_history_table(history: any[]): void {
     $tbody.empty();
 
     for (const sync of history) {
-        const status_class = sync.status === 'success' ? 'text-success' :
-                           sync.status === 'partial' ? 'text-warning' : 'text-danger';
+        // Map status to appropriate CSS class and icon
+        let status_class;
+        let status_icon;
+        let status_text;
+
+        switch (sync.status) {
+            case 'success':
+                status_class = 'text-success';
+                status_icon = 'fa-check-circle';
+                status_text = 'Success';
+                break;
+            case 'partial':
+                status_class = 'text-warning';
+                status_icon = 'fa-exclamation-triangle';
+                status_text = 'Partial';
+                break;
+            case 'failed':
+                status_class = 'text-danger';
+                status_icon = 'fa-times-circle';
+                status_text = 'Failed';
+                break;
+            case 'cancelled':
+                status_class = 'text-muted';
+                status_icon = 'fa-ban';
+                status_text = 'Cancelled';
+                break;
+            case 'running':
+                status_class = 'text-info';
+                status_icon = 'fa-spinner fa-spin';
+                status_text = 'Running';
+                break;
+            default:
+                status_class = 'text-muted';
+                status_icon = 'fa-question-circle';
+                status_text = sync.status || 'Unknown';
+        }
+
         const duration = Math.round(sync.duration_seconds);
 
         const $row = $(`
             <tr>
                 <td>${format_datetime(sync.started_at)}</td>
                 <td><span class="badge badge-secondary">${sync.sync_type}</span></td>
-                <td><span class="${status_class}"><i class="fa fa-circle"></i> ${sync.status}</span></td>
+                <td><span class="${status_class}"><i class="fa ${status_icon}"></i> ${status_text}</span></td>
                 <td>${sync.users_created}</td>
                 <td>${sync.users_updated}</td>
                 <td>${sync.users_skipped}</td>
@@ -534,6 +947,18 @@ function populate_configuration_form(config: any): void {
     $("#id_poll_interval").val(config.poll_interval || 60);
     $("#id_notify_mentors").prop("checked", config.notify_mentors);
     $("#webhook-endpoint-url").text(config.webhook_endpoint_url || "");
+
+    // Populate placeholder email settings
+    $("#id_lms_no_email_domain").val(config.lms_no_email_domain || "noemail.local");
+    $("#id_lms_auto_update_emails").prop("checked", config.lms_auto_update_emails !== false);
+    $("#id_lms_placeholder_email_delivery").prop("checked", config.lms_placeholder_email_delivery === true);
+    $("#id_lms_placeholder_inapp_notifications").prop("checked", config.lms_placeholder_inapp_notifications !== false);
+    $("#id_lms_log_placeholder_attempts").prop("checked", config.lms_log_placeholder_attempts !== false);
+
+    // Update placeholder email statistics
+    if (config.placeholder_stats) {
+        update_placeholder_stats_ui(config.placeholder_stats);
+    }
 }
 
 function save_configuration(): void {
@@ -548,6 +973,13 @@ function save_configuration(): void {
         activity_monitor_enabled: $("#id_activity_monitor_enabled").is(":checked"),
         poll_interval: parseInt($("#id_poll_interval").val() as string, 10),
         notify_mentors: $("#id_notify_mentors").is(":checked"),
+
+        // Placeholder email settings
+        lms_no_email_domain: $("#id_lms_no_email_domain").val(),
+        lms_auto_update_emails: $("#id_lms_auto_update_emails").is(":checked"),
+        lms_placeholder_email_delivery: $("#id_lms_placeholder_email_delivery").is(":checked"),
+        lms_placeholder_inapp_notifications: $("#id_lms_placeholder_inapp_notifications").is(":checked"),
+        lms_log_placeholder_attempts: $("#id_lms_log_placeholder_attempts").is(":checked"),
     };
 
     // Only include password if it's been changed
@@ -722,7 +1154,18 @@ function render_batch_groups_table(batches: any[]): void {
 }
 
 function sync_all_batches(): void {
-    loading.make_indicator($("#sync-batches"));
+    // Double-click protection - check if sync is already in progress or button is disabled
+    if (sync_in_progress) {
+        ui_report.error("User sync already in progress", undefined, $("#lms-integration-status"));
+        return;
+    }
+
+    const $batch_sync_button = $("#sync-batches");
+    if ($batch_sync_button.prop("disabled")) {
+        return; // Button was already clicked recently
+    }
+
+    loading.make_indicator($batch_sync_button);
 
     // Use the same user sync endpoint with batch sync enabled
     channel.post({
@@ -734,8 +1177,24 @@ function sync_all_batches(): void {
         success(response: any) {
             loading.destroy_indicator($("#sync-batches"));
             const stats = response.stats;
-            const message = `Batch sync completed: ${stats.batches_synced || 0} batches synced`;
-            ui_report.success(message, $("#lms-integration-status"));
+
+            if (stats) {
+                // Legacy immediate-completion behavior where the endpoint returns stats
+                const message = `Batch sync completed: ${stats.batches_synced || 0} batches synced`;
+                ui_report.success(message, $("#lms-integration-status"));
+            } else if (response.status === "queued" && response.sync_id) {
+                // New asynchronous behavior where the sync is queued for background processing
+                ui_report.success(
+                    "Batch sync has been queued for background processing. You can monitor progress in the sync status section.",
+                    $("#lms-integration-status"),
+                );
+            } else {
+                // Fallback: request succeeded but no stats were returned
+                ui_report.success(
+                    "Batch sync request completed.",
+                    $("#lms-integration-status"),
+                );
+            }
 
             // Refresh batch list and dashboard
             load_batch_groups();
@@ -751,16 +1210,14 @@ function sync_all_batches(): void {
 function create_batch_group(): void {
     // Create modal dialog for batch group creation
     const modal_html = `
-        <div id="create-batch-modal" class="modal fade" tabindex="-1" role="dialog">
-            <div class="modal-dialog" role="document">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Create Batch Group</h5>
-                        <button type="button" class="close" data-dismiss="modal">
-                            <span>&times;</span>
-                        </button>
+        <div class="micromodal" id="create-batch-modal" aria-hidden="true">
+            <div class="modal__overlay" tabindex="-1">
+                <div class="modal__container" role="dialog" aria-modal="true">
+                    <div class="modal__header">
+                        <h1 class="modal__title">Create Batch Group</h1>
+                        <button class="modal__close" aria-label="Close modal" data-micromodal-close></button>
                     </div>
-                    <div class="modal-body">
+                    <main class="modal__body">
                         <form id="create-batch-form">
                             <div class="form-group">
                                 <label for="batch-name">Batch Name</label>
@@ -781,11 +1238,11 @@ function create_batch_group(): void {
                                     placeholder="Enter mentor IDs separated by commas"></textarea>
                             </div>
                         </form>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-                        <button type="button" class="btn btn-primary" id="save-batch-group">Create Batch</button>
-                    </div>
+                    </main>
+                    <footer class="modal__footer">
+                        <button type="button" class="modal__button dialog_exit_button" data-micromodal-close>Cancel</button>
+                        <button type="button" class="modal__button dialog_submit_button" id="save-batch-group">Create Batch</button>
+                    </footer>
                 </div>
             </div>
         </div>
@@ -796,7 +1253,7 @@ function create_batch_group(): void {
 
     // Add modal to DOM and show it
     $("body").append(modal_html);
-    $("#create-batch-modal").modal("show");
+    modals.open("create-batch-modal", {autoremove: true});
 
     // Handle form submission
     $("#save-batch-group").on("click", function () {
@@ -821,7 +1278,7 @@ function create_batch_group(): void {
             url: "/json/lms/admin/batches/create",
             data,
             success(response: any) {
-                $("#create-batch-modal").modal("hide");
+                modals.close("create-batch-modal");
                 ui_report.success(`Batch "${batch_name}" created successfully`, $("#lms-integration-status"));
 
                 // Refresh batch list
@@ -933,6 +1390,213 @@ function download_logs(): void {
     document.body.removeChild(link);
 
     ui_report.success("Log download started", $("#lms-integration-status"));
+}
+
+// ===================================
+// PLACEHOLDER EMAIL MANAGEMENT
+// ===================================
+
+function load_placeholder_users(page: number = 1): void {
+    // Ensure page is a valid positive integer
+    const pageNum = Number.isFinite(page) && Number.isInteger(page) && page > 0 ? Math.floor(page) : 1;
+
+    channel.get({
+        url: "/json/lms/admin/users/placeholder",
+        data: {page: pageNum},
+        success(response: any) {
+            render_placeholder_users_table(response.users);
+            // Update placeholder stats summary
+            $("#placeholder-users-count").text(response.total_count || 0);
+            $("#placeholder-email-coverage-sync").text(response.email_coverage ? `${response.email_coverage}%` : "—");
+
+            // Transform response to match expected pagination structure
+            const transformed_response = {
+                ...response,
+                pagination: {
+                    current_page: response.page,
+                    total_pages: response.total_pages,
+                    total_count: response.total_count,
+                    per_page: 50, // Placeholder users uses 50 per page
+                    has_next: response.has_next,
+                    has_previous: response.has_previous,
+                },
+            };
+            update_pagination("#placeholder-users-table", transformed_response);
+        },
+        error(xhr) {
+            ui_report.error("Failed to load placeholder users", xhr, $("#lms-integration-status"));
+        },
+    });
+}
+
+function render_placeholder_users_table(users: any[]): void {
+    const $tbody = $("#placeholder-users-table");
+    $tbody.empty();
+
+    for (const user of users) {
+        const type_badge = user.type === 'student' ? 'badge-primary' : 'badge-success';
+        const $row = $(`
+            <tr>
+                <td>${user.name}</td>
+                <td>${user.username || "—"}</td>
+                <td>${user.placeholder_email}</td>
+                <td><span class="badge ${type_badge}">${user.type}</span></td>
+                <td>${user.lms_id || "—"}</td>
+                <td>${user.last_sync ? format_datetime(user.last_sync) : "—"}</td>
+                <td class="actions">
+                    <button class="btn btn-sm btn-outline" onclick="update_user_email(${user.id}, '${user.username}')">
+                        <i class="fa fa-edit"></i> Update Email
+                    </button>
+                </td>
+            </tr>
+        `);
+        $tbody.append($row);
+    }
+}
+
+function load_placeholder_email_stats(): void {
+    loading.make_indicator($("#refresh-placeholder-stats"));
+
+    channel.get({
+        url: "/json/lms/admin/users/placeholder/stats",
+        success(response: any) {
+            loading.destroy_indicator($("#refresh-placeholder-stats"));
+            update_placeholder_stats_ui(response);
+        },
+        error(xhr) {
+            loading.destroy_indicator($("#refresh-placeholder-stats"));
+            ui_report.error("Failed to load placeholder email statistics", xhr, $("#lms-integration-status"));
+        },
+    });
+}
+
+function update_placeholder_stats_ui(stats: any): void {
+    $("#placeholder-total-users").text(stats.total_users || "0");
+    $("#placeholder-real-emails").text(stats.users_with_email_notifications || "0");
+    $("#placeholder-fake-emails").text(stats.users_without_email_notifications || "0");
+    $("#placeholder-email-coverage").text(stats.email_notification_coverage ? `${stats.email_notification_coverage}%` : "0%");
+}
+
+function bulk_update_placeholder_emails(): void {
+    // Create modal dialog for bulk email update
+    const modal_html = `
+        <div class="micromodal" id="bulk-update-emails-modal" aria-hidden="true">
+            <div class="modal__overlay" tabindex="-1">
+                <div class="modal__container" role="dialog" aria-modal="true">
+                    <div class="modal__header">
+                        <h1 class="modal__title">Bulk Update Placeholder Emails</h1>
+                        <button class="modal__close" aria-label="Close modal" data-micromodal-close></button>
+                    </div>
+                    <main class="modal__body">
+                        <form id="bulk-update-form">
+                            <div class="form-group">
+                                <label for="bulk-email-updates">Email Updates (CSV format: username,email)</label>
+                                <textarea class="form-control" id="bulk-email-updates" rows="10"
+                                    placeholder="john_doe,john.doe@school.edu
+mary_smith,mary.smith@school.edu
+jane_wilson,jane.wilson@school.edu"></textarea>
+                                <small class="form-text text-muted">
+                                    Enter one update per line in the format: username,email
+                                </small>
+                            </div>
+                            <div class="form-group">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="validate-only">
+                                    <label class="form-check-label" for="validate-only">
+                                        Validate only (don't apply changes)
+                                    </label>
+                                </div>
+                            </div>
+                        </form>
+                    </main>
+                    <footer class="modal__footer">
+                        <button type="button" class="modal__button dialog_exit_button" data-micromodal-close>Cancel</button>
+                        <button type="button" class="modal__button dialog_submit_button" id="process-bulk-updates">Process Updates</button>
+                    </footer>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Remove existing modal if present
+    $("#bulk-update-emails-modal").remove();
+
+    // Add modal to DOM and show it
+    $("body").append(modal_html);
+    modals.open("bulk-update-emails-modal", {autoremove: true});
+
+    // Handle form submission
+    $("#process-bulk-updates").on("click", function () {
+        const updates = $("#bulk-email-updates").val() as string;
+        const validate_only = $("#validate-only").is(":checked");
+
+        if (!updates.trim()) {
+            ui_report.error("Email updates are required", undefined, $("#lms-integration-status"));
+            return;
+        }
+
+        // Parse CSV data
+        const lines = updates.trim().split('\n');
+        const email_updates = [];
+        for (const line of lines) {
+            const [username, email] = line.split(',').map(s => s.trim());
+            if (username && email) {
+                email_updates.push({ username, email });
+            }
+        }
+
+        if (email_updates.length === 0) {
+            ui_report.error("No valid email updates found", undefined, $("#lms-integration-status"));
+            return;
+        }
+
+        const data = {
+            email_updates,
+            validate_only,
+        };
+
+        loading.make_indicator($("#process-bulk-updates"));
+
+        channel.post({
+            url: "/json/lms/admin/users/placeholder/bulk-update",
+            data,
+            success(response: any) {
+                loading.destroy_indicator($("#process-bulk-updates"));
+                modals.close("bulk-update-emails-modal");
+
+                const stats = response.stats;
+                const message = validate_only
+                    ? `Validation complete: ${stats.valid} valid, ${stats.invalid} invalid, ${stats.not_found} not found`
+                    : `Bulk update complete: ${stats.updated} updated, ${stats.errors} errors`;
+
+                ui_report.success(message, $("#lms-integration-status"));
+
+                // Refresh placeholder users list and stats
+                load_placeholder_users();
+                load_placeholder_email_stats();
+            },
+            error(xhr) {
+                loading.destroy_indicator($("#process-bulk-updates"));
+                ui_report.error("Failed to process bulk email updates", xhr, $("#lms-integration-status"));
+            },
+        });
+    });
+}
+
+function export_placeholder_users(): void {
+    const download_url = "/json/lms/admin/users/placeholder/export";
+
+    // Create a temporary link element to trigger download
+    const link = document.createElement("a");
+    link.href = download_url;
+    link.download = `placeholder_users_${new Date().toISOString().split("T")[0]}.csv`;
+    link.style.display = "none";
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    ui_report.success("Placeholder users export started", $("#lms-integration-status"));
 }
 
 // ===================================
@@ -1073,15 +1737,27 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 // These functions need to be available globally for onclick handlers in the HTML
 (window as any).resync_user = function (user_id: number): void {
     if (confirm("Are you sure you want to resync this user?")) {
+        const $button = $(`button[onclick="resync_user(${user_id})"]`);
+
+        // Double-click protection
+        if ($button.prop("disabled")) {
+            return; // Button was already clicked
+        }
+
+        const original_html = $button.html();
+        $button.prop("disabled", true).html('<i class="fa fa-spinner fa-spin"></i>');
+
         channel.post({
             url: `/json/lms/admin/users/${user_id}/resync`,
             success(response: any) {
+                $button.prop("disabled", false).html(original_html);
                 ui_report.success("User resync completed successfully", $("#lms-integration-status"));
                 // Refresh the user list to show updated data
                 load_synced_users();
                 load_dashboard_status();
             },
             error(xhr) {
+                $button.prop("disabled", false).html(original_html);
                 ui_report.error("Failed to resync user", xhr, $("#lms-integration-status"));
             },
         });
@@ -1096,16 +1772,14 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
             const event = response.event;
 
             const modal_html = `
-                <div id="event-details-modal" class="modal fade" tabindex="-1" role="dialog">
-                    <div class="modal-dialog modal-lg" role="document">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title">Activity Event Details</h5>
-                                <button type="button" class="close" data-dismiss="modal">
-                                    <span>&times;</span>
-                                </button>
+                <div class="micromodal" id="event-details-modal" aria-hidden="true">
+                    <div class="modal__overlay" tabindex="-1">
+                        <div class="modal__container" role="dialog" aria-modal="true">
+                            <div class="modal__header">
+                                <h1 class="modal__title">Activity Event Details</h1>
+                                <button class="modal__close" aria-label="Close modal" data-micromodal-close></button>
                             </div>
-                            <div class="modal-body">
+                            <main class="modal__body">
                                 <div class="row">
                                     <div class="col-md-6">
                                         <h6>Event Information</h6>
@@ -1131,13 +1805,13 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
                                     <h6>Raw Event Data</h6>
                                     <pre class="bg-light p-2" style="max-height: 200px; overflow-y: auto;">${JSON.stringify(event.event_data, null, 2)}</pre>
                                 ` : ""}
-                            </div>
-                            <div class="modal-footer">
+                            </main>
+                            <footer class="modal__footer">
                                 ${event.notification_status === "failed" || event.notification_status === "error" ?
-                                    '<button type="button" class="btn btn-warning" onclick="retry_notification(' + event.id + ')">Retry Notification</button>' : ""
+                                    '<button type="button" class="modal__button" onclick="retry_notification(' + event.id + '); modals.close(\'event-details-modal\');">Retry Notification</button>' : ""
                                 }
-                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                            </div>
+                                <button type="button" class="modal__button dialog_exit_button" data-micromodal-close>Close</button>
+                            </footer>
                         </div>
                     </div>
                 </div>
@@ -1148,7 +1822,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 
             // Add modal to DOM and show it
             $("body").append(modal_html);
-            $("#event-details-modal").modal("show");
+            modals.open("event-details-modal", {autoremove: true});
         },
         error(xhr) {
             ui_report.error("Failed to load event details", xhr, $("#lms-integration-status"));
@@ -1164,16 +1838,14 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
             const log = response.log;
 
             const modal_html = `
-                <div id="log-details-modal" class="modal fade" tabindex="-1" role="dialog">
-                    <div class="modal-dialog modal-lg" role="document">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title">Log Details</h5>
-                                <button type="button" class="close" data-dismiss="modal">
-                                    <span>&times;</span>
-                                </button>
+                <div class="micromodal" id="log-details-modal" aria-hidden="true">
+                    <div class="modal__overlay" tabindex="-1">
+                        <div class="modal__container" role="dialog" aria-modal="true">
+                            <div class="modal__header">
+                                <h1 class="modal__title">Log Details</h1>
+                                <button class="modal__close" aria-label="Close modal" data-micromodal-close></button>
                             </div>
-                            <div class="modal-body">
+                            <main class="modal__body">
                                 <table class="table table-sm">
                                     <tr><td><strong>Log ID:</strong></td><td>${log.id}</td></tr>
                                     <tr><td><strong>Timestamp:</strong></td><td>${format_datetime(log.timestamp)}</td></tr>
@@ -1198,11 +1870,11 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
                                     <h6>Context</h6>
                                     <pre class="bg-light p-3" style="max-height: 200px; overflow-y: auto;">${JSON.stringify(log.context, null, 2)}</pre>
                                 ` : ""}
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-outline-primary" onclick="copyLogDetails(${log.id})">Copy Log</button>
-                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                            </div>
+                            </main>
+                            <footer class="modal__footer">
+                                <button type="button" class="modal__button" onclick="copyLogDetails(${log.id})">Copy Log</button>
+                                <button type="button" class="modal__button dialog_exit_button" data-micromodal-close>Close</button>
+                            </footer>
                         </div>
                     </div>
                 </div>
@@ -1213,7 +1885,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 
             // Add modal to DOM and show it
             $("body").append(modal_html);
-            $("#log-details-modal").modal("show");
+            modals.open("log-details-modal", {autoremove: true});
         },
         error(xhr) {
             ui_report.error("Failed to load log details", xhr, $("#lms-integration-status"));
@@ -1224,6 +1896,12 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 (window as any).sync_batch_group = function (batch_id: number): void {
     if (confirm("Are you sure you want to sync this batch group?")) {
         const $button = $(`button[onclick="sync_batch_group(${batch_id})"]`);
+
+        // Double-click protection
+        if ($button.prop("disabled")) {
+            return; // Button was already clicked
+        }
+
         const original_html = $button.html();
         $button.prop("disabled", true).html('<i class="fa fa-spinner fa-spin"></i> Syncing...');
 
@@ -1255,16 +1933,14 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
             const batch = response.batch;
 
             const modal_html = `
-                <div id="batch-details-modal" class="modal fade" tabindex="-1" role="dialog">
-                    <div class="modal-dialog modal-xl" role="document">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title">Batch Group Details: ${batch.batch_name}</h5>
-                                <button type="button" class="close" data-dismiss="modal">
-                                    <span>&times;</span>
-                                </button>
+                <div class="micromodal" id="batch-details-modal" aria-hidden="true">
+                    <div class="modal__overlay" tabindex="-1">
+                        <div class="modal__container" role="dialog" aria-modal="true">
+                            <div class="modal__header">
+                                <h1 class="modal__title">Batch Group Details: ${batch.batch_name}</h1>
+                                <button class="modal__close" aria-label="Close modal" data-micromodal-close></button>
                             </div>
-                            <div class="modal-body">
+                            <main class="modal__body">
                                 <div class="row">
                                     <div class="col-md-6">
                                         <h6>Batch Information</h6>
@@ -1349,13 +2025,13 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
                                         </div>
                                     </div>
                                 ` : ""}
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-primary" onclick="sync_batch_group(${batch.id}); $('#batch-details-modal').modal('hide');">
+                            </main>
+                            <footer class="modal__footer">
+                                <button type="button" class="modal__button dialog_submit_button" onclick="sync_batch_group(${batch.id}); modals.close('batch-details-modal');">
                                     <i class="fa fa-sync"></i> Sync Batch
                                 </button>
-                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                            </div>
+                                <button type="button" class="modal__button dialog_exit_button" data-micromodal-close>Close</button>
+                            </footer>
                         </div>
                     </div>
                 </div>
@@ -1366,7 +2042,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 
             // Add modal to DOM and show it
             $("body").append(modal_html);
-            $("#batch-details-modal").modal("show");
+            modals.open("batch-details-modal", {autoremove: true});
         },
         error(xhr) {
             ui_report.error("Failed to load batch details", xhr, $("#lms-integration-status"));
@@ -1375,6 +2051,77 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 };
 
 // Additional helper functions for modal actions
+(window as any).update_user_email = function (user_id: number, username: string): void {
+    // Create modal dialog for single user email update
+    const modal_html = `
+        <div class="micromodal" id="update-user-email-modal" aria-hidden="true">
+            <div class="modal__overlay" tabindex="-1">
+                <div class="modal__container" role="dialog" aria-modal="true">
+                    <div class="modal__header">
+                        <h1 class="modal__title">Update Email for ${username}</h1>
+                        <button class="modal__close" aria-label="Close modal" data-micromodal-close></button>
+                    </div>
+                    <main class="modal__body">
+                        <form id="update-email-form">
+                            <div class="form-group">
+                                <label for="new-email">New Email Address</label>
+                                <input type="email" class="form-control" id="new-email" required
+                                    placeholder="Enter the new email address">
+                            </div>
+                        </form>
+                    </main>
+                    <footer class="modal__footer">
+                        <button type="button" class="modal__button dialog_exit_button" data-micromodal-close>Cancel</button>
+                        <button type="button" class="modal__button dialog_submit_button" id="save-email-update">Update Email</button>
+                    </footer>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Remove existing modal if present
+    $("#update-user-email-modal").remove();
+
+    // Add modal to DOM and show it
+    $("body").append(modal_html);
+    modals.open("update-user-email-modal", {autoremove: true});
+
+    // Handle form submission
+    $("#save-email-update").on("click", function () {
+        const new_email = $("#new-email").val() as string;
+
+        if (!new_email || !new_email.trim()) {
+            ui_report.error("Email address is required", undefined, $("#lms-integration-status"));
+            return;
+        }
+
+        const data = {
+            user_id,
+            new_email: new_email.trim(),
+        };
+
+        loading.make_indicator($("#save-email-update"));
+
+        channel.post({
+            url: "/json/lms/admin/users/update-email",
+            data,
+            success(response: any) {
+                loading.destroy_indicator($("#save-email-update"));
+                modals.close("update-user-email-modal");
+                ui_report.success(`Email updated successfully for ${username}`, $("#lms-integration-status"));
+
+                // Refresh placeholder users list
+                load_placeholder_users();
+                load_placeholder_email_stats();
+            },
+            error(xhr) {
+                loading.destroy_indicator($("#save-email-update"));
+                ui_report.error("Failed to update email address", xhr, $("#lms-integration-status"));
+            },
+        });
+    });
+};
+
 (window as any).retry_notification = function (event_id: number): void {
     if (confirm("Are you sure you want to retry this notification?")) {
         channel.post({
@@ -1382,7 +2129,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
             success(response: any) {
                 ui_report.success("Notification retry initiated", $("#lms-integration-status"));
                 // Close the modal and refresh the events list
-                $("#event-details-modal").modal("hide");
+                modals.close("event-details-modal");
                 load_activity_events();
             },
             error(xhr) {
@@ -1394,7 +2141,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
 
 (window as any).copyLogDetails = function (log_id: number): void {
     // Get the log details from the modal
-    const logContent = $(`#log-details-modal .modal-body`).text();
+    const logContent = $(`#log-details-modal .modal__body`).text();
 
     if (navigator.clipboard) {
         navigator.clipboard.writeText(logContent).then(function () {
@@ -1433,5 +2180,9 @@ export function set_up(): void {
 }
 
 export function reset(): void {
+    // Reset initialization and any in-flight sync/progress polling so that
+    // reopening the LMS Integration settings starts from a clean state.
     initialized = false;
+    sync_in_progress = false;
+    stop_progress_polling();
 }

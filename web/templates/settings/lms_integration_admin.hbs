@@ -178,11 +178,32 @@
                                 <button class="btn btn-primary" id="start-user-sync">
                                     <i class="fa fa-play"></i> {{t "Start Sync"}}
                                 </button>
+                                <button class="btn btn-danger" id="stop-user-sync" style="display: none;">
+                                    <i class="fa fa-stop"></i> {{t "Stop Sync"}}
+                                </button>
                                 <div class="sync-progress" id="sync-progress" style="display: none;">
+                                    <div class="progress-header">
+                                        <span class="progress-stage" id="sync-progress-stage">{{t "Initializing"}}</span>
+                                        <span class="progress-percentage" id="sync-progress-percentage">0%</span>
+                                    </div>
                                     <div class="progress-bar">
-                                        <div class="progress-fill" id="sync-progress-fill"></div>
+                                        <div class="progress-fill" id="sync-progress-fill" style="width: 0%;"></div>
                                     </div>
                                     <div class="progress-text" id="sync-progress-text">{{t "Preparing sync..."}}</div>
+                                    <div class="progress-stats" id="sync-progress-stats" style="display: none;">
+                                        <span class="stat-item">
+                                            <i class="fa fa-plus text-success"></i> <span id="progress-created">0</span> {{t "Created"}}
+                                        </span>
+                                        <span class="stat-item">
+                                            <i class="fa fa-edit text-info"></i> <span id="progress-updated">0</span> {{t "Updated"}}
+                                        </span>
+                                        <span class="stat-item">
+                                            <i class="fa fa-skip-forward text-muted"></i> <span id="progress-skipped">0</span> {{t "Skipped"}}
+                                        </span>
+                                        <span class="stat-item">
+                                            <i class="fa fa-exclamation-triangle text-danger"></i> <span id="progress-errors">0</span> {{t "Errors"}}
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -206,6 +227,48 @@
                                     </tr>
                                 </thead>
                                 <tbody id="sync-history-table"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {{! Placeholder Email Management }}
+                    <div class="placeholder-email-management">
+                        <h4>{{t "Placeholder Email Management"}}</h4>
+                        <div class="placeholder-summary">
+                            <div class="placeholder-stats-summary">
+                                <div class="stat-card small">
+                                    <span class="stat-number" id="placeholder-users-count">—</span>
+                                    <span class="stat-label">{{t "Users with Placeholder Emails"}}</span>
+                                </div>
+                                <div class="stat-card small">
+                                    <span class="stat-number" id="placeholder-email-coverage-sync">—%</span>
+                                    <span class="stat-label">{{t "Email Notification Coverage"}}</span>
+                                </div>
+                            </div>
+                            <div class="placeholder-actions">
+                                <button class="btn btn-outline" id="bulk-update-placeholder-emails">
+                                    <i class="fa fa-edit"></i> {{t "Bulk Update Emails"}}
+                                </button>
+                                <button class="btn btn-outline" id="export-placeholder-users">
+                                    <i class="fa fa-download"></i> {{t "Export List"}}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="progressive-table-wrapper">
+                            <table class="table table-striped wrapped-table">
+                                <thead>
+                                    <tr>
+                                        <th data-sort="name">{{t "Name"}}</th>
+                                        <th data-sort="username">{{t "Username"}}</th>
+                                        <th data-sort="placeholder_email">{{t "Placeholder Email"}}</th>
+                                        <th data-sort="type">{{t "Type"}}</th>
+                                        <th data-sort="lms_id">{{t "LMS ID"}}</th>
+                                        <th data-sort="last_sync">{{t "Last Sync"}}</th>
+                                        <th class="actions">{{t "Actions"}}</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="placeholder-users-table"></tbody>
                             </table>
                         </div>
                     </div>
@@ -476,6 +539,85 @@
                         </div>
                     </div>
 
+                    {{! Placeholder Email Settings }}
+                    <div class="settings-subsection-parent">
+                        <div class="subsection-header">
+                            <h3>{{t "Placeholder Email Configuration"}}</h3>
+                            {{> settings_save_discard_widget section_name="lms-placeholder-email" }}
+                        </div>
+
+                        <div class="organization-settings-parent">
+                            <div class="input-group admin-realm">
+                                <label for="id_lms_no_email_domain">{{t "Placeholder Email Domain"}}</label>
+                                <input type="text" id="id_lms_no_email_domain" name="lms_no_email_domain"
+                                       class="setting-widget" value="{{ lms_no_email_domain }}"
+                                       placeholder="noemail.local" />
+                                <div class="help-text">{{t "Domain to use for generating placeholder emails for LMS users without email addresses. Example: students.school.edu"}}</div>
+                            </div>
+
+                            <div class="input-group admin-realm">
+                                <label for="id_lms_auto_update_emails">{{t "Auto-update emails during sync"}}</label>
+                                <input type="checkbox" id="id_lms_auto_update_emails"
+                                       name="lms_auto_update_emails" class="setting-widget"
+                                       data-setting-widget-type="bool"
+                                       {{#if lms_auto_update_emails}}checked{{/if}} />
+                                <div class="help-text">{{t "Automatically update placeholder emails to real emails when available in LMS."}}</div>
+                            </div>
+
+                            <div class="input-group admin-realm">
+                                <label for="id_lms_placeholder_email_delivery">{{t "Email delivery to placeholder addresses"}}</label>
+                                <input type="checkbox" id="id_lms_placeholder_email_delivery"
+                                       name="lms_placeholder_email_delivery" class="setting-widget"
+                                       data-setting-widget-type="bool"
+                                       {{#if lms_placeholder_email_delivery}}checked{{/if}} />
+                                <div class="help-text">{{t "Allow email notifications to be sent to placeholder email addresses. Usually disabled."}}</div>
+                            </div>
+
+                            <div class="input-group admin-realm">
+                                <label for="id_lms_placeholder_inapp_notifications">{{t "In-app notifications for placeholder users"}}</label>
+                                <input type="checkbox" id="id_lms_placeholder_inapp_notifications"
+                                       name="lms_placeholder_inapp_notifications" class="setting-widget"
+                                       data-setting-widget-type="bool"
+                                       {{#if lms_placeholder_inapp_notifications}}checked{{/if}} />
+                                <div class="help-text">{{t "Show in-app notifications for users with placeholder emails."}}</div>
+                            </div>
+
+                            <div class="input-group admin-realm">
+                                <label for="id_lms_log_placeholder_attempts">{{t "Log placeholder email notification attempts"}}</label>
+                                <input type="checkbox" id="id_lms_log_placeholder_attempts"
+                                       name="lms_log_placeholder_attempts" class="setting-widget"
+                                       data-setting-widget-type="bool"
+                                       {{#if lms_log_placeholder_attempts}}checked{{/if}} />
+                                <div class="help-text">{{t "Log when email notifications are blocked due to placeholder addresses."}}</div>
+                            </div>
+
+                            <div class="placeholder-email-stats">
+                                <h5>{{t "Placeholder Email Statistics"}}</h5>
+                                <div class="stats-grid">
+                                    <div class="stat-item">
+                                        <span class="stat-label">{{t "Total Users"}}</span>
+                                        <span class="stat-value" id="placeholder-total-users">—</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">{{t "Users with Real Emails"}}</span>
+                                        <span class="stat-value" id="placeholder-real-emails">—</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">{{t "Users with Placeholder Emails"}}</span>
+                                        <span class="stat-value" id="placeholder-fake-emails">—</span>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-label">{{t "Email Coverage"}}</span>
+                                        <span class="stat-value" id="placeholder-email-coverage">—%</span>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-outline" id="refresh-placeholder-stats">
+                                    <i class="fa fa-refresh"></i> {{t "Refresh Statistics"}}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     {{! Activity Monitoring Settings }}
                     <div class="settings-subsection-parent">
                         <div class="subsection-header">
@@ -509,6 +651,13 @@
                                 <div class="help-text">{{t "Send private messages to mentors when their students complete activities."}}</div>
                             </div>
                         </div>
+                    </div>
+
+                    {{! Explicit save button for all LMS configuration settings }}
+                    <div class="settings-actions">
+                        <button type="submit" class="button rounded sea-green">
+                            <i class="fa fa-save"></i> {{t "Save configuration"}}
+                        </button>
                     </div>
 
                 </form>

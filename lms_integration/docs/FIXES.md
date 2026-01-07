@@ -212,3 +212,13 @@ This is expected because we register the same URLs twice (once for `/api/v1/` an
 - `web/src/settings_sections.ts` - Settings section registration
 - `zproject/urls.py` - Main URL configuration
 
+
+
+
+
+
+
+
+
+
+

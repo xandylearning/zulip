@@ -29,8 +29,43 @@ class LmsIntegrationConfig(AppConfig):
         logger.info("🎓 LMS INTEGRATION APP INITIALIZED")
         logger.info("=" * 60)
 
+        # Fix reset_queries to handle psycopg2 connections properly
+        self._patch_reset_queries()
+
         # Register event listeners here if needed
         self._register_event_listeners()
+
+    def _patch_reset_queries(self):
+        """
+        Monkey-patch reset_queries to handle psycopg2 connections.
+        
+        The core reset_queries function assumes all database connections have
+        a 'queries' attribute, but psycopg2 connections don't. This patch
+        adds proper error handling to prevent AttributeError exceptions.
+        """
+        try:
+            from django.db import connections
+            from zerver.lib import db_connections
+
+            def safe_reset_queries() -> None:
+                """Safely reset queries for all database connections."""
+                for conn in connections.all():
+                    if conn.connection is not None:
+                        try:
+                            # Only try to reset queries if the attribute exists and is writable
+                            if hasattr(conn.connection, "queries"):
+                                conn.connection.queries = []
+                        except (AttributeError, TypeError):
+                            # psycopg2 connections don't have a queries attribute
+                            # This is expected and safe to ignore
+                            pass
+
+            # Replace the function in the module
+            db_connections.reset_queries = safe_reset_queries
+            logger.debug("✅ Patched reset_queries to handle psycopg2 connections")
+
+        except Exception as e:
+            logger.warning(f"Failed to patch reset_queries: {e}")
 
     def _register_event_listeners(self):
         """Register event listeners for LMS activities"""

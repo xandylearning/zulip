@@ -939,7 +939,6 @@ test_people("user_ids_to_full_names_string", () => {
         `${charles.full_name}, ${maria.full_name}`,
     );
 
-    blueslip.expect("error", "Unknown user_id in maybe_get_user_by_id");
     assert.equal(
         people.user_ids_to_full_names_string([charles.user_id, 9999, maria.user_id]),
         `${charles.full_name}, ${maria.full_name}, translated: Unknown user`,

@@ -380,7 +380,7 @@ export function reply_to_to_user_ids_string(emails_string: string): string | und
 
 export function user_ids_to_full_names_string(user_ids: number[]): string {
     const names = user_ids.map((user_id) => {
-        const person = maybe_get_user_by_id(user_id);
+        const person = maybe_get_user_by_id(user_id, true);
         if (person !== undefined) {
             return person.full_name;
         }

@@ -208,16 +208,18 @@ class ActivityMonitor:
         """Get mentor information for a student."""
         try:
             # Find mentor-student relationship
-            mentor_student = Mentortostudent.objects.filter(
+            # Use values_list to avoid selecting non-existent 'id' column
+            mentor_id = Mentortostudent.objects.using('lms_db').filter(
                 b_id=student_id  # b is the student in the relationship
-            ).select_related('a').first()  # a is the mentor
+            ).values_list('a_id', flat=True).first()  # a is the mentor
             
-            if mentor_student and mentor_student.a:
-                mentor = mentor_student.a
-                return {
-                    'mentor_id': mentor.user_id,
-                    'mentor_username': mentor.username,
-                }
+            if mentor_id:
+                mentor = Mentors.objects.using('lms_db').filter(user_id=mentor_id).first()
+                if mentor:
+                    return {
+                        'mentor_id': mentor.user_id,
+                        'mentor_username': mentor.username,
+                    }
         except Exception as e:
             logger.warning(f"Could not find mentor for student {student_id}: {e}")
             

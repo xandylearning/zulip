@@ -302,6 +302,15 @@ export function build_page(): void {
         activity_monitor_enabled: false,
         notify_mentors: false,
         webhook_endpoint_url: "",
+        // Placeholder email configuration defaults
+        // These mirror the defaults in `lms_integration/settings.py` so that
+        // the Handlebars template can render safely before the async
+        // `/json/lms/admin/config/get` call populates real values.
+        lms_no_email_domain: "noemail.local",
+        lms_auto_update_emails: true,
+        lms_placeholder_email_delivery: false,
+        lms_placeholder_inapp_notifications: true,
+        lms_log_placeholder_attempts: true,
     };
 
     const rendered_admin_tab = render_admin_tab(options);
