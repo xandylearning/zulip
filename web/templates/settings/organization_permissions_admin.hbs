@@ -141,6 +141,58 @@
               label=group_setting_labels.direct_message_initiator_group}}
         </div>
 
+        <div id="org-role-dm-permissions" class="settings-subsection-parent">
+            <div class="subsection-header">
+                <h3>{{t "Role-based DM search restrictions" }}
+                    <i class="fa fa-info-circle settings-info-icon tippy-zulip-tooltip" aria-hidden="true" data-tippy-content="{{t 'Restrict which roles can see and direct message other roles. Owners and admins always have full access.' }}"></i>
+                </h3>
+                {{> settings_save_discard_widget section_name="role-dm-permissions" }}
+            </div>
+            <div class="m-10 organization-permissions-parent">
+                <div id="dm-permission-matrix-container">
+                    <div class="input-group">
+                        <div class="input-group">
+                            <label class="checkbox">
+                                <input type="checkbox" class="no-input-change-detection" name="lms_dm_permissions_enabled" id="id_lms_dm_permissions_enabled" />
+                                <span class="rendered-checkbox"></span>
+                            </label>
+                            <label for="id_lms_dm_permissions_enabled" class="inline">
+                                {{t "Enable role-based DM search restrictions"}}
+                            </label>
+                        </div>
+                    </div>
+                    <div id="dm-permission-matrix" class="dm-permission-matrix" style="display: none;">
+                        <p class="dm-permission-matrix-description">
+                            {{t "Configure which roles can see and direct message other roles. Check the boxes to allow a role (row) to see/DM another role (column)." }}
+                        </p>
+                        <div class="dm-permission-matrix-table-container">
+                            <table class="dm-permission-matrix-table">
+                                <thead>
+                                    <tr>
+                                        <th class="matrix-header">{{t "Can see/DM →" }}</th>
+                                        <th class="matrix-cell">Owner</th>
+                                        <th class="matrix-cell">Admin</th>
+                                        <th class="matrix-cell">Moderator</th>
+                                        <th class="matrix-cell">Member</th>
+                                        <th class="matrix-cell">Guest</th>
+                                        <th class="matrix-cell">Mentor</th>
+                                        <th class="matrix-cell">Student</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dm-permission-matrix-body">
+                                    <!-- Matrix rows will be populated by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="dm-permission-matrix-note">
+                            <i class="fa fa-info-circle"></i>
+                            {{t "Note: Owners and admins can always see and message everyone (not configurable)." }}
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div id="org-msg-editing" class="settings-subsection-parent">
             <div class="subsection-header">
                 <h3>{{t "Message editing" }}

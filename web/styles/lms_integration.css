@@ -1,6 +1,103 @@
 /* LMS Integration Admin Styles */
 /* Uses Zulip's theme variables for consistent styling */
 
+/* Role-based DM Permission Matrix Styles */
+.dm-permission-matrix-container {
+    margin-top: 1em;
+}
+
+.dm-permission-matrix-description {
+    margin-bottom: 1em;
+    color: var(--color-text-default);
+    font-size: 0.875em;
+}
+
+.dm-permission-matrix-table-container {
+    overflow-x: auto;
+    margin: 1em 0;
+}
+
+.dm-permission-matrix-table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: var(--color-background);
+    border: 1px solid var(--color-border-default);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.dm-permission-matrix-table th,
+.dm-permission-matrix-table td {
+    padding: 0.75em;
+    text-align: center;
+    border: 1px solid var(--color-border-default);
+    background-color: var(--color-background);
+}
+
+.dm-permission-matrix-table .matrix-header {
+    font-weight: 600;
+    background-color: hsl(0deg 0% 15%);
+    color: var(--color-text-default);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.dm-permission-matrix-table .matrix-source-role {
+    font-weight: 500;
+    text-align: left;
+    background-color: hsl(0deg 0% 15%);
+    color: var(--color-text-default);
+    min-width: 120px;
+}
+
+.dm-permission-matrix-table .matrix-cell {
+    background-color: var(--color-background);
+    min-width: 80px;
+}
+
+.dm-permission-matrix-table .matrix-cell-always-allowed {
+    background-color: hsl(0deg 0% 20%);
+    color: var(--green-400);
+}
+
+.dm-permission-matrix-table .matrix-cell-always-allowed i {
+    color: var(--green-400);
+    font-size: 1.1em;
+}
+
+.dm-permission-matrix-table .matrix-cell input[type="checkbox"] {
+    cursor: pointer;
+    width: 1.25em;
+    height: 1.25em;
+    accent-color: var(--blue-500);
+}
+
+.dm-permission-matrix-table .matrix-row:hover {
+    background-color: hsl(0deg 0% 18%);
+}
+
+.dm-permission-matrix-table .matrix-row:hover .matrix-cell {
+    background-color: hsl(0deg 0% 18%);
+}
+
+.dm-permission-matrix-table .matrix-row:hover .matrix-source-role {
+    background-color: hsl(0deg 0% 18%);
+}
+
+.dm-permission-matrix-note {
+    margin-top: 1em;
+    padding: 0.625em;
+    background-color: hsl(0deg 0% 98%);
+    border-left: 3px solid var(--blue-500);
+    font-size: 0.875em;
+    color: var(--color-text-default);
+}
+
+.dm-permission-matrix-note i {
+    margin-right: 0.5em;
+    color: var(--blue-500);
+}
+
 #lms-integration-settings {
     /* Ensure proper container width to prevent overflow */
     max-width: 100%;

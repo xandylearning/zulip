@@ -1237,3 +1237,54 @@ class LMSSyncProgress(models.Model):
     def is_active(self):
         """Check if this sync operation is still active."""
         return self.current_stage not in ['completed', 'failed', 'cancelled']
+
+
+# =============================================================================
+# DM PERMISSION MATRIX MODELS
+# =============================================================================
+
+class RealmDMPermissionMatrix(models.Model):
+    """
+    Stores role-based DM permission configuration per realm.
+    Allows administrators to configure which roles can see and direct message other roles.
+    """
+    
+    # Link to realm
+    realm = models.OneToOneField(
+        'zerver.Realm',
+        on_delete=models.CASCADE,
+        primary_key=True,
+        help_text="The Zulip realm this permission matrix applies to"
+    )
+    
+    # Enable the feature
+    enabled = models.BooleanField(
+        default=False,
+        help_text="Whether role-based DM restrictions are enabled for this realm"
+    )
+    
+    # Permission matrix stored as JSON
+    # Format: {"source_role": ["target_role1", "target_role2", ...]}
+    # Example: {"mentor": ["admin", "mentor", "student"], "student": ["admin", "mentor"]}
+    # Roles: owner, admin, moderator, member, guest, mentor, student
+    permission_matrix = models.JSONField(
+        default=dict,
+        help_text="Permission matrix defining which roles can see/DM which other roles"
+    )
+    
+    # Audit fields
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        'zerver.UserProfile',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="The admin user who last updated this configuration"
+    )
+    
+    class Meta:
+        managed = True
+        db_table = 'lms_dm_permission_matrix'
+    
+    def __str__(self):
+        return f"DM Permission Matrix for {self.realm.name} (enabled={self.enabled})"

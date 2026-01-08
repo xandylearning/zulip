@@ -806,11 +806,46 @@ def get_members_backend(
 
         user_profile = None
 
+    # Check if role-based DM permission filtering is enabled
+    # If enabled and user is not authenticated, require authentication
+    try:
+        from lms_integration.models import RealmDMPermissionMatrix
+        
+        permission_matrix = RealmDMPermissionMatrix.objects.filter(realm=realm).first()
+        if permission_matrix and permission_matrix.enabled:
+            # Feature is enabled - require authentication
+            if not user_profile:
+                raise MissingAuthenticationError
+            
+            # Apply role-based filtering
+            from lms_integration.lib.user_filtering import get_filtered_user_ids_by_role
+            
+            role_filtered_ids = get_filtered_user_ids_by_role(user_profile, realm)
+            if role_filtered_ids is not None:
+                # If user_ids was provided, intersect with role filter
+                if user_ids is not None:
+                    filtered_user_ids = [uid for uid in user_ids if uid in role_filtered_ids]
+                else:
+                    filtered_user_ids = role_filtered_ids
+            else:
+                filtered_user_ids = user_ids
+        else:
+            # Feature disabled - no filtering
+            filtered_user_ids = user_ids
+    except MissingAuthenticationError:
+        raise
+    except Exception:
+        # On error, log but continue with existing user_ids (fail open)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception("Error applying role-based DM filtering")
+        filtered_user_ids = user_ids
+
     data = get_user_data(
         user_profile,
         include_custom_profile_fields,
         client_gravatar,
-        user_ids=user_ids,
+        user_ids=filtered_user_ids,
         realm=realm,
     )
     return json_success(request, data)

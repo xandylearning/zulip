@@ -202,6 +202,40 @@ class UserSync:
             logger.warning(f"Error checking if user is both student and mentor for {email}: {e}")
             return False
     
+    def _user_exists_as_mentor(self, email: str, username: Optional[str] = None) -> bool:
+        """
+        Check if a user exists in the Mentors table.
+        Used to skip syncing students who are mentors to avoid duplicate user creation.
+        
+        Args:
+            email: Email address to check
+            username: Optional username for placeholder email fallback
+            
+        Returns:
+            True if user exists in Mentors table, False otherwise
+        """
+        try:
+            # Check by email (case-insensitive)
+            if email:
+                mentor_exists = Mentors.objects.using('lms_db').filter(
+                    email__iexact=email
+                ).exists()
+                if mentor_exists:
+                    return True
+            
+            # For placeholder emails, also check by username if provided
+            if username and is_placeholder_email(email):
+                mentor_exists = Mentors.objects.using('lms_db').filter(
+                    username__iexact=username
+                ).exists()
+                if mentor_exists:
+                    return True
+            
+            return False
+        except Exception as e:
+            logger.warning(f"Error checking if user exists as mentor for {email}: {e}")
+            return False
+    
     def _ensure_user_recipient(self, user_profile: UserProfile) -> None:
         """
         Ensure a user has a recipient and subscription.
@@ -812,6 +846,11 @@ class UserSync:
         except ValidationError as e:
             return False, None, f"Student {student.id}: Invalid email/username: {e}"
         
+        # Skip students who exist as mentors (they'll be synced from Mentors table)
+        if self._user_exists_as_mentor(email, student.username):
+            logger.debug(f"Skipping student {student.id} ({email}) - user exists as mentor and will be synced from Mentors table")
+            return False, None, f"User {email} exists as mentor and will be synced from Mentors table"
+        
         # Check if user already exists (by email or by username-based placeholder email)
         try:
             # First try exact email match
@@ -1232,6 +1271,13 @@ class UserSync:
                     except ValidationError as e:
                         stats['skipped'] += 1
                         batch_errors.append(f"Student {student.id}: Invalid email/username: {e}")
+                        processed += 1
+                        continue
+
+                    # Skip students who exist as mentors (they'll be synced from Mentors table)
+                    if self._user_exists_as_mentor(email, student.username):
+                        stats['skipped'] += 1
+                        logger.debug(f"Skipping student {student.id} ({email}) - user exists as mentor and will be synced from Mentors table")
                         processed += 1
                         continue
 

@@ -230,6 +230,11 @@ python manage.py shell
    >>> print(f"Found {len(students)} students")
    ```
 
+4. **Understanding Skipped Users**
+   - **Mentors in Students Table**: If users appear in both Students and Mentors tables, they will be skipped during student sync and only synced from the Mentors table. This is expected behavior to prevent duplicate user creation.
+   - **Check Skipped Count**: Review the "Skipped" count in sync statistics - users skipped because they're mentors will be logged with debug messages.
+   - **Verify Mentor Sync**: Ensure mentors are being synced separately by checking mentor sync statistics or running a mentor-only sync.
+
 ### Activity Monitoring Tab Issues
 
 #### Symptoms

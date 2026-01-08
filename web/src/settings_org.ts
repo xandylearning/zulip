@@ -38,6 +38,7 @@ import {
 } from "./settings_components.ts";
 import * as settings_components from "./settings_components.ts";
 import * as settings_config from "./settings_config.ts";
+import * as settings_dm_permissions from "./settings_dm_permissions.ts";
 import * as settings_notifications from "./settings_notifications.ts";
 import * as settings_realm_domains from "./settings_realm_domains.ts";
 import * as settings_ui from "./settings_ui.ts";
@@ -1703,4 +1704,7 @@ export function build_page(): void {
     });
 
     $("#organization-profile .deactivate_realm_button").on("click", deactivate_organization);
+    
+    // Initialize DM permissions module
+    settings_dm_permissions.initialize();
 }

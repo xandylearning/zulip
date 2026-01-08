@@ -31,6 +31,10 @@ from lms_integration.views import (
     lms_jwt_auth_api,
     lms_jwt_web_login,
 )
+from lms_integration.views_permissions import (
+    get_dm_permissions,
+    update_dm_permissions,
+)
 
 app_name = 'lms_integration'
 
@@ -69,4 +73,7 @@ urlpatterns = [
     # so these do not go through rest_dispatch's auth layer.
     path('auth/jwt', lms_jwt_auth_api),
     path('auth/jwt/login', lms_jwt_web_login),
+    
+    # DM Permission Matrix endpoints
+    rest_path('dm-permissions', GET=get_dm_permissions, PATCH=update_dm_permissions),
 ]

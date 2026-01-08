@@ -493,10 +493,42 @@ def lms_start_user_sync(
                         logger.info(f"Sync {sync_id} was cancelled")
                         return
 
-                if sync_batches and sync_type in ['all', 'students']:
-                    # Sync users and batches
+                if sync_batches and sync_type == 'all':
+                    # Sync all users (students and mentors) and batches
                     logger.info(f"Starting full sync (users + batches) for realm {realm.string_id}")
                     results = user_sync.sync_all_with_batches()
+                elif sync_batches and sync_type == 'students':
+                    # Sync only students and batches
+                    logger.info(f"Starting student sync with batches for realm {realm.string_id}")
+                    student_stats = user_sync.sync_all_students()
+                    batch_stats = user_sync.sync_batches_and_groups()
+                    results = {
+                        'users': {
+                            'students': student_stats,
+                            'mentors': {'total': 0, 'created': 0, 'updated': 0, 'skipped': 0, 'errors': 0},
+                        },
+                        'batches': batch_stats,
+                        'total_created': student_stats['created'],
+                        'total_updated': student_stats['updated'],
+                        'total_skipped': student_stats['skipped'],
+                        'total_errors': student_stats['errors'] + batch_stats['errors'],
+                    }
+                elif sync_batches and sync_type == 'mentors':
+                    # Sync only mentors and batches
+                    logger.info(f"Starting mentor sync with batches for realm {realm.string_id}")
+                    mentor_stats = user_sync.sync_all_mentors()
+                    batch_stats = user_sync.sync_batches_and_groups()
+                    results = {
+                        'users': {
+                            'students': {'total': 0, 'created': 0, 'updated': 0, 'skipped': 0, 'errors': 0},
+                            'mentors': mentor_stats,
+                        },
+                        'batches': batch_stats,
+                        'total_created': mentor_stats['created'],
+                        'total_updated': mentor_stats['updated'],
+                        'total_skipped': mentor_stats['skipped'],
+                        'total_errors': mentor_stats['errors'] + batch_stats['errors'],
+                    }
                 elif sync_type == 'all':
                     # Sync all users (students and mentors)
                     logger.info(f"Starting user sync (all) for realm {realm.string_id}")
@@ -832,9 +864,35 @@ def update_user_mappings(realm: Realm, sync_id: Optional[str] = None) -> None:
                 # Prioritize mentor if user is both student and mentor
                 if mentor:
                     # User is a mentor (or both student and mentor)
+                    # If mentor.user_id is None, try to use student.id as fallback
+                    mentor_user_id = mentor.user_id
+                    if mentor_user_id is None:
+                        # Check if this mentor's email exists in Students table (use already retrieved student)
+                        if student and student.id is not None:
+                            mentor_user_id = student.id
+                            logger.info(
+                                f"Using student ID {student.id} as fallback for mentor {zulip_user.email} "
+                                f"(username: {mentor.username}) - mentor.user_id is null"
+                            )
+                        else:
+                            logger.warning(
+                                f"Skipping mentor mapping for {zulip_user.email} (username: {mentor.username}): "
+                                f"mentor.user_id is null and no matching student found in LMS database"
+                            )
+                            # If there's an existing mapping, mark it as inactive with error
+                            if existing_mapping:
+                                existing_mapping.is_active = False
+                                existing_mapping.last_error = f"Mentor user_id is null and no student match found (username: {mentor.username})"
+                                existing_mapping.last_synced_at = timezone_now()
+                                mappings_to_update.append(existing_mapping)
+                            # Skip creating/updating this mapping
+                            processed += 1
+                            continue
+                    
+                    # Use mentor_user_id (either from mentor.user_id or fallback student.id)
                     if existing_mapping:
                         # Update existing mapping
-                        existing_mapping.lms_user_id = mentor.user_id
+                        existing_mapping.lms_user_id = mentor_user_id
                         existing_mapping.lms_user_type = 'mentor'
                         existing_mapping.lms_username = mentor.username
                         existing_mapping.is_active = True
@@ -846,7 +904,7 @@ def update_user_mappings(realm: Realm, sync_id: Optional[str] = None) -> None:
                         # Create new mapping
                         mappings_to_create.append(LMSUserMapping(
                             zulip_user=zulip_user,
-                            lms_user_id=mentor.user_id,
+                            lms_user_id=mentor_user_id,
                             lms_user_type='mentor',
                             lms_username=mentor.username,
                             is_active=True,
@@ -855,27 +913,40 @@ def update_user_mappings(realm: Realm, sync_id: Optional[str] = None) -> None:
                         ))
                 elif student:
                     # User is a student only
-                    if existing_mapping:
-                        # Update existing mapping
-                        existing_mapping.lms_user_id = student.id
-                        existing_mapping.lms_user_type = 'student'
-                        existing_mapping.lms_username = student.username
-                        existing_mapping.is_active = True
-                        existing_mapping.last_error = None
-                        existing_mapping.sync_count += 1
-                        existing_mapping.last_synced_at = timezone_now()
-                        mappings_to_update.append(existing_mapping)
+                    # Skip if student.id is None (shouldn't happen, but be safe)
+                    if student.id is None:
+                        logger.warning(
+                            f"Skipping student mapping for {zulip_user.email} (username: {student.username}): "
+                            f"student.id is null in LMS database"
+                        )
+                        # If there's an existing mapping, mark it as inactive with error
+                        if existing_mapping:
+                            existing_mapping.is_active = False
+                            existing_mapping.last_error = f"Student id is null in LMS (username: {student.username})"
+                            existing_mapping.last_synced_at = timezone_now()
+                            mappings_to_update.append(existing_mapping)
                     else:
-                        # Create new mapping
-                        mappings_to_create.append(LMSUserMapping(
-                            zulip_user=zulip_user,
-                            lms_user_id=student.id,
-                            lms_user_type='student',
-                            lms_username=student.username,
-                            is_active=True,
-                            last_error=None,
-                            sync_count=1,
-                        ))
+                        if existing_mapping:
+                            # Update existing mapping
+                            existing_mapping.lms_user_id = student.id
+                            existing_mapping.lms_user_type = 'student'
+                            existing_mapping.lms_username = student.username
+                            existing_mapping.is_active = True
+                            existing_mapping.last_error = None
+                            existing_mapping.sync_count += 1
+                            existing_mapping.last_synced_at = timezone_now()
+                            mappings_to_update.append(existing_mapping)
+                        else:
+                            # Create new mapping
+                            mappings_to_create.append(LMSUserMapping(
+                                zulip_user=zulip_user,
+                                lms_user_id=student.id,
+                                lms_user_type='student',
+                                lms_username=student.username,
+                                is_active=True,
+                                last_error=None,
+                                sync_count=1,
+                            ))
                 # If user is not found in LMS, we don't create/update mapping
                 # (existing mappings with errors will remain as-is)
                 
@@ -900,43 +971,71 @@ def update_user_mappings(realm: Realm, sync_id: Optional[str] = None) -> None:
             
             # Process batches to avoid memory issues
             if len(mappings_to_create) >= batch_size:
-                with transaction.atomic():
-                    LMSUserMapping.objects.bulk_create(mappings_to_create, ignore_conflicts=True)
-                batch_created = len(mappings_to_create)
-                total_created += batch_created
-                logger.info(f"Bulk created {batch_created} mappings (total: {total_created})")
+                # Filter out any mappings with null lms_user_id (safety check)
+                valid_mappings = [m for m in mappings_to_create if m.lms_user_id is not None]
+                invalid_count = len(mappings_to_create) - len(valid_mappings)
+                if invalid_count > 0:
+                    logger.warning(f"Filtered out {invalid_count} mappings with null lms_user_id before bulk_create")
+                
+                if valid_mappings:
+                    with transaction.atomic():
+                        LMSUserMapping.objects.bulk_create(valid_mappings, ignore_conflicts=True)
+                    batch_created = len(valid_mappings)
+                    total_created += batch_created
+                    logger.info(f"Bulk created {batch_created} mappings (total: {total_created})")
                 mappings_to_create = []
             
             if len(mappings_to_update) >= batch_size:
-                with transaction.atomic():
-                    LMSUserMapping.objects.bulk_update(
-                        mappings_to_update, 
-                        ['lms_user_id', 'lms_user_type', 'lms_username', 'is_active', 
-                         'last_error', 'sync_count', 'last_synced_at']
-                    )
-                batch_updated = len(mappings_to_update)
-                total_updated += batch_updated
-                logger.info(f"Bulk updated {batch_updated} mappings (total: {total_updated})")
+                # Filter out any mappings with null lms_user_id (safety check)
+                valid_mappings = [m for m in mappings_to_update if m.lms_user_id is not None]
+                invalid_count = len(mappings_to_update) - len(valid_mappings)
+                if invalid_count > 0:
+                    logger.warning(f"Filtered out {invalid_count} mappings with null lms_user_id before bulk_update")
+                
+                if valid_mappings:
+                    with transaction.atomic():
+                        LMSUserMapping.objects.bulk_update(
+                            valid_mappings, 
+                            ['lms_user_id', 'lms_user_type', 'lms_username', 'is_active', 
+                             'last_error', 'sync_count', 'last_synced_at']
+                        )
+                    batch_updated = len(valid_mappings)
+                    total_updated += batch_updated
+                    logger.info(f"Bulk updated {batch_updated} mappings (total: {total_updated})")
                 mappings_to_update = []
         
         # Process remaining mappings
         if mappings_to_create:
-            with transaction.atomic():
-                LMSUserMapping.objects.bulk_create(mappings_to_create, ignore_conflicts=True)
-            final_created = len(mappings_to_create)
-            total_created += final_created
-            logger.info(f"Bulk created {final_created} final mappings")
+            # Filter out any mappings with null lms_user_id (safety check)
+            valid_mappings = [m for m in mappings_to_create if m.lms_user_id is not None]
+            invalid_count = len(mappings_to_create) - len(valid_mappings)
+            if invalid_count > 0:
+                logger.warning(f"Filtered out {invalid_count} mappings with null lms_user_id before final bulk_create")
+            
+            if valid_mappings:
+                with transaction.atomic():
+                    LMSUserMapping.objects.bulk_create(valid_mappings, ignore_conflicts=True)
+                final_created = len(valid_mappings)
+                total_created += final_created
+                logger.info(f"Bulk created {final_created} final mappings")
         
         if mappings_to_update:
-            with transaction.atomic():
-                LMSUserMapping.objects.bulk_update(
-                    mappings_to_update,
-                    ['lms_user_id', 'lms_user_type', 'lms_username', 'is_active',
-                     'last_error', 'sync_count', 'last_synced_at']
-                )
-            final_updated = len(mappings_to_update)
-            total_updated += final_updated
-            logger.info(f"Bulk updated {final_updated} final mappings")
+            # Filter out any mappings with null lms_user_id (safety check)
+            valid_mappings = [m for m in mappings_to_update if m.lms_user_id is not None]
+            invalid_count = len(mappings_to_update) - len(valid_mappings)
+            if invalid_count > 0:
+                logger.warning(f"Filtered out {invalid_count} mappings with null lms_user_id before final bulk_update")
+            
+            if valid_mappings:
+                with transaction.atomic():
+                    LMSUserMapping.objects.bulk_update(
+                        valid_mappings,
+                        ['lms_user_id', 'lms_user_type', 'lms_username', 'is_active',
+                         'last_error', 'sync_count', 'last_synced_at']
+                    )
+                final_updated = len(valid_mappings)
+                total_updated += final_updated
+                logger.info(f"Bulk updated {final_updated} final mappings")
         
         logger.info(f"Completed updating user mappings: {processed} users processed, "
                     f"{total_created} created, {total_updated} updated")

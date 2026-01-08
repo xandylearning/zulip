@@ -397,12 +397,14 @@ print(response.json())
 - **Role**: Member (`ROLE_MEMBER`)
 - **Active Status**: Synced from LMS `is_active` field
 - **Full Name**: Uses `display_name` if available, otherwise `first_name last_name`
+- **Mentor Exclusion**: Students who exist in the Mentors table are automatically skipped during student sync and will only be synced from the Mentors table
 
 ### Mentors
 
 - **Role**: Moderator (`ROLE_MODERATOR`)
 - **Active Status**: Always active
 - **Full Name**: Uses `display_name` if available, otherwise `first_name last_name`
+- **Priority Sync**: Mentors are always synced from the Mentors table, even if they also appear in the Students table. This ensures mentors receive the correct role and prevents duplicate user creation.
 
 ## Sync Behavior
 
@@ -412,6 +414,7 @@ print(response.json())
 - **Existing Users**: Updates the user's full name and active status if changed
 - **Missing Email**: Users without email addresses are skipped
 - **Duplicate Emails**: If a user with the same email already exists, the user is updated instead of created
+- **Mentors in Students Table**: Students who exist in the Mentors table are skipped during student sync to prevent duplicate user creation. These users are only synced from the Mentors table, ensuring mentors are created with the correct role and avoiding duplicate accounts.
 
 ### Batch and Group Sync (with `--sync-batches`)
 
@@ -428,6 +431,7 @@ print(response.json())
 1. Check that the LMS database connection is configured correctly
 2. Verify that users have email addresses in the LMS database
 3. Check logs for errors: `tail -f /var/log/zulip/server.log`
+4. **Mentors in Students Table**: If a user appears in both Students and Mentors tables, they will only be synced from the Mentors table. Check the sync statistics for "skipped" counts - users skipped because they're mentors will be logged with a debug message indicating they'll be synced from the Mentors table.
 
 ### Webhook Not Working
 
