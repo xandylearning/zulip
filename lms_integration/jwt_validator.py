@@ -23,7 +23,15 @@ class TestPressJWTValidator:
         self.api_base_url = getattr(settings, 'TESTPRESS_API_BASE_URL', 'https://learn.xandylearning.com/api/v2.5/')
         self.user_info_endpoint = 'me'
         self.cache_timeout = getattr(settings, 'TESTPRESS_TOKEN_CACHE_SECONDS', 300)  # 5 minutes
-        self.request_timeout = getattr(settings, 'TESTPRESS_REQUEST_TIMEOUT', 10)  # 10 seconds
+        # Ensure timeout is always a numeric value (int or float) for requests library
+        # get_config may return a string, so convert to float to ensure proper type
+        timeout_value = getattr(settings, 'TESTPRESS_REQUEST_TIMEOUT', 10)
+        try:
+            self.request_timeout = float(timeout_value)
+        except (TypeError, ValueError):
+            # Fallback to default if conversion fails
+            logger.warning(f"Invalid timeout value '{timeout_value}', using default 10 seconds")
+            self.request_timeout = 10.0
 
     def _get_cache_key(self, token: str) -> str:
         """Generate cache key for JWT token."""
