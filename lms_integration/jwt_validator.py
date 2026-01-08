@@ -31,7 +31,14 @@ class TestPressJWTValidator:
     def __init__(self):
         self.api_base_url = getattr(settings, 'TESTPRESS_API_BASE_URL', 'https://learn.xandylearning.com/api/v2.5/')
         self.user_info_endpoint = 'me'
-        self.cache_timeout = getattr(settings, 'TESTPRESS_TOKEN_CACHE_SECONDS', 300)  # 5 minutes
+        # Ensure cache_timeout is always an integer (settings may return string from env vars)
+        cache_timeout_value = getattr(settings, 'TESTPRESS_TOKEN_CACHE_SECONDS', 300)  # 5 minutes
+        try:
+            self.cache_timeout = int(cache_timeout_value)
+        except (TypeError, ValueError):
+            # Fallback to default if conversion fails
+            logger.warning(f"Invalid cache timeout value '{cache_timeout_value}', using default 300 seconds")
+            self.cache_timeout = 300
         # Ensure timeout is always a numeric value (int or float) for requests library
         # get_config may return a string, so convert to float to ensure proper type
         timeout_value = getattr(settings, 'TESTPRESS_REQUEST_TIMEOUT', 10)
