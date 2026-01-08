@@ -4,16 +4,28 @@
 
 The JWT authentication system allows LMS users to seamlessly authenticate with Zulip using TestPress JWT tokens. When a JWT token is provided, the system:
 
-1. Validates the JWT token with TestPress
-2. Extracts user profile information
-3. Creates or updates the Zulip user
-4. Handles users with or without email addresses
+1. **Decodes JWT token** to extract user ID (no API call needed)
+2. **Queries LMS database first** (fast, local database lookup)
+3. **Falls back to TestPress API** only if user not found in LMS DB
+4. Extracts user profile information
+5. Creates or updates the Zulip user
+6. Handles users with or without email addresses
 
-## Simple Flow
+## Optimized Flow
 
 ```
-JWT Token → Validate with TestPress → Get User Profile → Create/Update Zulip User → Login
+JWT Token → Decode JWT (extract user ID) → Query LMS Database → [Found? Return user data] 
+                                                                    ↓ [Not found]
+                                                          Fallback to TestPress API
+                                                                    ↓
+                                            Get User Profile → Create/Update Zulip User → Login
 ```
+
+**Key Benefits:**
+- ⚡ **Faster authentication** - Local database query instead of API call
+- 🔄 **Reduced API load** - Only calls TestPress when necessary
+- 🛡️ **Better reliability** - Works even if TestPress API is temporarily unavailable
+- 💾 **Efficient caching** - Results cached for 5 minutes
 
 ## Configuration
 
@@ -55,11 +67,18 @@ fetch('/accounts/login/jwt/', {
 
 ```python
 # The backend automatically:
-# 1. Validates JWT with TestPress
-# 2. Extracts user profile
-# 3. Creates/updates user
-# 4. Returns authenticated user
+# 1. Decodes JWT to extract user ID (no API call)
+# 2. Queries LMS database first (fast, local)
+# 3. Falls back to TestPress API only if user not found
+# 4. Extracts user profile
+# 5. Creates/updates user
+# 6. Returns authenticated user
 ```
+
+**Performance Optimization:**
+- Most requests are served from the local LMS database (milliseconds)
+- TestPress API is only called as a fallback (when user not in LMS DB)
+- Results are cached for 5 minutes to reduce database queries
 
 ### 3. User Profile Creation
 
@@ -166,11 +185,27 @@ POST /accounts/login/jwt/
 
 ### Token Validation
 
-The system validates tokens by:
-1. Checking JWT signature
-2. Verifying expiration
-3. Validating with TestPress API
-4. Extracting user profile data
+The system validates tokens using an optimized two-step process:
+
+1. **JWT Decoding** (No API call)
+   - Decodes JWT token to extract user ID
+   - No signature verification needed (validated by LMS when issued)
+   - Fast, local operation
+
+2. **LMS Database Lookup** (Primary method)
+   - Queries local LMS database using extracted user ID
+   - Returns user data in TestPress API format
+   - Fast, reliable, works offline
+
+3. **TestPress API Fallback** (Only if needed)
+   - Only called if user not found in LMS database
+   - Validates token signature and expiration
+   - Extracts user profile data from API response
+
+4. **Caching**
+   - Results cached for 5 minutes
+   - Reduces database queries and API calls
+   - Improves response time for repeated requests
 
 ## Frontend Integration Examples
 
@@ -282,6 +317,7 @@ https://your-zulip.com/accounts/login/jwt/?token=eyJhbGciOiJIUzI1NiIsInR5cCI6Ikp
 #### "TestPress API unreachable"
 - **Cause**: Network issues or wrong API URL
 - **Solution**: Verify TestPress API base URL in settings
+- **Note**: Authentication will still work if user exists in LMS database (API is only a fallback)
 
 #### "User has no username"
 - **Cause**: TestPress profile missing username

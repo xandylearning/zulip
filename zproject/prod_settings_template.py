@@ -48,10 +48,12 @@ EXTERNAL_HOST = "zulip.example.com"
 ##
 ## Zulip automatically adds to this list "localhost", "127.0.0.1", and
 ## patterns representing EXTERNAL_HOST and subdomains of it.  If you are
-## accessing your server by other hostnames, list them here.
+## accessing your server by other hostnames or IP addresses, list them here.
 ##
-## Note that these should just be hostnames, without port numbers.
-# ALLOWED_HOSTS = ["zulip-alias.example.com", "192.0.2.1"]
+## Note that these should just be hostnames or IP addresses, without port numbers.
+## If you're accessing the server via an IP address (e.g., from a load balancer
+## or direct IP access), you must add that IP address here.
+# ALLOWED_HOSTS = ["zulip-alias.example.com", "192.0.2.1", "34.14.193.41"]
 
 ## If EXTERNAL_HOST is not a valid domain name (e.g. an IP address),
 ## set FAKE_EMAIL_DOMAIN below to a domain that Zulip can use when

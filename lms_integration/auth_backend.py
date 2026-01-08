@@ -50,30 +50,60 @@ class TestPressJWTAuthBackend(ZulipAuthMixin, BaseBackend):
 
     def _get_user_info_from_testpress(self, testpress_data: Dict[str, Any], realm: Realm) -> Dict[str, Any]:
         """Extract user info from TestPress data and prepare for Zulip."""
-        # Get basic info
+        # Get basic info - ensure all string fields are properly converted
         email = testpress_data.get('email')
         username = testpress_data.get('username')
-        first_name = testpress_data.get('first_name', '')
-        last_name = testpress_data.get('last_name', '')
+        
+        # Ensure first_name and last_name are strings (handle None, int, etc.)
+        first_name = testpress_data.get('first_name') or ''
+        last_name = testpress_data.get('last_name') or ''
+        if not isinstance(first_name, str):
+            first_name = str(first_name) if first_name is not None else ''
+        if not isinstance(last_name, str):
+            last_name = str(last_name) if last_name is not None else ''
+        
+        # Ensure username is a string
+        if username and not isinstance(username, str):
+            username = str(username)
+        
+        # Ensure email is a string if present
+        if email and not isinstance(email, str):
+            email = str(email)
 
         # Need at least username
         if not username:
             if email:
                 username = email.split('@')[0]
             else:
-                username = f"user_{testpress_data.get('id', 'unknown')}"
+                # Get ID and convert to string
+                user_id = testpress_data.get('id', 'unknown')
+                username = f"user_{user_id}"
 
-        # Build full name
+        # Build full name - ensure it's always a string
         full_name = f"{first_name} {last_name}".strip() or username
+        if not isinstance(full_name, str):
+            full_name = str(full_name) if full_name else username
 
         # Get email (real or placeholder)
         final_email, is_placeholder = validate_and_prepare_email(email, username, realm)
+
+        # Ensure is_active is always a boolean (TestPress might return string/int)
+        is_active_value = testpress_data.get('is_active', True)
+        if isinstance(is_active_value, str):
+            # Convert string to boolean (handle "true", "1", "yes", etc.)
+            is_active_value = is_active_value.lower() in ('true', '1', 'yes', 'on')
+        elif isinstance(is_active_value, int):
+            # Convert int to boolean (1 = True, 0 = False)
+            is_active_value = bool(is_active_value)
+        else:
+            # Already boolean or None, convert None to True
+            is_active_value = bool(is_active_value) if is_active_value is not None else True
 
         return {
             'email': final_email,
             'full_name': full_name,
             'username': username,
-            'is_active': testpress_data.get('is_active', True),
+            'is_active': is_active_value,
             'testpress_data': testpress_data
         }
 
@@ -240,6 +270,10 @@ class TestPressJWTAuthBackend(ZulipAuthMixin, BaseBackend):
         logger.info(f"Creating new user: {email} (username: {username})")
 
         try:
+            # Ensure full_name is a string before validation
+            if not isinstance(full_name, str):
+                full_name = str(full_name) if full_name else email.split("@")[0]
+            
             # Validate full name
             validated_full_name = check_full_name(full_name, user_profile=None, realm=realm)
         except JsonableError:
@@ -344,7 +378,7 @@ class TestPressJWTAuthBackend(ZulipAuthMixin, BaseBackend):
         try:
             testpress_data = testpress_jwt_validator.validate_token(testpress_jwt_token)
         except Exception as e:
-            logger.error(f"JWT validation failed: {e}")
+            logger.error(f"JWT validation failed: {e}", exc_info=True)
             return_data['testpress_jwt_invalid'] = True
             return None
 
@@ -356,7 +390,7 @@ class TestPressJWTAuthBackend(ZulipAuthMixin, BaseBackend):
         try:
             user_info = self._get_user_info_from_testpress(testpress_data, realm)
         except Exception as e:
-            logger.error(f"Error extracting user info: {e}")
+            logger.error(f"Error extracting user info: {e}", exc_info=True)
             return_data['testpress_data_invalid'] = True
             return None
 
@@ -364,7 +398,7 @@ class TestPressJWTAuthBackend(ZulipAuthMixin, BaseBackend):
         try:
             user_profile = self._get_or_create_user(user_info, realm)
         except Exception as e:
-            logger.error(f"Error creating/updating user: {e}")
+            logger.error(f"Error creating/updating user: {e}", exc_info=True)
             return_data['user_creation_failed'] = True
             return None
 
