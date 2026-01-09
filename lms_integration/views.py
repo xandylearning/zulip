@@ -99,19 +99,34 @@ def get_or_create_lms_config(realm: Realm) -> LMSIntegrationConfig:
     # Ensure webhook_secret defaults to empty string, never None
     webhook_secret_default = getattr(settings, 'LMS_WEBHOOK_SECRET', '') or ''
     
+    # Ensure numeric settings are properly converted (settings may be strings from env vars)
+    lms_db_port_value = getattr(settings, 'LMS_DB_PORT', 5432)
+    try:
+        lms_db_port = int(lms_db_port_value)
+    except (TypeError, ValueError):
+        logger.warning(f"Invalid LMS_DB_PORT value '{lms_db_port_value}', using default 5432")
+        lms_db_port = 5432
+    
+    poll_interval_value = getattr(settings, 'LMS_ACTIVITY_POLL_INTERVAL', 60)
+    try:
+        poll_interval = int(poll_interval_value)
+    except (TypeError, ValueError):
+        logger.warning(f"Invalid LMS_ACTIVITY_POLL_INTERVAL value '{poll_interval_value}', using default 60")
+        poll_interval = 60
+    
     config, created = LMSIntegrationConfig.objects.get_or_create(
         realm=realm,
         defaults={
             'enabled': False,
             'lms_db_host': getattr(settings, 'LMS_DB_HOST', '') or '',
-            'lms_db_port': getattr(settings, 'LMS_DB_PORT', 5432),
+            'lms_db_port': lms_db_port,
             'lms_db_name': getattr(settings, 'LMS_DB_NAME', '') or '',
             'lms_db_username': getattr(settings, 'LMS_DB_USERNAME', '') or '',
             'webhook_secret': webhook_secret_default,
             'jwt_enabled': getattr(settings, 'TESTPRESS_JWT_ENABLED', False),
             'testpress_api_url': getattr(settings, 'TESTPRESS_API_BASE_URL', '') or '',
             'activity_monitor_enabled': getattr(settings, 'LMS_ACTIVITY_MONITOR_ENABLED', False),
-            'poll_interval': getattr(settings, 'LMS_ACTIVITY_POLL_INTERVAL', 60),
+            'poll_interval': poll_interval,
             'notify_mentors': getattr(settings, 'LMS_NOTIFY_MENTORS_ENABLED', True),
         }
     )
@@ -843,8 +858,20 @@ def update_user_mappings(realm: Realm, sync_id: Optional[str] = None) -> None:
         # Prepare mappings for bulk operations
         mappings_to_create = []
         mappings_to_update = []
-        batch_size = getattr(settings, 'LMS_SYNC_BATCH_SIZE', 500)
-        progress_interval = getattr(settings, 'LMS_SYNC_PROGRESS_INTERVAL', 100)
+        # Ensure numeric settings are properly converted (settings may be strings from env vars)
+        batch_size_value = getattr(settings, 'LMS_SYNC_BATCH_SIZE', 500)
+        try:
+            batch_size = int(batch_size_value)
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid LMS_SYNC_BATCH_SIZE value '{batch_size_value}', using default 500")
+            batch_size = 500
+        
+        progress_interval_value = getattr(settings, 'LMS_SYNC_PROGRESS_INTERVAL', 100)
+        try:
+            progress_interval = int(progress_interval_value)
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid LMS_SYNC_PROGRESS_INTERVAL value '{progress_interval_value}', using default 100")
+            progress_interval = 100
         total_created = 0
         total_updated = 0
         

@@ -40,8 +40,21 @@ from lms_integration.lib.email_utils import (
 logger = logging.getLogger(__name__)
 
 # Configuration defaults
-DEFAULT_BATCH_SIZE = getattr(settings, 'LMS_SYNC_BATCH_SIZE', 500)
-DEFAULT_PROGRESS_INTERVAL = getattr(settings, 'LMS_SYNC_PROGRESS_INTERVAL', 100)
+# Ensure numeric settings are properly converted (settings may be strings from env vars)
+_batch_size_value = getattr(settings, 'LMS_SYNC_BATCH_SIZE', 500)
+try:
+    DEFAULT_BATCH_SIZE = int(_batch_size_value)
+except (TypeError, ValueError):
+    logger.warning(f"Invalid LMS_SYNC_BATCH_SIZE value '{_batch_size_value}', using default 500")
+    DEFAULT_BATCH_SIZE = 500
+
+_progress_interval_value = getattr(settings, 'LMS_SYNC_PROGRESS_INTERVAL', 100)
+try:
+    DEFAULT_PROGRESS_INTERVAL = int(_progress_interval_value)
+except (TypeError, ValueError):
+    logger.warning(f"Invalid LMS_SYNC_PROGRESS_INTERVAL value '{_progress_interval_value}', using default 100")
+    DEFAULT_PROGRESS_INTERVAL = 100
+
 USE_BULK_OPERATIONS = getattr(settings, 'LMS_SYNC_USE_BULK_OPERATIONS', True)
 
 
