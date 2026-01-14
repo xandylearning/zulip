@@ -1240,17 +1240,28 @@ def check_user_has_permission_by_role(
     if system_group_name == SystemGroups.EVERYONE:
         return True
 
-    if user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
-        return False
-
-    if system_group_name == SystemGroups.EVERYONE:
-        return True
-
     if system_group_name == SystemGroups.OWNERS:
         return user.is_realm_owner
 
     if system_group_name == SystemGroups.ADMINISTRATORS:
         return user.is_realm_admin
+
+    if system_group_name == SystemGroups.FACULTY:
+        return user.role == UserProfile.ROLE_FACULTY
+
+    if system_group_name == SystemGroups.MENTORS:
+        return user.role == UserProfile.ROLE_MENTOR
+
+    if system_group_name == SystemGroups.STUDENTS:
+        return user.role == UserProfile.ROLE_STUDENT
+
+    if system_group_name == SystemGroups.PARENTS:
+        return user.role == UserProfile.ROLE_PARENT
+
+    # For other groups (like FULL_MEMBERS), check if user is not a student or is a full member
+    # Students and parents are excluded from full members unless they're not provisional
+    if user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
+        return False
 
     # Handle full members case.
     return user.role != UserProfile.ROLE_STUDENT or not user.is_provisional_member
