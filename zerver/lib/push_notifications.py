@@ -318,6 +318,7 @@ def send_apple_push_notification(
             len(devices),
             num_duplicate_tokens,
         )
+    logger.info("APNs: Payload data: %s", payload_data)
     payload_data = dict(payload_data)
     message = {**payload_data.pop("custom", {}), "aps": payload_data}
 
@@ -643,6 +644,8 @@ def send_fcm_call_notifications(
     if not devices or not fcm_app:
         return 0
 
+    logger.info("FCM Call: Sending call notification with data: %s", call_data)
+
     # Create call notification messages for each device
     messages = []
     token_list = []
@@ -748,7 +751,10 @@ def send_android_push_notification(
             "FCM: Sending notification for local user %s to %d devices", user_identity, len(devices)
         )
 
+    logger.info("FCM: Data: %s, Options: %s", data, options)
+
     token_list = [device.token for device in devices]
+    logger.info("FCM: Target tokens: %s", token_list)
     # Parse options and extract both priority and time_to_live
     original_options = options.copy()  # Keep a copy since parse_fcm_options modifies the dict
     priority = parse_fcm_options(options, data)
@@ -1656,6 +1662,8 @@ def send_push_notifications_legacy(
         PushDeviceToken.objects.filter(user=user_profile, kind=PushDeviceToken.APNS).order_by("id")
     )
 
+    logger.info("Legacy: Found %d Android devices and %d Apple devices for user %s", len(android_devices), len(apple_devices), user_profile.id)
+
     if len(android_devices) + len(apple_devices) == 0:
         logger.info(
             "Skipping legacy push notifications for user %s because there are no registered devices",
@@ -1779,6 +1787,8 @@ def send_push_notifications(
     else:
         # Uses 'zerver_pushdevice_user_bouncer_device_id_idx' index.
         push_devices = PushDevice.objects.filter(user=user_profile, bouncer_device_id__isnull=False)
+
+    logger.info("E2EE: Found %d devices for user %s", len(push_devices), user_profile.id)
 
     if len(push_devices) == 0:
         logger.info(
@@ -1928,6 +1938,7 @@ def handle_push_notification(user_profile_id: int, missed_message: dict[str, Any
     zerver.worker.missedmessage_mobile_notifications.PushNotificationWorker.consume function.
     """
     if not push_notifications_configured():
+        logger.info("Push notifications not configured")
         return
 
     user_profile = get_user_profile_by_id(user_profile_id)
@@ -1937,6 +1948,7 @@ def handle_push_notification(user_profile_id: int, missed_message: dict[str, Any
         user_profile.enable_offline_push_notifications
         or user_profile.enable_online_push_notifications
     ):
+        logger.info("User %s has disabled push notifications", user_profile_id)
         # BUG: Investigate why it's possible to get here.
         return  # nocoverage
 
@@ -1960,9 +1972,12 @@ def handle_push_notification(user_profile_id: int, missed_message: dict[str, Any
             )
             return
 
+        logger.info("Push notification: Retrieved message %s. Content snippet: %s", message.id, message.content[:100] if message.content else "None")
+
         if user_message is not None:
             # If the user has read the message already, don't push-notify.
             if user_message.flags.read or user_message.flags.active_mobile_push_notification:
+                logger.info("User %s: Message %s already read (%s) or notified (%s)", user_profile_id, missed_message["message_id"], user_message.flags.read, user_message.flags.active_mobile_push_notification)
                 return
 
             # Otherwise, we mark the message as having an active mobile
@@ -2048,6 +2063,10 @@ def handle_push_notification(user_profile_id: int, missed_message: dict[str, Any
         user_profile, message, mentioned_user_group_id, mentioned_user_group_name, can_access_sender
     )
     logger.info("Sending push notifications to mobile clients for user %s", user_profile_id)
+    logger.info("APNS payload: %s", apns_payload)
+    logger.info("GCM payload: %s", gcm_payload)
+    logger.info("GCM options: %s", gcm_options)
+    logger.info("Payload data to encrypt: %s", payload_data_to_encrypt)
 
     # We need to call both the legacy/non-E2EE and E2EE functions
     # for sending mobile notifications, since we don't at this time
