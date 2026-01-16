@@ -870,6 +870,11 @@ def send_notifications_to_bouncer(
 ) -> None:
     assert len(android_devices) + len(apple_devices) != 0
 
+    logger.info(
+        "Sending legacy push notifications to bouncer for user %s: %d Android devices, %d Apple devices",
+        user_profile.id, len(android_devices), len(apple_devices)
+    )
+
     post_data = {
         "user_uuid": str(user_profile.uuid),
         # user_uuid is the intended future format, but we also need to send user_id
@@ -1671,6 +1676,11 @@ def send_push_notifications_legacy(
         )
         return
 
+    logger.info(
+        "Processing legacy push notifications for user %s with %d total devices",
+        user_profile.id, len(android_devices) + len(apple_devices)
+    )
+
     # While sending push notifications for new messages to older clients
     # (which don't support E2EE), if `require_e2ee_push_notifications`
     # realm setting is set to `true`, we redact the content.
@@ -1684,6 +1694,10 @@ def send_push_notifications_legacy(
         gcm_payload["content"] = placeholder_content
 
     if uses_notification_bouncer():
+        logger.info(
+            "Using notification bouncer for user %s push notifications",
+            user_profile.id
+        )
         send_notifications_to_bouncer(
             user_profile, apns_payload, gcm_payload, gcm_options, android_devices, apple_devices
         )
@@ -1704,12 +1718,18 @@ def send_push_notifications_legacy(
         user_identity, android_devices, gcm_payload, gcm_options
     )
 
+    total_sent = apple_successfully_sent_count + android_successfully_sent_count
+    logger.info(
+        "Legacy push notifications completed for user %s: %s APNs sent, %s FCM sent, %s total sent",
+        user_profile.id, apple_successfully_sent_count, android_successfully_sent_count, total_sent
+    )
+
     do_increment_logging_stat(
         user_profile.realm,
         COUNT_STATS["mobile_pushes_sent::day"],
         None,
         timezone_now(),
-        increment=apple_successfully_sent_count + android_successfully_sent_count,
+        increment=total_sent,
     )
 
 
@@ -1797,6 +1817,11 @@ def send_push_notifications(
         )
         return
 
+    logger.info(
+        "Processing E2EE push notifications for user %s with %d devices",
+        user_profile.id, len(push_devices)
+    )
+
     is_removal = payload_data_to_encrypt["type"] == "remove"
     is_test_notification = payload_data_to_encrypt["type"] == "test"
 
@@ -1839,10 +1864,15 @@ def send_push_notifications(
             push_requests.append(fcm_push_request)
 
     # Send push notification
+    logger.info(
+        "Sending E2EE push notifications for user %s to %d devices",
+        user_profile.id, len(push_requests)
+    )
     try:
         start_time = time.perf_counter()
         response_data: SendNotificationResponseData | SendNotificationRemoteResponseData
         if settings.ZILENCER_ENABLED:
+            logger.info("Using local E2EE push notification handler for user %s", user_profile.id)
             from zilencer.lib.push_notifications import send_e2ee_push_notifications
 
             response_data = send_e2ee_push_notifications(
@@ -1850,6 +1880,7 @@ def send_push_notifications(
                 realm=user_profile.realm,
             )
         else:
+            logger.info("Using remote bouncer for E2EE push notifications for user %s", user_profile.id)
             post_data = {
                 "realm_uuid": str(user_profile.realm.uuid),
                 "push_requests": [asdict(push_request) for push_request in push_requests],
@@ -1937,6 +1968,11 @@ def handle_push_notification(user_profile_id: int, missed_message: dict[str, Any
     missed_message is the event received by the
     zerver.worker.missedmessage_mobile_notifications.PushNotificationWorker.consume function.
     """
+    logger.info(
+        "Push notification handler started: user_id=%s, message_id=%s, trigger=%s",
+        user_profile_id, missed_message.get("message_id"), missed_message.get("trigger")
+    )
+
     if not push_notifications_configured():
         logger.info("Push notifications not configured")
         return

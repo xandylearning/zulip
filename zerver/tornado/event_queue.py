@@ -35,6 +35,8 @@ from zerver.tornado.descriptors import clear_descriptor_by_handler_id, set_descr
 from zerver.tornado.exceptions import BadEventQueueIdError
 from zerver.tornado.handlers import finish_handler, get_handler_by_id, handler_stats_string
 
+logger = logging.getLogger(__name__)
+
 # The idle timeout used to be a week, but we found that in that
 # situation, queues from dead browser sessions would grow quite large
 # due to the accumulation of message data in those queues.
@@ -975,24 +977,45 @@ def maybe_enqueue_notifications(
     """
     notified: dict[str, bool] = {}
 
-    if user_notifications_data.is_push_notifiable(acting_user_id, idle):
+    is_notifiable = user_notifications_data.is_push_notifiable(acting_user_id, idle)
+    if is_notifiable:
         notice = build_offline_notification(user_notifications_data.user_id, message_id)
-        notice["trigger"] = user_notifications_data.get_push_notification_trigger(
+        trigger = user_notifications_data.get_push_notification_trigger(
             acting_user_id, idle
         )
+        notice["trigger"] = trigger
         notice["type"] = "add"
         notice["mentioned_user_group_id"] = mentioned_user_group_id
+
         if not already_notified.get("push_notified"):
             if settings.MOBILE_NOTIFICATIONS_SHARDS > 1:
                 shard_id = (
                     user_notifications_data.user_id % settings.MOBILE_NOTIFICATIONS_SHARDS + 1
                 )
-                queue_json_publish_rollback_unsafe(
-                    f"missedmessage_mobile_notifications_shard{shard_id}", notice
+                queue_name = f"missedmessage_mobile_notifications_shard{shard_id}"
+                logger.info(
+                    "User %s: Queuing push notification for message %s to %s, trigger=%s",
+                    user_notifications_data.user_id, message_id, queue_name, trigger
                 )
+                queue_json_publish_rollback_unsafe(queue_name, notice)
             else:
-                queue_json_publish_rollback_unsafe("missedmessage_mobile_notifications", notice)
+                queue_name = "missedmessage_mobile_notifications"
+                logger.info(
+                    "User %s: Queuing push notification for message %s to %s, trigger=%s",
+                    user_notifications_data.user_id, message_id, queue_name, trigger
+                )
+                queue_json_publish_rollback_unsafe(queue_name, notice)
             notified["push_notified"] = True
+        else:
+            logger.info(
+                "User %s: Skipping push notification for message %s - already notified",
+                user_notifications_data.user_id, message_id
+            )
+    else:
+        logger.info(
+            "User %s: Not queuing push notification for message %s - not push notifiable",
+            user_notifications_data.user_id, message_id
+        )
 
     # Send missed_message emails if a direct message or a
     # mention.  Eventually, we'll add settings to allow email

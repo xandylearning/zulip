@@ -1,3 +1,4 @@
+import logging
 import math
 from collections.abc import Collection
 from dataclasses import dataclass
@@ -7,6 +8,8 @@ from zerver.lib.mention import MentionData
 from zerver.lib.user_groups import get_user_group_member_ids
 from zerver.models import NamedUserGroup, UserProfile, UserTopic
 from zerver.models.scheduled_jobs import NotificationTriggers
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -201,32 +204,60 @@ class UserMessageNotificationsData:
         return self.get_push_notification_trigger(acting_user_id, idle) is not None
 
     def get_push_notification_trigger(self, acting_user_id: int, idle: bool) -> str | None:
+        logger.info(
+            "User %s: Checking push notification eligibility - idle=%s, online_push_enabled=%s",
+            self.user_id, idle, self.online_push_enabled
+        )
+
         if not idle and not self.online_push_enabled:
+            logger.info(
+                "User %s: Push notification blocked - user not idle and online push disabled",
+                self.user_id
+            )
             return None
 
         if self.trivially_should_not_notify(acting_user_id):
+            # Get specific reason for blocking
+            if self.user_id == acting_user_id:
+                logger.info("User %s: Push notification blocked - own message", self.user_id)
+            elif self.sender_is_muted:
+                logger.info("User %s: Push notification blocked - sender is muted", self.user_id)
+            elif self.disable_external_notifications:
+                logger.info("User %s: Push notification blocked - external notifications disabled", self.user_id)
             return None
 
         # The order here is important. If, for example, both
         # `mention_push_notify` and `stream_push_notify` are True, we
         # want to classify it as a mention, since that's more salient.
         if self.dm_push_notify:
+            logger.info("User %s: Push notification trigger determined: %s", self.user_id, NotificationTriggers.DIRECT_MESSAGE)
             return NotificationTriggers.DIRECT_MESSAGE
         elif self.mention_push_notify:
+            logger.info("User %s: Push notification trigger determined: %s", self.user_id, NotificationTriggers.MENTION)
             return NotificationTriggers.MENTION
         elif self.topic_wildcard_mention_in_followed_topic_push_notify:
+            logger.info("User %s: Push notification trigger determined: %s", self.user_id, NotificationTriggers.TOPIC_WILDCARD_MENTION_IN_FOLLOWED_TOPIC)
             return NotificationTriggers.TOPIC_WILDCARD_MENTION_IN_FOLLOWED_TOPIC
         elif self.stream_wildcard_mention_in_followed_topic_push_notify:
+            logger.info("User %s: Push notification trigger determined: %s", self.user_id, NotificationTriggers.STREAM_WILDCARD_MENTION_IN_FOLLOWED_TOPIC)
             return NotificationTriggers.STREAM_WILDCARD_MENTION_IN_FOLLOWED_TOPIC
         elif self.topic_wildcard_mention_push_notify:
+            logger.info("User %s: Push notification trigger determined: %s", self.user_id, NotificationTriggers.TOPIC_WILDCARD_MENTION)
             return NotificationTriggers.TOPIC_WILDCARD_MENTION
         elif self.stream_wildcard_mention_push_notify:
+            logger.info("User %s: Push notification trigger determined: %s", self.user_id, NotificationTriggers.STREAM_WILDCARD_MENTION)
             return NotificationTriggers.STREAM_WILDCARD_MENTION
         elif self.followed_topic_push_notify:
+            logger.info("User %s: Push notification trigger determined: %s", self.user_id, NotificationTriggers.FOLLOWED_TOPIC_PUSH)
             return NotificationTriggers.FOLLOWED_TOPIC_PUSH
         elif self.stream_push_notify:
+            logger.info("User %s: Push notification trigger determined: %s", self.user_id, NotificationTriggers.STREAM_PUSH)
             return NotificationTriggers.STREAM_PUSH
         else:
+            logger.info(
+                "User %s: Push notification blocked - no matching notification type (dm=%s, mention=%s, stream=%s)",
+                self.user_id, self.dm_push_notify, self.mention_push_notify, self.stream_push_notify
+            )
             return None
 
     def is_email_notifiable(self, acting_user_id: int, idle: bool) -> bool:
