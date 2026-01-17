@@ -365,6 +365,8 @@ def send_apple_push_notification(
                 kind=DeviceTokenClass.APNS,
             ).delete()
 
+    logger.info("APNs: Delivery completed for user %s: %d/%d devices successfully sent",
+                user_identity, successfully_sent_count, len(devices))
     return successfully_sent_count
 
 
@@ -844,6 +846,8 @@ def send_android_push_notification(
             else:
                 logger.warning("FCM: Delivery failed for %s: %s:%s", token, error.__class__, error)
 
+    logger.info("FCM: Delivery completed for user %s: %d/%d devices successfully sent",
+                user_identity, successfully_sent_count, len(devices))
     return successfully_sent_count
 
 
@@ -888,11 +892,23 @@ def send_notifications_to_bouncer(
         "apple_devices": [device.token for device in apple_devices],
     }
     # Calls zilencer.views.remote_server_notify_push
+    logger.info(
+        "Bouncer request: Sending POST to /push/notify for user %s. Payload: realm_uuid=%s, devices=%d android + %d apple",
+        user_profile.id, user_profile.realm.uuid, len(android_devices), len(apple_devices)
+    )
 
     try:
         response_data = send_json_to_push_bouncer("POST", "push/notify", post_data)
+        logger.info(
+            "Bouncer response: Success for user %s. Processed %d android, %d apple devices. Deleted devices: %d android, %d apple",
+            user_profile.id,
+            response_data.get("total_android_devices", 0),
+            response_data.get("total_apple_devices", 0),
+            len(response_data.get("deleted_devices", {}).get("android_devices", [])),
+            len(response_data.get("deleted_devices", {}).get("apple_devices", []))
+        )
     except PushNotificationsDisallowedByBouncerError as e:
-        logger.warning("Bouncer refused to send push notification: %s", e.reason)
+        logger.warning("Bouncer refused to send push notification for user %s: %s", user_profile.id, e.reason)
         do_set_realm_property(
             user_profile.realm,
             "push_notifications_enabled",
@@ -901,6 +917,15 @@ def send_notifications_to_bouncer(
         )
         do_set_push_notifications_enabled_end_timestamp(user_profile.realm, None, acting_user=None)
         return
+    except PushNotificationBouncerServerError as e:
+        logger.error("Bouncer server error (5xx) for user %s: %s", user_profile.id, str(e))
+        raise
+    except PushNotificationBouncerRetryLaterError as e:
+        logger.warning("Bouncer network error for user %s (will retry): %s", user_profile.id, str(e))
+        raise
+    except PushNotificationBouncerError as e:
+        logger.error("Unexpected bouncer error for user %s: %s", user_profile.id, str(e))
+        raise
 
     assert isinstance(response_data["total_android_devices"], int)
     assert isinstance(response_data["total_apple_devices"], int)

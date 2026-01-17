@@ -48,13 +48,35 @@ class PushNotificationsWorker(QueueProcessingWorker):
     def consume(self, event: dict[str, Any]) -> None:
         try:
             event_type = event.get("type")
+            user_profile_id = event.get("user_profile_id")
+
+            # Enhanced logging for diagnostics
             if event_type == "register_push_device_to_bouncer":
+                logger.info(
+                    "Worker processing device registration to bouncer for user: %s",
+                    event["payload"].get("user_profile_id", "unknown")
+                )
                 handle_register_push_device_to_bouncer(event["payload"])
             elif event_type == "remove":
                 message_ids = event["message_ids"]
+                logger.info(
+                    "Worker processing push notification removal for user: %s, messages: %s",
+                    user_profile_id, message_ids
+                )
                 handle_remove_push_notification(event["user_profile_id"], message_ids)
             else:
+                # This is the main push notification processing path
+                message_id = event.get("message_id", "unknown")
+                trigger = event.get("trigger", "unknown")
+                logger.info(
+                    "Worker started processing push notification: user_id=%s, message_id=%s, trigger=%s, event_type=%s",
+                    user_profile_id, message_id, trigger, event_type or "push_notification"
+                )
                 handle_push_notification(event["user_profile_id"], event)
+                logger.info(
+                    "Worker completed push notification processing: user_id=%s, message_id=%s",
+                    user_profile_id, message_id
+                )
         except PushNotificationBouncerRetryLaterError:
 
             def failure_processor(event: dict[str, Any]) -> None:
