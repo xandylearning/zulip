@@ -23,10 +23,14 @@ from zerver.actions.user_groups import (
     bulk_add_members_to_user_groups,
     bulk_remove_members_from_user_groups,
     do_send_create_user_group_event,
+    add_subgroups_to_user_group,
 )
+from zerver.actions.streams import bulk_add_subscriptions
 from zerver.lib.create_user import create_user_profile, get_display_email_address
 from zerver.lib.bulk_create import bulk_set_users_or_streams_recipient_fields
+from zerver.lib.streams import create_stream_if_needed
 from zerver.models.groups import SystemGroups
+from zerver.models.streams import Stream
 from zerver.models.realm_audit_logs import AuditLogEventType
 from lms_integration.models import Students, Mentors, Batches, Batchtostudent, Mentortostudent, LMSSyncProgress
 from lms_integration.lib.email_utils import (
@@ -56,6 +60,18 @@ except (TypeError, ValueError):
     DEFAULT_PROGRESS_INTERVAL = 100
 
 USE_BULK_OPERATIONS = getattr(settings, 'LMS_SYNC_USE_BULK_OPERATIONS', True)
+
+# Mentor hierarchy levels (from LMS database)
+# These should match the values in the Mentors.hierarchy field
+MENTOR_HIERARCHY_LEVELS = {
+    'chief_mentor': 'Chief Mentors',
+    'class_head': 'Class Heads',
+    'head_mentor': 'Head Mentors',
+    'mentor': 'Mentors',  # Regular mentors
+}
+
+# Default hierarchy value if not specified
+DEFAULT_MENTOR_HIERARCHY = 'mentor'
 
 
 class UserSync:
@@ -1821,8 +1837,16 @@ class UserSync:
     
     def sync_batches_and_groups(self) -> Dict[str, any]:
         """
-        Sync batches from LMS to Zulip user groups and manage group memberships.
-        Creates batch groups, adds students and mentors to groups, and removes inactive users.
+        Sync batches from LMS to Zulip with channels and realm-wide user groups.
+        
+        Creates realm-wide groups (once for entire realm):
+        - Students group (all students from all batches)
+        - Mentor hierarchy groups (Chief Mentors, Class Heads, Head Mentors, Regular Mentors)
+        - "All Mentors" parent group containing all hierarchy subgroups
+        
+        Creates for each batch:
+        - A private channel where only mentors can send messages
+        - Subscribes batch-specific students and mentors to their batch channel
         
         Returns:
             Dictionary with sync statistics
@@ -1830,8 +1854,14 @@ class UserSync:
         stats = {
             'batches_created': 0,
             'batches_updated': 0,
+            'channels_created': 0,
+            'channels_updated': 0,
+            'mentor_groups_created': 0,
+            'student_groups_created': 0,
             'students_added': 0,
+            'students_subscribed': 0,
             'mentors_added': 0,
+            'mentors_subscribed': 0,
             'users_removed': 0,
             'errors': 0,
         }
@@ -1839,127 +1869,331 @@ class UserSync:
         try:
             # Get all batches from LMS
             batches = Batches.objects.using('lms_db').all()
-            logger.info(f"Syncing {batches.count()} batches from LMS to Zulip")
+            logger.info(f"Syncing {batches.count()} batches from LMS to Zulip (with channels)")
             
-            # Get system bot for acting_user (needed for group operations)
-            from zerver.models.users import get_system_bot
-            try:
-                # Try to get notification bot
-                notification_bot_email = getattr(settings, 'NOTIFICATION_BOT', None)
-                if notification_bot_email:
-                    acting_user = get_system_bot(notification_bot_email, self.realm.id)
-                else:
-                    raise ValueError("NOTIFICATION_BOT not configured")
-            except Exception:
-                # Fallback to first admin user if system bot not available
-                acting_user = UserProfile.objects.filter(
-                    realm=self.realm, is_staff=True, is_active=True
-                ).first()
+            # Get system bot for acting_user (needed for group and channel operations)
+            acting_user = self._get_acting_user_for_batch_sync()
                 if not acting_user:
                     logger.warning("No acting user available for batch sync")
                     return stats
             
+            # Step 1: Create realm-wide groups (once for entire realm)
+            realm_groups_result = self._create_realm_wide_groups(acting_user)
+            stats['mentor_groups_created'] = realm_groups_result.get('mentor_groups_created', 0)
+            stats['student_groups_created'] = realm_groups_result.get('student_groups_created', 0)
+            
+            all_mentors_group = realm_groups_result.get('all_mentors_group')
+            students_group = realm_groups_result.get('students_group')
+            hierarchy_groups = realm_groups_result.get('hierarchy_groups', {})
+            
+            # Step 2: Process each batch - create channels and subscribe users
             for batch in batches:
                 try:
-                    batch_group = self._sync_batch_group(batch, acting_user)
-                    if batch_group:
-                        # Sync students in this batch
-                        student_stats = self._sync_batch_students(batch, batch_group, acting_user)
-                        stats['students_added'] += student_stats['added']
-                        stats['users_removed'] += student_stats['removed']
-                        
-                        # Sync mentors for this batch (mentors of students in the batch)
-                        mentor_stats = self._sync_batch_mentors(batch, batch_group, acting_user)
-                        stats['mentors_added'] += mentor_stats['added']
-                        stats['users_removed'] += mentor_stats['removed']
-                        
-                        if student_stats['created'] or mentor_stats['created']:
+                    batch_result = self._sync_single_batch_with_channel(
+                        batch, acting_user, all_mentors_group, students_group, hierarchy_groups
+                    )
+                    
+                    # Update stats
+                    if batch_result.get('channel_created'):
+                        stats['channels_created'] += 1
                             stats['batches_created'] += 1
                         else:
+                        stats['channels_updated'] += 1
                             stats['batches_updated'] += 1
+                    
+                    stats['students_added'] += batch_result.get('students_added', 0)
+                    stats['students_subscribed'] += batch_result.get('students_subscribed', 0)
+                    stats['mentors_added'] += batch_result.get('mentors_added', 0)
+                    stats['mentors_subscribed'] += batch_result.get('mentors_subscribed', 0)
+                    stats['users_removed'] += batch_result.get('users_removed', 0)
+                    
                 except Exception as e:
                     stats['errors'] += 1
-                    logger.error(f"Error syncing batch {batch.id}: {e}")
+                    logger.error(f"Error syncing batch {batch.id}: {e}", exc_info=True)
             
             logger.info(f"Batch sync completed: {stats}")
             
         except Exception as e:
-            logger.error(f"Error syncing batches: {e}")
+            logger.error(f"Error syncing batches: {e}", exc_info=True)
             stats['errors'] += 1
         
         return stats
     
-    def _sync_batch_group(self, batch: Batches, acting_user: UserProfile) -> Optional[NamedUserGroup]:
+    def _get_acting_user_for_batch_sync(self) -> Optional[UserProfile]:
+        """Get an acting user for batch sync operations."""
+        from zerver.models.users import get_system_bot
+        try:
+            notification_bot_email = getattr(settings, 'NOTIFICATION_BOT', None)
+            if notification_bot_email:
+                return get_system_bot(notification_bot_email, self.realm.id)
+            raise ValueError("NOTIFICATION_BOT not configured")
+        except Exception:
+            # Fallback to first admin user
+            return UserProfile.objects.filter(
+                realm=self.realm, is_staff=True, is_active=True
+            ).first()
+    
+    def _create_realm_wide_groups(self, acting_user: UserProfile) -> Dict[str, any]:
         """
-        Create or get a Zulip user group for a batch.
+        Create realm-wide user groups (once for entire realm, not per batch).
+        
+        Creates:
+        - Students group (all students from all batches)
+        - Mentor hierarchy groups (Chief Mentors, Class Heads, Head Mentors, Regular Mentors)
+        - "All Mentors" parent group containing all hierarchy subgroups
         
         Args:
-            batch: LMS Batches instance
             acting_user: UserProfile to act as for group operations
             
         Returns:
-            NamedUserGroup instance or None if error
+            Dictionary with:
+            - 'students_group': NamedUserGroup for all students
+            - 'all_mentors_group': NamedUserGroup for all mentors
+            - 'hierarchy_groups': Dict mapping hierarchy level to NamedUserGroup
+            - 'mentor_groups_created': Number of new mentor groups created
+            - 'student_groups_created': Number of new student groups created (0 or 1)
         """
+        result = {
+            'students_group': None,
+            'all_mentors_group': None,
+            'hierarchy_groups': {},
+            'mentor_groups_created': 0,
+            'student_groups_created': 0,
+        }
+        
         try:
-            # Generate group name from batch name or ID
-            group_name = batch.name if batch.name else f"Batch {batch.id}"
-            # Ensure name is valid (max 100 chars, no invalid prefixes)
-            if len(group_name) > 100:
-                group_name = group_name[:100]
-            
-            # Check if group already exists
+            # Create realm-wide students group
+            students_group_name = "Students"
             try:
-                user_group = NamedUserGroup.objects.get(
+                students_group = NamedUserGroup.objects.get(
+                    name=students_group_name,
+                    realm=self.realm,
+                    is_system_group=False
+                )
+                logger.debug(f"Found existing realm-wide students group: {students_group_name}")
+            except NamedUserGroup.DoesNotExist:
+                students_group = create_user_group_in_database(
+                    name=students_group_name,
+                    members=[],
+                    realm=self.realm,
+                    description="All students from all batches",
+                    acting_user=acting_user,
+                )
+                do_send_create_user_group_event(students_group, [])
+                result['student_groups_created'] = 1
+                logger.info(f"Created realm-wide students group: {students_group_name}")
+            
+            result['students_group'] = students_group
+            
+            # Create realm-wide mentor hierarchy groups
+            subgroups_to_add = []
+            
+            for hierarchy_key, hierarchy_display_name in MENTOR_HIERARCHY_LEVELS.items():
+                group_name = hierarchy_display_name  # Just the hierarchy name, not batch-specific
+                
+                try:
+                    hierarchy_group = NamedUserGroup.objects.get(
                     name=group_name,
                     realm=self.realm,
                     is_system_group=False
                 )
-                logger.debug(f"Found existing group {group_name} for batch {batch.id}")
-                return user_group
+                    logger.debug(f"Found existing realm-wide hierarchy group: {group_name}")
             except NamedUserGroup.DoesNotExist:
-                # Create new group
-                description = f"LMS Batch: {batch.name or f'Batch {batch.id}'}"
-                if batch.url:
-                    description += f" ({batch.url})"
-                
-                user_group = create_user_group_in_database(
+                    description = f"All {hierarchy_display_name.lower()} from all batches"
+                    hierarchy_group = create_user_group_in_database(
                     name=group_name,
-                    members=[],  # Start with no members, add them separately
+                        members=[],
                     realm=self.realm,
                     description=description,
                     acting_user=acting_user,
                 )
+                    do_send_create_user_group_event(hierarchy_group, [])
+                    result['mentor_groups_created'] += 1
+                    logger.info(f"Created realm-wide mentor hierarchy group: {group_name}")
                 
-                # Send creation event
-                do_send_create_user_group_event(user_group, [])
-                
-                logger.info(f"Created user group {group_name} for batch {batch.id}")
-                return user_group
-                
+                result['hierarchy_groups'][hierarchy_key] = hierarchy_group
+                subgroups_to_add.append(hierarchy_group)
+            
+            # Create the "All Mentors" parent group
+            all_mentors_group_name = "All Mentors"
+            try:
+                all_mentors_group = NamedUserGroup.objects.get(
+                    name=all_mentors_group_name,
+                    realm=self.realm,
+                    is_system_group=False
+                )
+                logger.debug(f"Found existing realm-wide all mentors group: {all_mentors_group_name}")
+            except NamedUserGroup.DoesNotExist:
+                description = "All mentors from all batches (includes all hierarchy levels)"
+                all_mentors_group = create_user_group_in_database(
+                    name=all_mentors_group_name,
+                    members=[],
+                    realm=self.realm,
+                    description=description,
+                    acting_user=acting_user,
+                )
+                do_send_create_user_group_event(all_mentors_group, [])
+                result['mentor_groups_created'] += 1
+                logger.info(f"Created realm-wide all mentors group: {all_mentors_group_name}")
+            
+            # Add hierarchy groups as subgroups of the all mentors group
+            existing_subgroup_ids = set(
+                all_mentors_group.direct_subgroups.values_list('id', flat=True)
+            )
+            new_subgroups = [
+                sg for sg in subgroups_to_add if sg.id not in existing_subgroup_ids
+            ]
+            
+            if new_subgroups:
+                add_subgroups_to_user_group(
+                    all_mentors_group,
+                    new_subgroups,
+                    acting_user=acting_user,
+                )
+                logger.info(f"Added {len(new_subgroups)} subgroups to {all_mentors_group_name}")
+            
+            result['all_mentors_group'] = all_mentors_group
+            
         except Exception as e:
-            logger.error(f"Error creating/updating group for batch {batch.id}: {e}")
-            return None
+            logger.error(f"Error creating realm-wide groups: {e}", exc_info=True)
+        
+        return result
     
-    def _sync_batch_students(
-        self, batch: Batches, batch_group: NamedUserGroup, acting_user: UserProfile
-    ) -> Dict[str, int]:
+    def _sync_single_batch_with_channel(
+        self, batch: Batches, acting_user: UserProfile,
+        all_mentors_group: Optional[NamedUserGroup],
+        students_group: Optional[NamedUserGroup],
+        hierarchy_groups: Dict[str, NamedUserGroup]
+    ) -> Dict[str, any]:
         """
-        Sync students for a batch - add active students, remove inactive ones.
-        Optimized with bulk queries and prefetched user cache.
+        Sync a single batch: create channel and subscribe users.
+        
+        Uses realm-wide groups that were created separately.
         
         Args:
             batch: LMS Batches instance
-            batch_group: NamedUserGroup for the batch
-            acting_user: UserProfile to act as for group operations
+            acting_user: UserProfile to act as for operations
+            all_mentors_group: Realm-wide all mentors group
+            students_group: Realm-wide students group
+            hierarchy_groups: Dict of realm-wide hierarchy groups
+            
+        Returns:
+            Dictionary with sync results for this batch
+        """
+        result = {
+            'channel_created': False,
+            'students_added': 0,
+            'students_subscribed': 0,
+            'mentors_added': 0,
+            'mentors_subscribed': 0,
+            'users_removed': 0,
+        }
+        
+        # Create or get the batch channel with mentors as the can_send_message_group
+        channel, channel_created = self._create_batch_channel(batch, all_mentors_group, acting_user)
+        result['channel_created'] = channel_created
+        
+        if not channel:
+            logger.error(f"Failed to create channel for batch {batch.id}")
+            return result
+        
+        # Sync mentors to realm-wide hierarchy groups and subscribe to batch channel
+        mentor_sync_result = self._sync_batch_mentors_with_hierarchy(
+            batch, hierarchy_groups, channel, acting_user
+        )
+        result['mentors_added'] = mentor_sync_result.get('added', 0)
+        result['mentors_subscribed'] = mentor_sync_result.get('subscribed', 0)
+        
+        # Sync students to realm-wide students group and subscribe to batch channel
+        student_sync_result = self._sync_batch_students_with_channel(
+            batch, students_group, channel, acting_user
+        )
+        result['students_added'] = student_sync_result.get('added', 0)
+        result['students_subscribed'] = student_sync_result.get('subscribed', 0)
+        result['users_removed'] = student_sync_result.get('removed', 0)
+        
+        return result
+    
+    
+    def _create_batch_channel(
+        self, batch: Batches, all_mentors_group: Optional[NamedUserGroup], acting_user: UserProfile
+    ) -> Tuple[Optional[Stream], bool]:
+        """
+        Create or get a private channel for a batch.
+        
+        The channel is configured so only mentors can send messages (students read-only).
+        
+        Args:
+            batch: LMS Batches instance
+            all_mentors_group: NamedUserGroup for all mentors (used for can_send_message_group)
+            acting_user: UserProfile to act as for channel operations
+            
+        Returns:
+            Tuple of (Stream or None, was_created: bool)
+        """
+        batch_name = batch.name if batch.name else f"Batch {batch.id}"
+        channel_name = batch_name
+        
+        # Channel names have max 60 chars in Zulip
+        if len(channel_name) > 60:
+            channel_name = channel_name[:60]
+        
+        try:
+            description = f"Communication channel for LMS Batch: {batch_name}"
+            if batch.url:
+                description += f" ({batch.url})"
+            
+            # Get the UserGroup (not NamedUserGroup) for can_send_message_group
+            can_send_group = None
+            if all_mentors_group:
+                # The NamedUserGroup extends UserGroup, we need the usergroup_ptr
+                can_send_group = all_mentors_group.usergroup_ptr
+            
+            channel, created = create_stream_if_needed(
+                self.realm,
+                channel_name,
+                invite_only=True,  # Private channel
+                history_public_to_subscribers=True,  # Subscribers can see history
+                stream_description=description,
+                can_send_message_group=can_send_group,  # Only mentors can send
+                acting_user=acting_user,
+            )
+            
+            if created:
+                logger.info(f"Created private channel '{channel_name}' for batch {batch.id}")
+            else:
+                logger.debug(f"Found existing channel '{channel_name}' for batch {batch.id}")
+            
+            return channel, created
+                
+        except Exception as e:
+            logger.error(f"Error creating channel for batch {batch.id}: {e}", exc_info=True)
+            return None, False
+    
+    def _sync_batch_students_with_channel(
+        self, batch: Batches, students_group: Optional[NamedUserGroup], 
+        channel: Stream, acting_user: UserProfile
+    ) -> Dict[str, int]:
+        """
+        Sync students for a batch - add to students group and subscribe to channel.
+        Students can only receive messages (read-only) in the channel.
+        
+        Args:
+            batch: LMS Batches instance
+            students_group: NamedUserGroup for students (can be None if creation failed)
+            channel: The batch's private channel
+            acting_user: UserProfile to act as for operations
             
         Returns:
             Dictionary with sync statistics
         """
-        stats = {'added': 0, 'removed': 0, 'created': False}
+        stats = {'added': 0, 'subscribed': 0, 'removed': 0}
+        
+        if not channel:
+            return stats
         
         try:
             # Get all students in this batch from LMS
-            # Use values_list to avoid selecting non-existent 'id' column
             student_ids = list(Batchtostudent.objects.using('lms_db').filter(
                 a_id=batch.id
             ).values_list('b_id', flat=True))
@@ -1967,27 +2201,40 @@ class UserSync:
             if not student_ids:
                 return stats
             
-            # Get student objects from LMS - use only needed fields
+            # Get student objects from LMS
             students = Students.objects.using('lms_db').filter(
                 id__in=student_ids
             ).only('id', 'email', 'username', 'is_active', 'first_name', 'last_name', 'display_name')
             
-            # Get current group members - optimized query
-            current_members = set(
-                batch_group.direct_members.filter(is_active=True).values_list('id', flat=True)
+            # Get current group members if students_group exists
+            current_group_members = set()
+            if students_group:
+                current_group_members = set(
+                    students_group.direct_members.filter(is_active=True).values_list('id', flat=True)
+                )
+            
+            # Get current channel subscribers
+            current_subscribers = set()
+            if channel.recipient_id:
+                current_subscribers = set(
+                    Subscription.objects.filter(
+                        recipient_id=channel.recipient_id,
+                        active=True
+                    ).values_list('user_profile_id', flat=True)
             )
             
             # Prefetch existing users cache if not already done
             if self._existing_users_cache is None:
                 self._prefetch_existing_users()
             
-            # Get corresponding Zulip users
-            zulip_users_to_add = []
+            # Collect Zulip users
+            zulip_users_to_add_to_group = []
+            zulip_users_to_subscribe = []
             zulip_user_ids_to_remove = []
             
             # Batch process email lookups
             student_emails = []
-            student_email_map = {}  # Maps email to student
+            student_email_map = {}
             
             for student in students:
                 try:
@@ -1999,7 +2246,6 @@ class UserSync:
                     student_emails.append(student_email.lower())
                     student_email_map[student_email.lower()] = (student, is_placeholder)
                 except ValidationError:
-                    # Skip students with invalid email/username
                     continue
             
             # Bulk lookup Zulip users by email
@@ -2012,7 +2258,6 @@ class UserSync:
                     ).only('id', 'delivery_email', 'is_active')
                 }
                 
-                # Also check username-based lookups for placeholder emails
                 for email_lower, (student, is_placeholder) in student_email_map.items():
                     zulip_user = zulip_users_dict.get(email_lower)
                     
@@ -2023,64 +2268,85 @@ class UserSync:
                         )
                     
                     if not zulip_user:
-                        # Student not synced yet, skip for now
                         continue
                     
-                    # If student is active in LMS and active in Zulip, add to group
+                    # Active student in both LMS and Zulip
                     if student.is_active and zulip_user.is_active:
-                        if zulip_user.id not in current_members:
-                            zulip_users_to_add.append(zulip_user)
-                    # If student is inactive in LMS or Zulip, remove from group
+                        # Add to group if not already member
+                        if students_group and zulip_user.id not in current_group_members:
+                            zulip_users_to_add_to_group.append(zulip_user)
+                        
+                        # Subscribe to channel if not already subscribed
+                        if zulip_user.id not in current_subscribers:
+                            zulip_users_to_subscribe.append(zulip_user)
+                    
+                    # Inactive student - track for potential removal
                     elif not student.is_active or not zulip_user.is_active:
-                        if zulip_user.id in current_members:
+                        if students_group and zulip_user.id in current_group_members:
                             zulip_user_ids_to_remove.append(zulip_user.id)
             
-            # Add active students to group
-            if zulip_users_to_add:
-                user_ids_to_add = [u.id for u in zulip_users_to_add]
+            # Add students to group
+            if zulip_users_to_add_to_group and students_group:
+                user_ids_to_add = [u.id for u in zulip_users_to_add_to_group]
                 bulk_add_members_to_user_groups(
-                    [batch_group],
+                    [students_group],
                     user_ids_to_add,
                     acting_user=acting_user
                 )
-                stats['added'] = len(zulip_users_to_add)
-                logger.info(f"Added {stats['added']} students to batch group {batch_group.name}")
+                stats['added'] = len(zulip_users_to_add_to_group)
+                logger.info(f"Added {stats['added']} students to group {students_group.name}")
+            
+            # Subscribe students to channel
+            if zulip_users_to_subscribe:
+                bulk_add_subscriptions(
+                    self.realm,
+                    [channel],
+                    zulip_users_to_subscribe,
+                    acting_user=acting_user,
+                )
+                stats['subscribed'] = len(zulip_users_to_subscribe)
+                logger.info(f"Subscribed {stats['subscribed']} students to channel {channel.name}")
             
             # Remove inactive students from group
-            if zulip_user_ids_to_remove:
+            if zulip_user_ids_to_remove and students_group:
                 bulk_remove_members_from_user_groups(
-                    [batch_group],
+                    [students_group],
                     zulip_user_ids_to_remove,
                     acting_user=acting_user
                 )
                 stats['removed'] = len(zulip_user_ids_to_remove)
-                logger.info(f"Removed {stats['removed']} inactive students from batch group {batch_group.name}")
+                logger.info(f"Removed {stats['removed']} inactive students from group {students_group.name}")
             
         except Exception as e:
             logger.error(f"Error syncing students for batch {batch.id}: {e}", exc_info=True)
         
         return stats
     
-    def _sync_batch_mentors(
-        self, batch: Batches, batch_group: NamedUserGroup, acting_user: UserProfile
+    def _sync_batch_mentors_with_hierarchy(
+        self, batch: Batches, hierarchy_groups: Dict[str, NamedUserGroup],
+        channel: Stream, acting_user: UserProfile
     ) -> Dict[str, int]:
         """
-        Sync mentors for a batch - add mentors who mentor students in this batch.
-        Optimized with bulk queries and prefetched user cache.
+        Sync mentors for a batch - add to realm-wide hierarchy groups and subscribe to channel.
+        Mentors are added to their appropriate realm-wide hierarchy group based on their
+        hierarchy field in the LMS database.
         
         Args:
             batch: LMS Batches instance
-            batch_group: NamedUserGroup for the batch
-            acting_user: UserProfile to act as for group operations
+            hierarchy_groups: Dict of realm-wide hierarchy groups (from _create_realm_wide_groups)
+            channel: The batch's private channel
+            acting_user: UserProfile to act as for operations
             
         Returns:
             Dictionary with sync statistics
         """
-        stats = {'added': 0, 'removed': 0, 'created': False}
+        stats = {'added': 0, 'subscribed': 0}
+        
+        if not channel:
+            return stats
         
         try:
             # Get all students in this batch
-            # Use values_list to avoid selecting non-existent 'id' column
             student_ids = list(Batchtostudent.objects.using('lms_db').filter(
                 a_id=batch.id
             ).values_list('b_id', flat=True))
@@ -2089,7 +2355,6 @@ class UserSync:
                 return stats
             
             # Get mentors for these students
-            # Use values_list to avoid selecting non-existent 'id' column
             mentor_ids = set(Mentortostudent.objects.using('lms_db').filter(
                 b_id__in=student_ids
             ).values_list('a_id', flat=True))
@@ -2097,26 +2362,39 @@ class UserSync:
             if not mentor_ids:
                 return stats
             
-            # Get mentor objects from LMS - use only needed fields
+            # Get mentor objects from LMS with hierarchy field
             mentors = Mentors.objects.using('lms_db').filter(
                 user_id__in=mentor_ids
-            ).only('user_id', 'email', 'username', 'first_name', 'last_name', 'display_name')
+            ).only('user_id', 'email', 'username', 'first_name', 'last_name', 'display_name', 'hierarchy')
             
-            # Get current group members - optimized query
-            current_members = set(
-                batch_group.direct_members.filter(is_active=True).values_list('id', flat=True)
+            # Get current channel subscribers
+            current_subscribers = set()
+            if channel.recipient_id:
+                current_subscribers = set(
+                    Subscription.objects.filter(
+                        recipient_id=channel.recipient_id,
+                        active=True
+                    ).values_list('user_profile_id', flat=True)
+                )
+            
+            # Get current members of each hierarchy group
+            hierarchy_current_members = {}
+            for hierarchy_key, hierarchy_group in hierarchy_groups.items():
+                hierarchy_current_members[hierarchy_key] = set(
+                    hierarchy_group.direct_members.filter(is_active=True).values_list('id', flat=True)
             )
             
             # Prefetch existing users cache if not already done
             if self._existing_users_cache is None:
                 self._prefetch_existing_users()
             
-            # Get corresponding Zulip users
-            zulip_users_to_add = []
+            # Organize mentors by hierarchy level
+            mentors_by_hierarchy: Dict[str, List[UserProfile]] = {key: [] for key in MENTOR_HIERARCHY_LEVELS}
+            mentors_to_subscribe = []
             
             # Batch process email lookups
             mentor_emails = []
-            mentor_email_map = {}  # Maps email to mentor
+            mentor_email_map = {}
             
             for mentor in mentors:
                 try:
@@ -2128,7 +2406,6 @@ class UserSync:
                     mentor_emails.append(mentor_email.lower())
                     mentor_email_map[mentor_email.lower()] = (mentor, is_placeholder)
                 except ValidationError:
-                    # Skip mentors with invalid email/username
                     continue
             
             # Bulk lookup Zulip users by email
@@ -2142,7 +2419,6 @@ class UserSync:
                     ).only('id', 'delivery_email', 'is_active')
                 }
                 
-                # Also check username-based lookups for placeholder emails
                 for email_lower, (mentor, is_placeholder) in mentor_email_map.items():
                     zulip_user = zulip_users_dict.get(email_lower)
                     
@@ -2151,33 +2427,89 @@ class UserSync:
                         zulip_user = self._find_existing_user(
                             email_lower, mentor.username, is_placeholder
                         )
-                        # Only add if active
                         if zulip_user and not zulip_user.is_active:
                             zulip_user = None
                     
                     if not zulip_user:
-                        # Mentor not synced yet, skip for now
                         continue
                     
-                    # Add mentor to group if not already a member
+                    # Determine hierarchy level
+                    hierarchy_level = self._normalize_hierarchy_level(mentor.hierarchy)
+                    
+                    # Add to appropriate hierarchy group if not already member
+                    current_members = hierarchy_current_members.get(hierarchy_level, set())
                     if zulip_user.id not in current_members:
-                        zulip_users_to_add.append(zulip_user)
+                        mentors_by_hierarchy[hierarchy_level].append(zulip_user)
+                    
+                    # Subscribe to channel if not already subscribed
+                    if zulip_user.id not in current_subscribers:
+                        mentors_to_subscribe.append(zulip_user)
             
-            # Add mentors to group
-            if zulip_users_to_add:
-                user_ids_to_add = [u.id for u in zulip_users_to_add]
+            # Add mentors to their hierarchy groups
+            total_added = 0
+            for hierarchy_key, zulip_users in mentors_by_hierarchy.items():
+                if zulip_users and hierarchy_key in hierarchy_groups:
+                    hierarchy_group = hierarchy_groups[hierarchy_key]
+                    user_ids = [u.id for u in zulip_users]
                 bulk_add_members_to_user_groups(
-                    [batch_group],
-                    user_ids_to_add,
+                        [hierarchy_group],
+                        user_ids,
                     acting_user=acting_user
                 )
-                stats['added'] = len(zulip_users_to_add)
-                logger.info(f"Added {stats['added']} mentors to batch group {batch_group.name}")
+                    total_added += len(zulip_users)
+                    logger.info(f"Added {len(zulip_users)} mentors to hierarchy group {hierarchy_group.name}")
+            
+            stats['added'] = total_added
+            
+            # Subscribe mentors to channel
+            if mentors_to_subscribe:
+                bulk_add_subscriptions(
+                    self.realm,
+                    [channel],
+                    mentors_to_subscribe,
+                    acting_user=acting_user,
+                )
+                stats['subscribed'] = len(mentors_to_subscribe)
+                logger.info(f"Subscribed {stats['subscribed']} mentors to channel {channel.name}")
             
         except Exception as e:
             logger.error(f"Error syncing mentors for batch {batch.id}: {e}", exc_info=True)
         
         return stats
+    
+    def _normalize_hierarchy_level(self, hierarchy_value: Optional[str]) -> str:
+        """
+        Normalize a mentor hierarchy value from LMS to a standard key.
+        
+        Args:
+            hierarchy_value: The hierarchy field value from LMS Mentors table
+            
+        Returns:
+            Normalized hierarchy key (one of MENTOR_HIERARCHY_LEVELS keys)
+        """
+        if not hierarchy_value:
+            return DEFAULT_MENTOR_HIERARCHY
+        
+        # Normalize: lowercase and replace spaces/underscores
+        normalized = hierarchy_value.lower().strip().replace(' ', '_').replace('-', '_')
+        
+        # Map common variations to standard keys
+        hierarchy_mapping = {
+            'chief_mentor': 'chief_mentor',
+            'chiefmentor': 'chief_mentor',
+            'chief': 'chief_mentor',
+            'class_head': 'class_head',
+            'classhead': 'class_head',
+            'class': 'class_head',
+            'head_mentor': 'head_mentor',
+            'headmentor': 'head_mentor',
+            'head': 'head_mentor',
+            'mentor': 'mentor',
+            'regular': 'mentor',
+            'regular_mentor': 'mentor',
+        }
+        
+        return hierarchy_mapping.get(normalized, DEFAULT_MENTOR_HIERARCHY)
     
     def sync_all_with_batches(self) -> Dict[str, any]:
         """

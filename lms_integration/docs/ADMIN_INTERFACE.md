@@ -250,10 +250,10 @@ The Batch Management section provides tools for creating and managing student ba
 View and manage all batch groups in a comprehensive table:
 
 #### Table Columns
-- **Batch Name**: Descriptive name of the batch group
-- **Group Status**: Zulip group linkage status
-- **Student Count**: Number of students in the batch
-- **Mentor Count**: Number of assigned mentors
+- **Batch Name**: Descriptive name of the batch (also used as channel name)
+- **Channel Status**: Zulip channel creation and subscription status
+- **Student Count**: Number of students in the batch (subscribed to channel)
+- **Mentor Count**: Number of assigned mentors (subscribed to channel)
 - **Last Sync**: Most recent synchronization timestamp
 - **Status**: Current batch status (Active/Inactive)
 - **Actions**: Batch-specific operations
@@ -286,7 +286,10 @@ Access comprehensive batch information:
 #### Batch Information
 - **Basic Details**: Name, description, creation date
 - **Sync Status**: Last synchronization and next scheduled sync
-- **Zulip Integration**: Associated Zulip group information
+- **Zulip Integration**: 
+  - Associated Zulip channel (private channel for batch communication)
+  - Realm-wide group memberships (students and mentors added to appropriate groups)
+  - Channel permissions (mentors can send, students read-only)
 
 #### Member Lists
 - **Students**: Complete list with status indicators
@@ -294,8 +297,8 @@ Access comprehensive batch information:
 - **Activity Summary**: Recent activity statistics for batch members
 
 #### Batch Actions
-- **Sync Batch**: Manually synchronize batch data
-- **Update Members**: Modify student/mentor assignments
+- **Sync Batch**: Manually synchronize batch data (creates/updates channel and group memberships)
+- **Update Members**: Modify student/mentor assignments (updates channel subscriptions and group memberships)
 - **Generate Reports**: Create batch activity reports
 
 ### Bulk Operations

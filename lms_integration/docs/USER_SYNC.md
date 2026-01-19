@@ -10,6 +10,43 @@ The LMS integration provides three methods to sync users:
 2. **Daily Morning Sync**: A management command that syncs all users from LMS to Zulip
 3. **Webhook Endpoint**: An API endpoint that LMS can call when a new user is created 
 
+## Batch and Channel Architecture
+
+When batch synchronization is enabled, the system creates a structured communication environment:
+
+### Realm-Wide Groups (Created Once)
+
+The system creates **6 realm-wide user groups** that contain all users across all batches:
+
+1. **Students** - All students from all batches
+2. **Chief Mentors** - All chief mentors from all batches  
+3. **Class Heads** - All class heads from all batches
+4. **Head Mentors** - All head mentors from all batches
+5. **Mentors** - All regular mentors from all batches
+6. **All Mentors** - Parent group containing all mentor hierarchy subgroups
+
+These groups are created once when batch sync first runs, and users are added/removed as batches are synced.
+
+### Batch-Specific Channels (Created Per Batch)
+
+Each batch gets its own **private channel** where:
+- **Channel Name**: Matches the batch name (truncated to 60 characters if needed)
+- **Privacy**: Private channel (`invite_only=True`)
+- **Permissions**: 
+  - Mentors can send messages (via `can_send_message_group` set to "All Mentors")
+  - Students can only read messages (cannot send)
+- **Subscriptions**: All students and mentors in the batch are automatically subscribed
+
+### How It Works
+
+1. **First Sync**: Creates the 6 realm-wide groups
+2. **Per Batch**: 
+   - Creates a private channel for the batch
+   - Adds students to the realm-wide "Students" group
+   - Adds mentors to their appropriate realm-wide hierarchy group
+   - Subscribes all batch members to the batch channel
+3. **Subsequent Syncs**: Updates memberships and subscriptions as batches change 
+
 ## Admin Interface Sync
 
 The admin interface provides an intuitive web-based method for managing user synchronization with real-time progress monitoring and detailed control options.
@@ -46,10 +83,19 @@ The admin interface supports three sync types:
 ### Sync Options
 
 #### Batch Synchronization
-- **Enable**: Check "Include Batches" to synchronize batch group information
-- **Function**: Creates Zulip user groups corresponding to LMS batch groups
-- **Membership**: Automatically adds students and mentors to appropriate groups
-- **Naming**: Groups named using batch naming convention
+- **Enable**: Check "Include Batches" to synchronize batch channels and realm-wide user groups
+- **Realm-Wide Groups**: Creates 6 realm-wide user groups (once for entire realm):
+  - **Students**: All students from all batches
+  - **Chief Mentors**: All chief mentors from all batches
+  - **Class Heads**: All class heads from all batches
+  - **Head Mentors**: All head mentors from all batches
+  - **Mentors**: All regular mentors from all batches
+  - **All Mentors**: Parent group containing all mentor hierarchy subgroups
+- **Batch Channels**: Creates a private channel for each batch where:
+  - Only mentors can send messages (students are read-only)
+  - All batch students and mentors are automatically subscribed
+  - Channel permissions are configured automatically
+- **Membership**: Automatically adds students and mentors to appropriate realm-wide groups based on their hierarchy level
 
 #### Update Preferences
 - **Update Existing**: Refresh information for already synchronized users
@@ -416,13 +462,58 @@ print(response.json())
 - **Duplicate Emails**: If a user with the same email already exists, the user is updated instead of created
 - **Mentors in Students Table**: Students who exist in the Mentors table are skipped during student sync to prevent duplicate user creation. These users are only synced from the Mentors table, ensuring mentors are created with the correct role and avoiding duplicate accounts.
 
-### Batch and Group Sync (with `--sync-batches`)
+### Batch and Channel Sync (with `--sync-batches`)
 
-- **Batch Groups**: Creates Zulip user groups for each LMS batch
-- **Student Membership**: Adds active students to their batch groups
-- **Mentor Membership**: Adds mentors to batch groups based on which students they mentor
-- **Inactive Users**: Removes inactive users from batch groups automatically
-- **Group Updates**: Updates existing batch groups if they already exist
+The batch synchronization feature creates a comprehensive communication structure:
+
+#### Realm-Wide User Groups
+
+**Created Once for Entire Realm:**
+- **Students Group**: Contains all students from all batches
+- **Mentor Hierarchy Groups**: 
+  - **Chief Mentors**: All chief mentors across all batches
+  - **Class Heads**: All class heads across all batches
+  - **Head Mentors**: All head mentors across all batches
+  - **Mentors**: All regular mentors across all batches
+- **All Mentors Group**: Parent group containing all mentor hierarchy subgroups
+
+**Group Membership:**
+- Students are automatically added to the realm-wide "Students" group
+- Mentors are automatically added to their appropriate hierarchy group based on their `hierarchy` field in the LMS database
+- Inactive users are automatically removed from groups
+
+#### Batch-Specific Channels
+
+**Created Per Batch:**
+- Each batch gets its own **private channel** (named after the batch)
+- Channel permissions:
+  - **Mentors**: Can send messages (configured via `can_send_message_group` set to "All Mentors")
+  - **Students**: Can only read messages (cannot send)
+- Automatic subscriptions:
+  - All students in the batch are subscribed to their batch channel
+  - All mentors of students in the batch are subscribed to their batch channel
+
+#### Mentor Hierarchy
+
+Mentors are organized into hierarchy groups based on their `hierarchy` field in the LMS `Mentors` table:
+- **Chief Mentors**: Highest level mentors
+- **Class Heads**: Class-level mentors
+- **Head Mentors**: Head mentors
+- **Mentors**: Regular mentors (default if hierarchy not specified)
+
+The system normalizes hierarchy values from the LMS database to match these standard levels.
+
+#### Sync Statistics
+
+When batch sync completes, you'll see:
+- `channels_created`: Number of new batch channels created
+- `channels_updated`: Number of existing channels updated
+- `mentor_groups_created`: Number of new realm-wide mentor groups created (typically 0 after first sync)
+- `student_groups_created`: Number of new realm-wide student groups created (typically 0 after first sync)
+- `students_added`: Students added to realm-wide groups
+- `students_subscribed`: Students subscribed to batch channels
+- `mentors_added`: Mentors added to realm-wide hierarchy groups
+- `mentors_subscribed`: Mentors subscribed to batch channels
 
 ## Troubleshooting
 
