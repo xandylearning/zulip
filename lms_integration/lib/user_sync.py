@@ -1896,10 +1896,10 @@ class UserSync:
                     # Update stats
                     if batch_result.get('channel_created'):
                         stats['channels_created'] += 1
-                            stats['batches_created'] += 1
-                        else:
+                        stats['batches_created'] += 1
+                    else:
                         stats['channels_updated'] += 1
-                            stats['batches_updated'] += 1
+                        stats['batches_updated'] += 1
                     
                     stats['students_added'] += batch_result.get('students_added', 0)
                     stats['students_subscribed'] += batch_result.get('students_subscribed', 0)
@@ -1993,20 +1993,20 @@ class UserSync:
                 
                 try:
                     hierarchy_group = NamedUserGroup.objects.get(
-                    name=group_name,
-                    realm=self.realm,
-                    is_system_group=False
-                )
+                        name=group_name,
+                        realm=self.realm,
+                        is_system_group=False
+                    )
                     logger.debug(f"Found existing realm-wide hierarchy group: {group_name}")
-            except NamedUserGroup.DoesNotExist:
+                except NamedUserGroup.DoesNotExist:
                     description = f"All {hierarchy_display_name.lower()} from all batches"
                     hierarchy_group = create_user_group_in_database(
-                    name=group_name,
+                        name=group_name,
                         members=[],
-                    realm=self.realm,
-                    description=description,
-                    acting_user=acting_user,
-                )
+                        realm=self.realm,
+                        description=description,
+                        acting_user=acting_user,
+                    )
                     do_send_create_user_group_event(hierarchy_group, [])
                     result['mentor_groups_created'] += 1
                     logger.info(f"Created realm-wide mentor hierarchy group: {group_name}")
@@ -2451,11 +2451,11 @@ class UserSync:
                 if zulip_users and hierarchy_key in hierarchy_groups:
                     hierarchy_group = hierarchy_groups[hierarchy_key]
                     user_ids = [u.id for u in zulip_users]
-                bulk_add_members_to_user_groups(
+                    bulk_add_members_to_user_groups(
                         [hierarchy_group],
                         user_ids,
-                    acting_user=acting_user
-                )
+                        acting_user=acting_user
+                    )
                     total_added += len(zulip_users)
                     logger.info(f"Added {len(zulip_users)} mentors to hierarchy group {hierarchy_group.name}")
             
