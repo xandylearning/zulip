@@ -1873,9 +1873,9 @@ class UserSync:
             
             # Get system bot for acting_user (needed for group and channel operations)
             acting_user = self._get_acting_user_for_batch_sync()
-                if not acting_user:
-                    logger.warning("No acting user available for batch sync")
-                    return stats
+            if not acting_user:
+                logger.warning("No acting user available for batch sync")
+                return stats
             
             # Step 1: Create realm-wide groups (once for entire realm)
             realm_groups_result = self._create_realm_wide_groups(acting_user)
