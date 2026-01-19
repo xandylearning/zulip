@@ -861,7 +861,7 @@ def uses_notification_bouncer() -> bool:
 
 
 def sends_notifications_directly() -> bool:
-    return has_apns_credentials() and has_fcm_credentials() and not uses_notification_bouncer()
+    return (has_apns_credentials() or has_fcm_credentials()) and not uses_notification_bouncer()
 
 
 def send_notifications_to_bouncer(
@@ -1119,6 +1119,10 @@ def push_notifications_configured() -> bool:
         # Since much of the notifications logic is platform-specific, the mobile
         # developers often work on just one platform at a time, so we should
         # only require one to be configured.
+        return True
+    # Allow FCM-only or APNS-only in production when NOT using bouncer.
+    # This supports custom mobile apps that target only one platform.
+    if not uses_notification_bouncer() and (has_apns_credentials() or has_fcm_credentials()):  # nocoverage
         return True
     elif has_apns_credentials() and has_fcm_credentials():  # nocoverage
         # We have the needed configuration to send through APNs and FCM directly
