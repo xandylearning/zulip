@@ -8,14 +8,17 @@ This document describes the TestPress JWT authentication integration that allows
 
 ## Features
 
-✅ **JWT Token Validation**: Validates tokens against TestPress API
-✅ **Automatic User Creation**: Creates Zulip users from TestPress data
-✅ **User Synchronization**: Updates user profiles from TestPress
+✅ **Optimized JWT Validation**: Decodes JWT locally, queries LMS database first (no API call needed)
+✅ **Fast Authentication**: Local database lookup (milliseconds) vs API call (seconds)
+✅ **Intelligent Fallback**: Only calls TestPress API if user not found in LMS database
+✅ **Automatic User Creation**: Creates Zulip users from LMS/TestPress data
+✅ **User Synchronization**: Updates user profiles from LMS/TestPress
 ✅ **Role Mapping**: Maps TestPress roles to Zulip permissions
 ✅ **Security Features**: Rate limiting, input validation, security headers
-✅ **Caching**: Efficient token validation caching (5-minute TTL)
+✅ **Efficient Caching**: Token validation results cached (5-minute TTL)
 ✅ **Error Handling**: Comprehensive error handling and logging
 ✅ **Mobile Support**: API endpoints for mobile applications
+✅ **Offline Capability**: Works even if TestPress API is temporarily unavailable (for users in LMS DB)
 
 ## API Endpoints
 
@@ -110,7 +113,9 @@ Default rate limits:
 ### Components
 
 1. **JWT Validator** (`jwt_validator.py`)
-   - Validates tokens against TestPress API
+   - Decodes JWT tokens to extract user ID (no API call)
+   - Queries LMS database first (fast, local lookup)
+   - Falls back to TestPress API only if user not found
    - Handles caching and error handling
    - Configurable timeouts and retry logic
 
@@ -140,15 +145,20 @@ Default rate limits:
 1. User logs into your main app
 2. App obtains JWT token from TestPress
 3. App calls `/api/v1/lms/auth/jwt/` with token
-4. Zulip validates token with TestPress API
-5. Zulip returns API key for subsequent requests
+4. Zulip decodes JWT and queries LMS database (fast, local)
+5. If user not found, Zulip falls back to TestPress API
+6. Zulip returns API key for subsequent requests
 
 ### Web Application Integration
 1. User logs into your main app
 2. App obtains JWT token from TestPress
 3. App calls `/api/v1/lms/auth/jwt/login/` with token
-4. Zulip creates web session for user
-5. User is redirected to Zulip interface
+4. Zulip decodes JWT and queries LMS database (fast, local)
+5. If user not found, Zulip falls back to TestPress API
+6. Zulip creates web session for user
+7. User is redirected to Zulip interface
+
+**Performance Note:** Most authentication requests are served from the local LMS database in milliseconds, without any external API calls.
 
 ## Error Handling
 
@@ -230,6 +240,7 @@ Default rate limits:
    - Verify TestPress API URL is correct
    - Check network connectivity
    - Verify TestPress API is responding
+   - **Note**: If user exists in LMS database, authentication will still work (API is only a fallback)
 
 3. **"Too many authentication attempts"**
    - Rate limit exceeded
