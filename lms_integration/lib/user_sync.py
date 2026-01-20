@@ -1288,6 +1288,24 @@ class UserSync:
             realm_groups_result = self._create_realm_wide_groups(acting_user)
             all_mentors_group = realm_groups_result.get('all_mentors_group')
             hierarchy_groups = realm_groups_result.get('hierarchy_groups', {})
+            mentors_channel = realm_groups_result.get('mentors_channel')
+            
+            # Subscribe to global Mentors channel if it exists
+            if mentors_channel and mentors_channel.recipient_id:
+                is_subscribed = Subscription.objects.filter(
+                    recipient_id=mentors_channel.recipient_id,
+                    user_profile=user_profile,
+                    active=True
+                ).exists()
+                
+                if not is_subscribed:
+                    bulk_add_subscriptions(
+                        self.realm,
+                        [mentors_channel],
+                        [user_profile],
+                        acting_user=acting_user,
+                    )
+                    logger.info(f"Subscribed mentor {user_profile.email} to global Mentors channel")
             
             # Find all batches this mentor is associated with
             # Mentors are linked to batches through: Mentortostudent -> Batchtostudent
@@ -1326,6 +1344,14 @@ class UserSync:
                     if channel:
                         if channel_created:
                             logger.info(f"Created channel '{channel.name}' for batch {batch.id} when syncing mentor {mentor.user_id}")
+                            
+                            # Subscribe other mentors for this batch since the channel was just created
+                            try:
+                                self._sync_batch_mentors_with_hierarchy(
+                                    batch, hierarchy_groups, channel, acting_user
+                                )
+                            except Exception as e:
+                                logger.error(f"Error subscribing mentors to new batch channel '{channel.name}': {e}")
                         
                         # Subscribe mentor to channel if not already subscribed
                         if channel.recipient_id:
@@ -1417,6 +1443,15 @@ class UserSync:
                     if channel:
                         if channel_created:
                             logger.info(f"Created channel '{channel.name}' for batch {batch.id} when syncing student {student.id}")
+                            
+                            # Subscribe mentors for this batch since the channel was just created
+                            # This ensures mentors are added to new channels even if they haven't synced yet
+                            try:
+                                self._sync_batch_mentors_with_hierarchy(
+                                    batch, hierarchy_groups, channel, acting_user
+                                )
+                            except Exception as e:
+                                logger.error(f"Error subscribing mentors to new batch channel '{channel.name}': {e}")
                         
                         # Subscribe student to channel if not already subscribed
                         if channel.recipient_id:
@@ -2307,7 +2342,28 @@ class UserSync:
                 logger.info(f"Added {len(new_subgroups)} subgroups to {all_mentors_group_name}")
             
             result['all_mentors_group'] = all_mentors_group
-            
+
+            # Create global "Mentors" channel
+            mentors_channel_name = "Mentors"
+            try:
+                # Use all_mentors_group for can_send_message_group
+                can_send_group = all_mentors_group.usergroup_ptr if all_mentors_group else None
+                
+                mentors_channel, created = create_stream_if_needed(
+                    self.realm,
+                    mentors_channel_name,
+                    invite_only=True,
+                    history_public_to_subscribers=True,
+                    stream_description="Communication channel for all mentors across all batches",
+                    can_send_message_group=can_send_group,
+                    acting_user=acting_user,
+                )
+                if created:
+                    logger.info(f"Created global Mentors channel: {mentors_channel_name}")
+                result['mentors_channel'] = mentors_channel
+            except Exception as e:
+                logger.error(f"Error creating global Mentors channel: {e}")
+                
         except Exception as e:
             logger.error(f"Error creating realm-wide groups: {e}", exc_info=True)
         
@@ -2835,9 +2891,30 @@ class UserSync:
             if self._existing_users_cache is None:
                 self._prefetch_existing_users()
             
-            # Organize mentors by hierarchy level
+            # organized mentors by hierarchy level
             mentors_by_hierarchy: Dict[str, List[UserProfile]] = {key: [] for key in MENTOR_HIERARCHY_LEVELS}
             mentors_to_subscribe = []
+            mentors_to_subscribe_global = []
+            
+            # Get global Mentors channel if it exists
+            mentors_channel = None
+            try:
+                mentors_channel = Stream.objects.get(
+                    name="Mentors",
+                    realm=self.realm
+                )
+            except Stream.DoesNotExist:
+                pass
+            
+            # Get current global subscribers if channel exists
+            global_subscribers = set()
+            if mentors_channel and mentors_channel.recipient_id:
+                global_subscribers = set(
+                    Subscription.objects.filter(
+                        recipient_id=mentors_channel.recipient_id,
+                        active=True
+                    ).values_list('user_profile_id', flat=True)
+                )
             
             # Batch process email lookups
             mentor_emails = []
@@ -2888,9 +2965,13 @@ class UserSync:
                     if zulip_user.id not in current_members:
                         mentors_by_hierarchy[hierarchy_level].append(zulip_user)
                     
-                    # Subscribe to channel if not already subscribed
+                    # Subscribe to batch channel if not already subscribed
                     if zulip_user.id not in current_subscribers:
                         mentors_to_subscribe.append(zulip_user)
+                        
+                    # Subscribe to global Mentors channel if not already subscribed
+                    if mentors_channel and zulip_user.id not in global_subscribers:
+                        mentors_to_subscribe_global.append(zulip_user)
             
             # Add mentors to their hierarchy groups
             total_added = 0
@@ -2918,6 +2999,16 @@ class UserSync:
                 )
                 stats['subscribed'] = len(mentors_to_subscribe)
                 logger.info(f"Subscribed {stats['subscribed']} mentors to channel {channel.name}")
+                
+            # Subscribe mentors to global channel
+            if mentors_to_subscribe_global and mentors_channel:
+                bulk_add_subscriptions(
+                    self.realm,
+                    [mentors_channel],
+                    mentors_to_subscribe_global,
+                    acting_user=acting_user,
+                )
+                logger.info(f"Subscribed {len(mentors_to_subscribe_global)} mentors to global Mentors channel")
             
         except Exception as e:
             logger.error(f"Error syncing mentors for batch {batch.id}: {e}", exc_info=True)
