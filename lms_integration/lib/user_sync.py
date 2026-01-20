@@ -2384,10 +2384,15 @@ class UserSync:
                     if can_send_group and mentors_channel.can_send_message_group != can_send_group:
                         mentors_channel.can_send_message_group = can_send_group
                         updates.append("can_send_message_group")
+                    
+                    # Also update creator if it's currently a system bot
+                    if mentors_channel.creator and mentors_channel.creator.is_bot:
+                        mentors_channel.creator = acting_user
+                        updates.append("creator")
                         
                     if updates:
                         mentors_channel.save(update_fields=updates)
-                        logger.info(f"Updated global Mentors channel permissions: {', '.join(updates)}")
+                        logger.info(f"Updated global Mentors channel permissions and ownership: {', '.join(updates)}")
 
                 if created:
                     logger.info(f"Created global Mentors channel: {mentors_channel_name}")
@@ -2711,10 +2716,15 @@ class UserSync:
                 if can_send_group and channel.can_send_message_group != can_send_group:
                     channel.can_send_message_group = can_send_group
                     updates.append("can_send_message_group")
+                
+                # Also update creator if it's currently a system bot
+                if channel.creator and channel.creator.is_bot:
+                    channel.creator = acting_user
+                    updates.append("creator")
                     
                 if updates:
                     channel.save(update_fields=updates)
-                    logger.info(f"Updated channel '{channel.name}' permissions: {', '.join(updates)}")
+                    logger.info(f"Updated channel '{channel.name}' permissions and ownership: {', '.join(updates)}")
 
             if created:
                 logger.info(f"Created private channel '{channel_name}' for batch {batch.id}")
