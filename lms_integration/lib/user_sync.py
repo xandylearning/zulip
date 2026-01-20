@@ -959,6 +959,9 @@ class UserSync:
                     existing_user.save(update_fields=update_fields)
                     logger.info(f"Updated existing user {existing_user.delivery_email} from student {student.id}")
 
+                # Ensure student is subscribed to batch channels
+                self._ensure_student_batch_channels(existing_user, student)
+
                 return False, existing_user, f"User {existing_user.delivery_email} already exists"
         except Exception as e:
             logger.error(f"Error checking existing user for student {student.id}: {e}")
@@ -1009,6 +1012,8 @@ class UserSync:
                         logger.info(f"Found existing user {existing_user.delivery_email} for student {student.id} (race condition handled)")
                         # Ensure recipient exists
                         self._ensure_user_recipient(existing_user)
+                        # Ensure student is subscribed to batch channels
+                        self._ensure_student_batch_channels(existing_user, student)
                         return False, existing_user, f"User {existing_user.delivery_email} already exists (created by another process)"
                     else:
                         logger.error(f"do_create_user returned None and no existing user found for student {student.id} with email {email}")
@@ -1034,6 +1039,10 @@ class UserSync:
                     success_message += f" (placeholder email for username '{student.username}')"
 
                 logger.info(success_message)
+                
+                # Ensure student is subscribed to batch channels
+                self._ensure_student_batch_channels(user_profile, student)
+                
                 return True, user_profile, f"Created user {user_email}"
                 
         except ValidationError as e:
@@ -1046,6 +1055,8 @@ class UserSync:
                 ).first()
                 if existing_user:
                     logger.info(f"Found existing user {existing_user.delivery_email} for student {student.id} after validation error (race condition)")
+                    # Ensure student is subscribed to batch channels
+                    self._ensure_student_batch_channels(existing_user, student)
                     return False, existing_user, f"User {existing_user.delivery_email} already exists"
             except Exception:
                 pass
@@ -1060,6 +1071,8 @@ class UserSync:
                 ).first()
                 if existing_user:
                     logger.info(f"Found existing user {existing_user.delivery_email} for student {student.id} after error (race condition)")
+                    # Ensure student is subscribed to batch channels
+                    self._ensure_student_batch_channels(existing_user, student)
                     return False, existing_user, f"User {existing_user.delivery_email} already exists"
             except Exception:
                 pass
@@ -1359,6 +1372,79 @@ class UserSync:
         except Exception as e:
             logger.error(f"Error ensuring channels and groups for mentor {mentor.user_id}: {e}", exc_info=True)
     
+    def _ensure_student_batch_channels(self, user_profile: UserProfile, student: Students) -> None:
+        """
+        Ensure channels are created for batches this student belongs to,
+        and subscribe the student to those channels.
+        
+        Args:
+            user_profile: The Zulip UserProfile for the student
+            student: The LMS Students instance
+        """
+        try:
+            # Get acting user for channel operations
+            acting_user = self._get_acting_user_for_batch_sync()
+            if not acting_user:
+                logger.warning("No acting user available for student channel sync")
+                return
+            
+            # Get or create realm-wide groups (needed for channel permissions)
+            realm_groups_result = self._create_realm_wide_groups(acting_user)
+            all_mentors_group = realm_groups_result.get('all_mentors_group')
+            
+            # Find all batches this student belongs to
+            batch_ids = list(
+                Batchtostudent.objects.using('lms_db')
+                .filter(b_id=student.id)
+                .values_list('a_id', flat=True)
+            )
+            
+            if not batch_ids:
+                logger.debug(f"Student {student.id} is not in any batches")
+                return
+            
+            # Get batch objects
+            batches = Batches.objects.using('lms_db').filter(id__in=batch_ids)
+            
+            # Process each batch
+            for batch in batches:
+                try:
+                    # Create or get the batch channel
+                    channel, channel_created = self._create_batch_channel(
+                        batch, all_mentors_group, acting_user
+                    )
+                    
+                    if channel:
+                        if channel_created:
+                            logger.info(f"Created channel '{channel.name}' for batch {batch.id} when syncing student {student.id}")
+                        
+                        # Subscribe student to channel if not already subscribed
+                        if channel.recipient_id:
+                            is_subscribed = Subscription.objects.filter(
+                                recipient_id=channel.recipient_id,
+                                user_profile=user_profile,
+                                active=True
+                            ).exists()
+                            
+                            if not is_subscribed:
+                                bulk_add_subscriptions(
+                                    self.realm,
+                                    [channel],
+                                    [user_profile],
+                                    acting_user=acting_user,
+                                )
+                                logger.info(f"Subscribed student {user_profile.email} to channel '{channel.name}'")
+                            else:
+                                logger.debug(f"Student {user_profile.email} already subscribed to channel '{channel.name}'")
+                    else:
+                        logger.warning(f"Failed to create/get channel for batch {batch.id}")
+                
+                except Exception as e:
+                    logger.error(f"Error processing channel for batch {batch.id} when syncing student {student.id}: {e}", exc_info=True)
+        
+        except Exception as e:
+            logger.error(f"Error ensuring channels for student {student.id}: {e}", exc_info=True)
+    
     def sync_all_students(self) -> Dict[str, int]:
         """
         Sync all students from LMS to Zulip using optimized batch processing.
@@ -1398,6 +1484,9 @@ class UserSync:
             batch_existing_users = []  # Collect existing users for bulk recipient check
             batch_errors = []
             error_details = []  # Store detailed error information
+            # Track student objects for batch channel subscription
+            batch_students_to_create = []  # Track student objects for created users
+            batch_students_to_update = []  # Track student objects for updated users
 
             for student in students:
                 try:
@@ -1466,12 +1555,18 @@ class UserSync:
                         if updates:
                             if self.use_bulk_operations:
                                 batch_users_to_update.append((existing_user, updates))
+                                batch_students_to_update.append((existing_user, student))  # Track student object
                             else:
                                 # Single-user update mode
                                 for field, value in updates.items():
                                     setattr(existing_user, field, value)
                                 existing_user.save(update_fields=list(updates.keys()))
                                 stats['updated'] += 1
+                                # Subscribe to batch channels in single-user mode
+                                try:
+                                    self._ensure_student_batch_channels(existing_user, student)
+                                except Exception as e:
+                                    logger.warning(f"Error subscribing student {student.id} to batch channels: {e}")
                         else:
                             # User exists and is already up-to-date - this is expected for most users
                             stats['skipped'] += 1
@@ -1500,6 +1595,7 @@ class UserSync:
                             'role': user_role,  # Store the role to use during creation
                         }
                         batch_users_to_create.append(user_data)
+                        batch_students_to_create.append(student)  # Track student object
 
                     # Process batch when it reaches batch_size
                     if len(batch_users_to_create) + len(batch_users_to_update) >= self.batch_size:
@@ -1519,24 +1615,49 @@ class UserSync:
                                         batch_users_to_create, is_mentor=False
                                     )
                                     stats['created'] += len(created_users)
+                                    
+                                    # Subscribe created students to batch channels
+                                    # Match created users with their student objects by email
+                                    created_users_dict = {user.delivery_email.lower(): user for user in created_users}
+                                    for student_obj in batch_students_to_create:
+                                        try:
+                                            email, _ = validate_and_prepare_email(
+                                                student_obj.email,
+                                                student_obj.username,
+                                                self.realm
+                                            )
+                                            user_profile = created_users_dict.get(email.lower())
+                                            if user_profile:
+                                                self._ensure_student_batch_channels(user_profile, student_obj)
+                                        except Exception as e:
+                                            logger.warning(f"Error subscribing student {student_obj.id} to batch channels: {e}")
                                 except Exception as e:
                                     stats['errors'] += 1
                                     error_msg = f"Bulk create error (batch of {len(batch_users_to_create)} students): {str(e)}"
                                     error_details.append(error_msg)
                                     logger.error(error_msg, exc_info=True)
                                 batch_users_to_create = []
+                                batch_students_to_create = []
                             
                             # Bulk update
                             if batch_users_to_update:
                                 try:
                                     updated_count = self._bulk_update_users(batch_users_to_update)
                                     stats['updated'] += updated_count
+                                    
+                                    # Subscribe updated students to batch channels
+                                    for user_profile, student_obj in batch_students_to_update:
+                                        try:
+                                            self._ensure_student_batch_channels(user_profile, student_obj)
+                                        except Exception as e:
+                                            logger.warning(f"Error subscribing student {student_obj.id} to batch channels: {e}")
                                 except Exception as e:
                                     stats['errors'] += 1
                                     error_msg = f"Bulk update error (batch of {len(batch_users_to_update)} students): {str(e)}"
                                     error_details.append(error_msg)
                                     logger.error(error_msg, exc_info=True)
                                 batch_users_to_update = []
+                                batch_students_to_update = []
                         else:
                             # Fallback to single-user mode
                             for user_data in batch_users_to_create:
@@ -1613,6 +1734,21 @@ class UserSync:
                             batch_users_to_create, is_mentor=False
                         )
                         stats['created'] += len(created_users)
+                        
+                        # Subscribe created students to batch channels
+                        created_users_dict = {user.delivery_email.lower(): user for user in created_users}
+                        for student_obj in batch_students_to_create:
+                            try:
+                                email, _ = validate_and_prepare_email(
+                                    student_obj.email,
+                                    student_obj.username,
+                                    self.realm
+                                )
+                                user_profile = created_users_dict.get(email.lower())
+                                if user_profile:
+                                    self._ensure_student_batch_channels(user_profile, student_obj)
+                            except Exception as e:
+                                logger.warning(f"Error subscribing student {student_obj.id} to batch channels: {e}")
                     except Exception as e:
                         stats['errors'] += 1
                         error_msg = f"Bulk create error (final batch of {len(batch_users_to_create)} students): {str(e)}"
@@ -1623,6 +1759,13 @@ class UserSync:
                     try:
                         updated_count = self._bulk_update_users(batch_users_to_update)
                         stats['updated'] += updated_count
+                        
+                        # Subscribe updated students to batch channels
+                        for user_profile, student_obj in batch_students_to_update:
+                            try:
+                                self._ensure_student_batch_channels(user_profile, student_obj)
+                            except Exception as e:
+                                logger.warning(f"Error subscribing student {student_obj.id} to batch channels: {e}")
                     except Exception as e:
                         stats['errors'] += 1
                         error_msg = f"Bulk update error (final batch of {len(batch_users_to_update)} students): {str(e)}"
@@ -2225,6 +2368,199 @@ class UserSync:
         
         return result
     
+    def sync_batch(self, batch_id: Optional[int] = None, batch: Optional[Batches] = None) -> Dict[str, any]:
+        """
+        Sync a whole batch: sync all students and mentors, create channel, and subscribe users.
+        
+        This method:
+        1. Syncs all students in the batch (creates/updates them)
+        2. Syncs all mentors associated with the batch (creates/updates them)
+        3. Creates or gets the batch channel
+        4. Subscribes all synced students and mentors to the batch channel
+        
+        Args:
+            batch_id: Optional batch ID from LMS database
+            batch: Optional Batches instance (if provided, batch_id is ignored)
+            
+        Returns:
+            Dictionary with sync statistics:
+            - 'batch_id': The batch ID that was synced
+            - 'students_created': Number of students created
+            - 'students_updated': Number of students updated
+            - 'students_subscribed': Number of students subscribed to channel
+            - 'mentors_created': Number of mentors created
+            - 'mentors_updated': Number of mentors updated
+            - 'mentors_subscribed': Number of mentors subscribed to channel
+            - 'channel_created': Whether channel was created (True) or already existed (False)
+            - 'errors': List of error messages
+        """
+        result = {
+            'batch_id': None,
+            'students_created': 0,
+            'students_updated': 0,
+            'students_subscribed': 0,
+            'mentors_created': 0,
+            'mentors_updated': 0,
+            'mentors_subscribed': 0,
+            'channel_created': False,
+            'errors': [],
+        }
+        
+        try:
+            # Get batch object
+            if batch is None:
+                if batch_id is None:
+                    result['errors'].append("Either batch_id or batch must be provided")
+                    return result
+                try:
+                    batch = Batches.objects.using('lms_db').get(id=batch_id)
+                except Batches.DoesNotExist:
+                    result['errors'].append(f"Batch with ID {batch_id} not found")
+                    return result
+            
+            result['batch_id'] = batch.id
+            logger.info(f"Starting sync for batch {batch.id} ({batch.name})")
+            
+            # Get acting user for channel/group operations
+            acting_user = self._get_acting_user_for_batch_sync()
+            if not acting_user:
+                result['errors'].append("No acting user available for batch sync")
+                return result
+            
+            # Get or create realm-wide groups
+            realm_groups_result = self._create_realm_wide_groups(acting_user)
+            all_mentors_group = realm_groups_result.get('all_mentors_group')
+            students_group = realm_groups_result.get('students_group')
+            hierarchy_groups = realm_groups_result.get('hierarchy_groups', {})
+            
+            # Get student IDs for this batch (needed to find associated mentors)
+            student_ids = list(Batchtostudent.objects.using('lms_db').filter(
+                a_id=batch.id
+            ).values_list('b_id', flat=True))
+            
+            # Track mentor emails to skip students with the same email
+            mentor_emails = set()
+            
+            # Step 1: Sync all mentors associated with this batch FIRST
+            # This ensures mentors are created with correct role before students
+            # (since mentors can also be in the student table)
+            if student_ids:
+                mentor_ids = set(Mentortostudent.objects.using('lms_db').filter(
+                    b_id__in=student_ids
+                ).values_list('a_id', flat=True))
+                
+                if mentor_ids:
+                    mentors = Mentors.objects.using('lms_db').filter(user_id__in=mentor_ids)
+                    logger.info(f"Syncing {mentors.count()} mentors for batch {batch.id} (syncing mentors first)")
+                    
+                    for mentor in mentors:
+                        try:
+                            # Track mentor email (normalized)
+                            try:
+                                mentor_email, _ = validate_and_prepare_email(
+                                    mentor.email,
+                                    mentor.username,
+                                    self.realm
+                                )
+                                mentor_emails.add(mentor_email.lower())
+                            except ValidationError:
+                                pass  # Skip email tracking if invalid, but still try to sync mentor
+                            
+                            created, user_profile, message = self.sync_mentor(mentor)
+                            if user_profile:
+                                if created:
+                                    result['mentors_created'] += 1
+                                else:
+                                    result['mentors_updated'] += 1
+                            else:
+                                result['errors'].append(f"Mentor {mentor.user_id}: {message}")
+                        except Exception as e:
+                            error_msg = f"Error syncing mentor {mentor.user_id}: {e}"
+                            result['errors'].append(error_msg)
+                            logger.error(error_msg, exc_info=True)
+                else:
+                    logger.info(f"No mentors found for batch {batch.id}")
+            else:
+                logger.info(f"No students found in batch {batch.id}, skipping mentor sync")
+            
+            # Step 2: Sync all students in this batch AFTER mentors
+            # Skip any students whose email matches a mentor email (already synced as mentor)
+            if student_ids:
+                students = Students.objects.using('lms_db').filter(id__in=student_ids)
+                logger.info(f"Syncing {students.count()} students for batch {batch.id} (syncing students after mentors)")
+                
+                for student in students:
+                    try:
+                        # Check if student email matches any mentor email
+                        try:
+                            student_email, _ = validate_and_prepare_email(
+                                student.email,
+                                student.username,
+                                self.realm
+                            )
+                            if student_email.lower() in mentor_emails:
+                                logger.debug(
+                                    f"Skipping student {student.id} ({student_email}) - "
+                                    f"email matches a mentor email, already synced as mentor"
+                                )
+                                continue  # Skip this student, already synced as mentor
+                        except ValidationError:
+                            pass  # Continue with sync even if email validation fails
+                        
+                        created, user_profile, message = self.sync_student(student)
+                        if user_profile:
+                            if created:
+                                result['students_created'] += 1
+                            else:
+                                result['students_updated'] += 1
+                        else:
+                            # Check if the error is because user exists as mentor
+                            if "exists as mentor" in message.lower():
+                                logger.debug(f"Skipping student {student.id} - {message}")
+                            else:
+                                result['errors'].append(f"Student {student.id}: {message}")
+                    except Exception as e:
+                        error_msg = f"Error syncing student {student.id}: {e}"
+                        result['errors'].append(error_msg)
+                        logger.error(error_msg, exc_info=True)
+            else:
+                logger.info(f"No students found in batch {batch.id}")
+            
+            # Step 3: Create or get batch channel and subscribe users
+            channel, channel_created = self._create_batch_channel(batch, all_mentors_group, acting_user)
+            result['channel_created'] = channel_created
+            
+            if channel:
+                # Subscribe students and mentors to channel
+                student_sync_result = self._sync_batch_students_with_channel(
+                    batch, students_group, channel, acting_user
+                )
+                result['students_subscribed'] = student_sync_result.get('subscribed', 0)
+                
+                mentor_sync_result = self._sync_batch_mentors_with_hierarchy(
+                    batch, hierarchy_groups, channel, acting_user
+                )
+                result['mentors_subscribed'] = mentor_sync_result.get('subscribed', 0)
+                
+                logger.info(
+                    f"Batch {batch.id} sync completed: "
+                    f"{result['students_created']} students created, "
+                    f"{result['students_updated']} students updated, "
+                    f"{result['students_subscribed']} students subscribed, "
+                    f"{result['mentors_created']} mentors created, "
+                    f"{result['mentors_updated']} mentors updated, "
+                    f"{result['mentors_subscribed']} mentors subscribed"
+                )
+            else:
+                result['errors'].append(f"Failed to create/get channel for batch {batch.id}")
+                logger.error(f"Failed to create/get channel for batch {batch.id}")
+        
+        except Exception as e:
+            error_msg = f"Error syncing batch {batch.id if batch else batch_id}: {e}"
+            result['errors'].append(error_msg)
+            logger.error(error_msg, exc_info=True)
+        
+        return result
     
     def _create_batch_channel(
         self, batch: Batches, all_mentors_group: Optional[NamedUserGroup], acting_user: UserProfile

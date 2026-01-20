@@ -2076,40 +2076,66 @@ def lms_sync_single_batch(
     batch_id: Json[int],
 ) -> JsonResponse:
     """Sync a single LMS batch to Zulip.
-
-    For now, this is implemented as a lightweight stub that validates the
-    batch exists and returns zeroed stats, so the admin UI workflow works
-    end-to-end without 404s. The actual per-batch sync logic can be added
-    later by wiring this into a dedicated UserSync helper.
+    
+    Syncs all students and mentors in the batch, creates/gets the batch channel,
+    and subscribes all users to the channel.
     """
     try:
         realm = user_profile.realm
 
         try:
             # Validate that the batch exists in the LMS database.
-            Batches.objects.using("lms_db").get(id=batch_id)
+            batch = Batches.objects.using("lms_db").get(id=batch_id)
         except Batches.DoesNotExist:
             return json_error(f"Batch {batch_id} not found in LMS database")
 
-        # Placeholder stats for now; keep the shape expected by the frontend.
+        # Initialize UserSync and sync the batch
+        user_sync = UserSync(realm=realm)
+        sync_result = user_sync.sync_batch(batch_id=batch_id)
+
+        # Map the sync result to the format expected by the frontend
         stats = {
-            "users_synced": 0,
-            "groups_updated": 0,
+            "users_synced": (
+                sync_result.get('students_created', 0) +
+                sync_result.get('students_updated', 0) +
+                sync_result.get('mentors_created', 0) +
+                sync_result.get('mentors_updated', 0)
+            ),
+            "groups_updated": (
+                sync_result.get('students_subscribed', 0) +
+                sync_result.get('mentors_subscribed', 0)
+            ),
+            "students_created": sync_result.get('students_created', 0),
+            "students_updated": sync_result.get('students_updated', 0),
+            "students_subscribed": sync_result.get('students_subscribed', 0),
+            "mentors_created": sync_result.get('mentors_created', 0),
+            "mentors_updated": sync_result.get('mentors_updated', 0),
+            "mentors_subscribed": sync_result.get('mentors_subscribed', 0),
+            "channel_created": sync_result.get('channel_created', False),
         }
 
+        # Log the sync action
         log_admin_action(
             realm,
             "INFO",
             "user_sync",
-            f"Single batch sync requested for batch {batch_id} (stub implementation)",
+            f"Single batch sync completed for batch {batch_id}",
             user_profile,
-            details={"batch_id": batch_id, "stats": stats},
+            details={"batch_id": batch_id, "stats": stats, "errors": sync_result.get('errors', [])},
         )
+
+        # If there were errors, include them in the response
+        if sync_result.get('errors'):
+            logger.warning(
+                f"Batch {batch_id} sync completed with {len(sync_result['errors'])} errors: "
+                f"{sync_result['errors']}"
+            )
 
         return json_success(
             request,
             data={
                 "stats": stats,
+                "errors": sync_result.get('errors', []),
             },
         )
 
