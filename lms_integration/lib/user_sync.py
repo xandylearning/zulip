@@ -1153,6 +1153,9 @@ class UserSync:
                     existing_user.save(update_fields=['full_name', 'role'])
                     logger.info(f"Updated existing user {existing_user.delivery_email} from mentor {mentor.user_id}")
 
+                # Ensure channels are created for batches this mentor is associated with
+                self._ensure_mentor_channels_and_groups(existing_user, mentor)
+
                 return False, existing_user, f"User {existing_user.delivery_email} already exists"
         except Exception as e:
             logger.error(f"Error checking existing user for mentor {mentor.user_id}: {e}")
@@ -1217,6 +1220,10 @@ class UserSync:
                     success_message += f" (placeholder email for username '{mentor.username}')"
 
                 logger.info(success_message)
+                
+                # Ensure channels are created for batches this mentor is associated with
+                self._ensure_mentor_channels_and_groups(user_profile, mentor)
+                
                 return True, user_profile, f"Created user {user_email}"
                 
         except ValidationError as e:
@@ -1247,6 +1254,110 @@ class UserSync:
             except Exception:
                 pass
             return False, None, f"Error creating user: {e}"
+    
+    def _ensure_mentor_channels_and_groups(self, user_profile: UserProfile, mentor: Mentors) -> None:
+        """
+        Ensure channels are created for batches this mentor is associated with,
+        and subscribe the mentor to those channels. Also add mentor to hierarchy groups.
+        
+        Args:
+            user_profile: The Zulip UserProfile for the mentor
+            mentor: The LMS Mentors instance
+        """
+        try:
+            # Get acting user for channel/group operations
+            acting_user = self._get_acting_user_for_batch_sync()
+            if not acting_user:
+                logger.warning("No acting user available for mentor channel sync")
+                return
+            
+            # Get or create realm-wide groups
+            realm_groups_result = self._create_realm_wide_groups(acting_user)
+            all_mentors_group = realm_groups_result.get('all_mentors_group')
+            hierarchy_groups = realm_groups_result.get('hierarchy_groups', {})
+            
+            # Find all batches this mentor is associated with
+            # Mentors are linked to batches through: Mentortostudent -> Batchtostudent
+            mentor_student_ids = list(
+                Mentortostudent.objects.using('lms_db')
+                .filter(a_id=mentor.user_id)
+                .values_list('b_id', flat=True)
+            )
+            
+            if not mentor_student_ids:
+                logger.debug(f"Mentor {mentor.user_id} is not associated with any students/batches")
+                return
+            
+            # Get batch IDs for these students
+            batch_ids = set(
+                Batchtostudent.objects.using('lms_db')
+                .filter(b_id__in=mentor_student_ids)
+                .values_list('a_id', flat=True)
+            )
+            
+            if not batch_ids:
+                logger.debug(f"Mentor {mentor.user_id} students are not in any batches")
+                return
+            
+            # Get batch objects
+            batches = Batches.objects.using('lms_db').filter(id__in=batch_ids)
+            
+            # Process each batch
+            for batch in batches:
+                try:
+                    # Create or get the batch channel
+                    channel, channel_created = self._create_batch_channel(
+                        batch, all_mentors_group, acting_user
+                    )
+                    
+                    if channel:
+                        if channel_created:
+                            logger.info(f"Created channel '{channel.name}' for batch {batch.id} when syncing mentor {mentor.user_id}")
+                        
+                        # Subscribe mentor to channel if not already subscribed
+                        if channel.recipient_id:
+                            is_subscribed = Subscription.objects.filter(
+                                recipient_id=channel.recipient_id,
+                                user_profile=user_profile,
+                                active=True
+                            ).exists()
+                            
+                            if not is_subscribed:
+                                bulk_add_subscriptions(
+                                    self.realm,
+                                    [channel],
+                                    [user_profile],
+                                    acting_user=acting_user,
+                                )
+                                logger.info(f"Subscribed mentor {user_profile.email} to channel '{channel.name}'")
+                            else:
+                                logger.debug(f"Mentor {user_profile.email} already subscribed to channel '{channel.name}'")
+                    else:
+                        logger.warning(f"Failed to create/get channel for batch {batch.id}")
+                
+                except Exception as e:
+                    logger.error(f"Error processing channel for batch {batch.id} when syncing mentor {mentor.user_id}: {e}", exc_info=True)
+            
+            # Add mentor to appropriate hierarchy group
+            hierarchy_level = self._normalize_hierarchy_level(mentor.hierarchy)
+            if hierarchy_level in hierarchy_groups:
+                hierarchy_group = hierarchy_groups[hierarchy_level]
+                
+                # Check if already a member
+                is_member = hierarchy_group.direct_members.filter(id=user_profile.id).exists()
+                
+                if not is_member:
+                    bulk_add_members_to_user_groups(
+                        [hierarchy_group],
+                        [user_profile.id],
+                        acting_user=acting_user
+                    )
+                    logger.info(f"Added mentor {user_profile.email} to hierarchy group {hierarchy_group.name}")
+                else:
+                    logger.debug(f"Mentor {user_profile.email} already in hierarchy group {hierarchy_group.name}")
+        
+        except Exception as e:
+            logger.error(f"Error ensuring channels and groups for mentor {mentor.user_id}: {e}", exc_info=True)
     
     def sync_all_students(self) -> Dict[str, int]:
         """
