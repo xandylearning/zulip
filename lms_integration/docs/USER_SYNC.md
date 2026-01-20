@@ -45,7 +45,17 @@ Each batch gets its own **private channel** where:
    - Adds students to the realm-wide "Students" group
    - Adds mentors to their appropriate realm-wide hierarchy group
    - Subscribes all batch members to the batch channel
-3. **Subsequent Syncs**: Updates memberships and subscriptions as batches change 
+3. **Subsequent Syncs**: Updates memberships and subscriptions as batches change
+
+### Individual User Sync with Batch Channels
+
+When syncing individual students or mentors (not through batch sync), the system automatically:
+- Finds all batches the user belongs to
+- Creates batch channels if they don't exist
+- Subscribes the user to their batch channels
+- Ensures proper channel permissions are set
+
+This means that even when syncing users individually, they will automatically be subscribed to their batch channels, ensuring they have access to batch communication channels. 
 
 ## Admin Interface Sync
 
@@ -154,6 +164,71 @@ The admin interface maintains a complete audit trail:
 - **Resync User**: Manually resynchronize specific user data
 - **View Details**: Access detailed user information and sync history
 - **Update Status**: Modify user sync status or preferences
+
+### Individual Batch Sync
+
+The admin interface provides the ability to sync individual batches, which is useful for:
+- Syncing a newly created batch
+- Updating a specific batch after changes
+- Troubleshooting batch-specific issues
+- Selective batch synchronization
+
+#### Syncing a Single Batch
+
+1. **Navigate to Batch Groups**: Go to the "Batch Groups" tab in the admin interface
+2. **Find Your Batch**: Locate the batch you want to sync in the batch groups table
+3. **Click Sync**: Click the "Sync" button next to the batch
+4. **Confirm**: Confirm the sync operation in the dialog
+5. **Monitor Progress**: Watch the button state change to "Syncing..." during the operation
+
+#### What Happens During Individual Batch Sync
+
+When you sync a single batch, the system:
+
+1. **Syncs Mentors First**: 
+   - Finds all mentors associated with the batch (through their students)
+   - Syncs each mentor (creates or updates their Zulip account)
+   - Tracks mentor emails to prevent duplicate student creation
+   - Adds mentors to appropriate realm-wide hierarchy groups
+
+2. **Syncs Students**:
+   - Finds all students in the batch
+   - **Skips students whose email matches a mentor email** (already synced as mentor)
+   - Syncs remaining students (creates or updates their Zulip accounts)
+   - Adds students to the realm-wide "Students" group
+
+3. **Creates/Updates Batch Channel**:
+   - Creates the batch channel if it doesn't exist
+   - Configures channel permissions (only mentors can send messages)
+   - Uses existing channel if already present
+
+4. **Subscribes Users**:
+   - Subscribes all synced students to the batch channel
+   - Subscribes all synced mentors to the batch channel
+   - Skips users who are already subscribed
+
+#### Batch Sync Results
+
+After syncing a batch, you'll see:
+- **students_created**: Number of new student accounts created
+- **students_updated**: Number of existing student accounts updated
+- **students_subscribed**: Number of students subscribed to the batch channel
+- **mentors_created**: Number of new mentor accounts created
+- **mentors_updated**: Number of existing mentor accounts updated
+- **mentors_subscribed**: Number of mentors subscribed to the batch channel
+- **channel_created**: Whether a new channel was created (true) or existing channel was used (false)
+- **users_synced**: Total number of users synced (created + updated)
+- **groups_updated**: Total number of channel subscriptions made
+
+#### Individual User Sync with Batch Channels
+
+When syncing individual students or mentors (not through batch sync), the system automatically:
+- Finds all batches the user belongs to
+- Creates batch channels if they don't exist
+- Subscribes the user to their batch channels
+- Ensures proper channel permissions are set
+
+This means that even when syncing users individually, they will automatically be subscribed to their batch channels.
 
 ### Troubleshooting Sync Issues
 
@@ -444,6 +519,7 @@ print(response.json())
 - **Active Status**: Synced from LMS `is_active` field
 - **Full Name**: Uses `display_name` if available, otherwise `first_name last_name`
 - **Mentor Exclusion**: Students who exist in the Mentors table are automatically skipped during student sync and will only be synced from the Mentors table
+- **Automatic Batch Channel Subscription**: When a student is synced, they are automatically subscribed to all batch channels they belong to
 
 ### Mentors
 
@@ -451,6 +527,7 @@ print(response.json())
 - **Active Status**: Always active
 - **Full Name**: Uses `display_name` if available, otherwise `first_name last_name`
 - **Priority Sync**: Mentors are always synced from the Mentors table, even if they also appear in the Students table. This ensures mentors receive the correct role and prevents duplicate user creation.
+- **Automatic Batch Channel Subscription**: When a mentor is synced, they are automatically subscribed to all batch channels for batches containing their students
 
 ## Sync Behavior
 
@@ -464,7 +541,14 @@ print(response.json())
 
 ### Batch and Channel Sync (with `--sync-batches`)
 
-The batch synchronization feature creates a comprehensive communication structure:
+The batch synchronization feature creates a comprehensive communication structure. There are two ways to sync batches:
+
+1. **Sync All Batches**: Syncs all batches at once (via admin UI "Sync All Batches" button or `--sync-batches` flag)
+2. **Sync Individual Batch**: Syncs a single batch including all its students and mentors (via admin UI "Sync" button on each batch)
+
+#### Sync All Batches
+
+When syncing all batches (via `sync_batches_and_groups()` method):
 
 #### Realm-Wide User Groups
 
@@ -503,6 +587,21 @@ Mentors are organized into hierarchy groups based on their `hierarchy` field in 
 
 The system normalizes hierarchy values from the LMS database to match these standard levels.
 
+#### Sync Individual Batch
+
+When syncing a single batch (via `sync_batch()` method):
+
+1. **Mentors are synced first** to ensure correct role assignment
+2. **Students are synced second**, with automatic skipping of any students whose email matches a mentor email
+3. **Batch channel is created or retrieved**
+4. **All users are subscribed** to the batch channel
+
+This ensures that:
+- Mentors always get the correct role (ROLE_MENTOR)
+- No duplicate users are created
+- Users who are both mentors and students are handled correctly
+- Batch channels are automatically set up
+
 #### Sync Statistics
 
 When batch sync completes, you'll see:
@@ -514,6 +613,13 @@ When batch sync completes, you'll see:
 - `students_subscribed`: Students subscribed to batch channels
 - `mentors_added`: Mentors added to realm-wide hierarchy groups
 - `mentors_subscribed`: Mentors subscribed to batch channels
+
+For individual batch sync, you'll also see:
+- `students_created`: Number of new student accounts created
+- `students_updated`: Number of existing student accounts updated
+- `mentors_created`: Number of new mentor accounts created
+- `mentors_updated`: Number of existing mentor accounts updated
+- `channel_created`: Whether a new channel was created (true/false)
 
 ## Troubleshooting
 

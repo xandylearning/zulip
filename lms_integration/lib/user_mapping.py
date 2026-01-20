@@ -148,7 +148,7 @@ class UserMapper:
             
             if mentor_id:
                 from lms_integration.models import Mentors
-                mentor = Mentors.objects.using('lms_db').filter(user_id=mentor_id).first()
+                mentor = Mentors.objects.using('lms_db').filter(id=mentor_id).first()
                 if mentor:
                     result = (mentor.user_id, mentor.username)
                     

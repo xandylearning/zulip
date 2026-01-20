@@ -497,8 +497,8 @@ def lms_start_user_sync(
                         logger.info(f"Sync {sync_id} was cancelled before starting")
                         return
 
-                # Instantiate UserSync with progress tracking
-                user_sync = UserSync(realm=realm, progress_tracker=sync_id)
+                # Instantiate UserSync with progress tracking and acting user
+                user_sync = UserSync(realm=realm, progress_tracker=sync_id, acting_user=user_profile)
 
                 # Determine which sync method to call based on parameters
                 # Check for cancellation before each major step
@@ -2090,7 +2090,7 @@ def lms_sync_single_batch(
             return json_error(f"Batch {batch_id} not found in LMS database")
 
         # Initialize UserSync and sync the batch
-        user_sync = UserSync(realm=realm)
+        user_sync = UserSync(realm=realm, acting_user=user_profile)
         sync_result = user_sync.sync_batch(batch_id=batch_id)
 
         # Map the sync result to the format expected by the frontend

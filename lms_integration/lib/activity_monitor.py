@@ -214,7 +214,7 @@ class ActivityMonitor:
             ).values_list('a_id', flat=True).first()  # a is the mentor
             
             if mentor_id:
-                mentor = Mentors.objects.using('lms_db').filter(user_id=mentor_id).first()
+                mentor = Mentors.objects.using('lms_db').filter(id=mentor_id).first()
                 if mentor:
                     return {
                         'mentor_id': mentor.user_id,

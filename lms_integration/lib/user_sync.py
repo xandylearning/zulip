@@ -79,18 +79,21 @@ class UserSync:
     Syncs users from LMS database to Zulip database.
     """
 
-    def __init__(self, realm: Optional[Realm] = None, progress_tracker: Optional[str] = None):
+    def __init__(self, realm: Optional[Realm] = None, progress_tracker: Optional[str] = None, 
+                 acting_user: Optional[UserProfile] = None):
         """
         Initialize UserSync.
 
         Args:
             realm: Zulip realm to sync users to. If None, uses default realm.
             progress_tracker: Optional sync_id for tracking progress
+            acting_user: Optional user who triggered the sync (will be used for channel operations)
         """
         self.realm = realm or self._get_default_realm()
         if not self.realm:
             raise ValueError("No realm available for user sync")
         self.progress_tracker = progress_tracker
+        self.acting_user = acting_user
         self.batch_size = DEFAULT_BATCH_SIZE
         self.progress_interval = DEFAULT_PROGRESS_INTERVAL
         self.use_bulk_operations = USE_BULK_OPERATIONS
@@ -1311,12 +1314,12 @@ class UserSync:
             # Mentors are linked to batches through: Mentortostudent -> Batchtostudent
             mentor_student_ids = list(
                 Mentortostudent.objects.using('lms_db')
-                .filter(a_id=mentor.user_id)
+                .filter(a_id=mentor.id)
                 .values_list('b_id', flat=True)
             )
             
             if not mentor_student_ids:
-                logger.debug(f"Mentor {mentor.user_id} is not associated with any students/batches")
+                logger.debug(f"Mentor {mentor.id} (user_id: {mentor.user_id}) is not associated with any students/batches")
                 return
             
             # Get batch IDs for these students
@@ -2210,6 +2213,10 @@ class UserSync:
     
     def _get_acting_user_for_batch_sync(self) -> Optional[UserProfile]:
         """Get an acting user for batch sync operations."""
+        # Use provided acting user if available
+        if self.acting_user:
+            return self.acting_user
+
         from zerver.models.users import get_system_bot
         try:
             notification_bot_email = getattr(settings, 'NOTIFICATION_BOT', None)
@@ -2349,6 +2356,13 @@ class UserSync:
                 # Use all_mentors_group for can_send_message_group
                 can_send_group = all_mentors_group.usergroup_ptr if all_mentors_group else None
                 
+                # Get administrators group for channel administration
+                admin_group = NamedUserGroup.objects.get(
+                    name=SystemGroups.ADMINISTRATORS,
+                    realm=self.realm,
+                    is_system_group=True
+                ).usergroup_ptr
+
                 mentors_channel, created = create_stream_if_needed(
                     self.realm,
                     mentors_channel_name,
@@ -2356,8 +2370,25 @@ class UserSync:
                     history_public_to_subscribers=True,
                     stream_description="Communication channel for all mentors across all batches",
                     can_send_message_group=can_send_group,
+                    can_administer_channel_group=admin_group,
                     acting_user=acting_user,
                 )
+
+                # Update existing channel permissions if acting_user is admin/owner
+                if not created and mentors_channel and acting_user and (acting_user.is_realm_admin or acting_user.is_realm_owner):
+                    updates = []
+                    if mentors_channel.can_administer_channel_group != admin_group:
+                        mentors_channel.can_administer_channel_group = admin_group
+                        updates.append("can_administer_channel_group")
+                    
+                    if can_send_group and mentors_channel.can_send_message_group != can_send_group:
+                        mentors_channel.can_send_message_group = can_send_group
+                        updates.append("can_send_message_group")
+                        
+                    if updates:
+                        mentors_channel.save(update_fields=updates)
+                        logger.info(f"Updated global Mentors channel permissions: {', '.join(updates)}")
+
                 if created:
                     logger.info(f"Created global Mentors channel: {mentors_channel_name}")
                 result['mentors_channel'] = mentors_channel
@@ -2506,7 +2537,7 @@ class UserSync:
                 ).values_list('a_id', flat=True))
                 
                 if mentor_ids:
-                    mentors = Mentors.objects.using('lms_db').filter(user_id__in=mentor_ids)
+                    mentors = Mentors.objects.using('lms_db').filter(id__in=mentor_ids)
                     logger.info(f"Syncing {mentors.count()} mentors for batch {batch.id} (syncing mentors first)")
                     
                     for mentor in mentors:
@@ -2652,6 +2683,13 @@ class UserSync:
                 # The NamedUserGroup extends UserGroup, we need the usergroup_ptr
                 can_send_group = all_mentors_group.usergroup_ptr
             
+            # Get administrators group for channel administration
+            admin_group = NamedUserGroup.objects.get(
+                name=SystemGroups.ADMINISTRATORS,
+                realm=self.realm,
+                is_system_group=True
+            ).usergroup_ptr
+
             channel, created = create_stream_if_needed(
                 self.realm,
                 channel_name,
@@ -2659,9 +2697,25 @@ class UserSync:
                 history_public_to_subscribers=True,  # Subscribers can see history
                 stream_description=description,
                 can_send_message_group=can_send_group,  # Only mentors can send
+                can_administer_channel_group=admin_group,  # Allow owners/admins to change it
                 acting_user=acting_user,
             )
             
+            # Update existing channel permissions if acting_user is admin/owner
+            if not created and channel and acting_user and (acting_user.is_realm_admin or acting_user.is_realm_owner):
+                updates = []
+                if channel.can_administer_channel_group != admin_group:
+                    channel.can_administer_channel_group = admin_group
+                    updates.append("can_administer_channel_group")
+                
+                if can_send_group and channel.can_send_message_group != can_send_group:
+                    channel.can_send_message_group = can_send_group
+                    updates.append("can_send_message_group")
+                    
+                if updates:
+                    channel.save(update_fields=updates)
+                    logger.info(f"Updated channel '{channel.name}' permissions: {', '.join(updates)}")
+
             if created:
                 logger.info(f"Created private channel '{channel_name}' for batch {batch.id}")
             else:
@@ -2867,7 +2921,7 @@ class UserSync:
             
             # Get mentor objects from LMS with hierarchy field
             mentors = Mentors.objects.using('lms_db').filter(
-                user_id__in=mentor_ids
+                id__in=mentor_ids
             ).only('user_id', 'email', 'username', 'first_name', 'last_name', 'display_name', 'hierarchy')
             
             # Get current channel subscribers
