@@ -52,7 +52,7 @@ npm-debug.log
 /staticfiles.json
 /webpack-stats-production.json
 zulip-git-version
-
+/lms_integration/cred.md
 # Test / analysis tools
 .coverage
 
