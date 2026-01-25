@@ -9,6 +9,7 @@ import * as blueslip from "./blueslip.ts";
 import * as bot_data from "./bot_data.ts";
 import * as browser_history from "./browser_history.ts";
 import {buddy_list} from "./buddy_list.ts";
+import * as call_events from "./call_events.ts";
 import * as channel_folders from "./channel_folders.ts";
 import * as compose_call from "./compose_call.ts";
 import * as compose_call_ui from "./compose_call_ui.ts";
@@ -116,6 +117,67 @@ export function dispatch_normal_event(event) {
 
         case "attachment":
             attachments_ui.update_attachments(event);
+            break;
+
+        case "call":
+            switch (event.op) {
+                case "initiated":
+                    call_events.handle_call_initiated(event);
+                    break;
+                case "incoming_call":
+                    call_events.handle_incoming_call(event);
+                    break;
+                case "ringing":
+                    call_events.handle_call_ringing(event);
+                    break;
+                case "accepted":
+                    call_events.handle_call_accepted(event);
+                    break;
+                case "declined":
+                    call_events.handle_call_declined(event);
+                    break;
+                case "ended":
+                    call_events.handle_call_ended(event);
+                    break;
+                case "cancelled":
+                    call_events.handle_call_cancelled(event);
+                    break;
+                case "missed":
+                    call_events.handle_call_missed(event);
+                    break;
+                default:
+                    blueslip.error("Unexpected event type call/" + event.op);
+                    break;
+            }
+            break;
+
+        case "group_call":
+            switch (event.op) {
+                case "created":
+                    call_events.handle_group_call_created(event);
+                    break;
+                case "participant_invited":
+                    call_events.handle_group_call_participant_invited(event);
+                    break;
+                case "participant_joined":
+                    call_events.handle_group_call_participant_joined(event);
+                    break;
+                case "participant_left":
+                    call_events.handle_group_call_participant_left(event);
+                    break;
+                case "participant_declined":
+                    call_events.handle_group_call_participant_declined(event);
+                    break;
+                case "participant_missed":
+                    call_events.handle_group_call_participant_missed(event);
+                    break;
+                case "ended":
+                    call_events.handle_group_call_ended(event);
+                    break;
+                default:
+                    blueslip.error("Unexpected event type group_call/" + event.op);
+                    break;
+            }
             break;
 
         case "channel_folder":

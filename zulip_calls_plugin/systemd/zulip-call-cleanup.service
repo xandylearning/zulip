@@ -1,0 +1,16 @@
+[Unit]
+Description=Zulip Call Cleanup Service
+After=zulip-workers.target
+
+[Service]
+Type=oneshot
+User=zulip
+Group=zulip
+WorkingDirectory=/home/zulip/deployments/current
+ExecStart=/home/zulip/deployments/current/manage.py cleanup_calls
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zulip-call-cleanup
+
+[Install]
+WantedBy=multi-user.target

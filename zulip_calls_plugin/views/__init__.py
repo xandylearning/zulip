@@ -10,11 +10,18 @@ from .calls import (
     create_embedded_call,
     acknowledge_call,
     heartbeat,
-    get_call_queue,
-    cancel_queued_call,
     leave_call,
     cleanup_stale_calls,
     cleanup_expired_queue_entries,
+    # Group call functions
+    create_group_call,
+    invite_to_group_call,
+    join_group_call,
+    leave_group_call,
+    decline_group_call,
+    end_group_call,
+    get_group_call_status,
+    get_group_call_participants,
 )
 
 __all__ = [
@@ -27,9 +34,16 @@ __all__ = [
     "create_embedded_call",
     "acknowledge_call",
     "heartbeat",
-    "get_call_queue",
-    "cancel_queued_call",
     "leave_call",
     "cleanup_stale_calls",
     "cleanup_expired_queue_entries",
+    # Group call functions
+    "create_group_call",
+    "invite_to_group_call",
+    "join_group_call",
+    "leave_group_call",
+    "decline_group_call",
+    "end_group_call",
+    "get_group_call_status",
+    "get_group_call_participants",
 ]

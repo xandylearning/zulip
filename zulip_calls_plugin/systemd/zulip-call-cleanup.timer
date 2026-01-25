@@ -1,0 +1,14 @@
+[Unit]
+Description=Run Zulip Call Cleanup every 30 seconds
+After=zulip-workers.target
+
+[Timer]
+# Run 30 seconds after boot
+OnBootSec=30s
+# Run every 30 seconds
+OnUnitActiveSec=30s
+# Ensure timer doesn't drift
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

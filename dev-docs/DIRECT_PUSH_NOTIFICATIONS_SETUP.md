@@ -363,3 +363,86 @@ for token in tokens:
 - [ ] Custom mobile app receives notifications using tokens from this Firebase project.
 - [ ] **TODO:** Add APNs credentials for iOS support (currently FCM-only).
 
+---
+
+## Part 8: Fix Applied on 2026-01-19
+
+### Problem
+
+Push notifications were being sent through the Zulip bouncer service even though FCM credentials were configured. The bouncer was successfully delivering notifications to FCM, but they were not appearing on the device.
+
+### Root Cause
+
+The setting `ZULIP_SERVICE_PUSH_NOTIFICATIONS = True` was causing notifications to route through the bouncer instead of directly to FCM.
+
+### Solution
+
+Changed the setting to bypass the bouncer and send directly to FCM:
+
+**Before (in `/etc/zulip/settings.py`):**
+```python
+ZULIP_SERVICE_PUSH_NOTIFICATIONS = True
+```
+
+**After:**
+```python
+ZULIP_SERVICE_PUSH_NOTIFICATIONS = False
+```
+
+### Verification Steps
+
+1. **Check configuration:**
+```bash
+sudo -u zulip /home/zulip/deployments/current/manage.py shell -c "
+from django.conf import settings
+from zerver.lib.push_notifications import uses_notification_bouncer, sends_notifications_directly, has_fcm_credentials
+
+print('ZULIP_SERVICE_PUSH_NOTIFICATIONS:', settings.ZULIP_SERVICE_PUSH_NOTIFICATIONS)
+print('uses_notification_bouncer():', uses_notification_bouncer())
+print('sends_notifications_directly():', sends_notifications_directly())
+print('has_fcm_credentials():', has_fcm_credentials())
+"
+```
+
+**Expected output after fix:**
+```
+ZULIP_SERVICE_PUSH_NOTIFICATIONS: False
+uses_notification_bouncer(): False
+sends_notifications_directly(): True
+has_fcm_credentials(): True
+```
+
+2. **Restart server:**
+```bash
+sudo su zulip -c '/home/zulip/deployments/current/scripts/restart-server'
+```
+
+3. **Monitor logs for direct FCM delivery:**
+```bash
+sudo tail -f /var/log/zulip/events_missedmessage_mobile_notifications.log
+```
+
+**Before fix (using bouncer):**
+```
+Using notification bouncer for user 43 push notifications
+Sending legacy push notifications to bouncer for user 43
+Bouncer request: Sending POST to /push/notify for user 43
+```
+
+**After fix (direct FCM):**
+```
+Sending mobile push notifications for local user 43: 1 via FCM devices
+FCM: Sending notification for local user <id:43> to 1 devices
+FCM: Sent message with ID: projects/mentor-dashboard-48693/messages/0:...
+FCM: Delivery completed for user <id:43>: 1/1 devices successfully sent
+```
+
+### Key Insight
+
+The bouncer was reporting "Success" but notifications weren't appearing on devices. By bypassing the bouncer and sending directly to FCM:
+- Server sends directly to Firebase using the configured credentials
+- FCM returns a message ID confirming delivery
+- Notifications appear immediately on the device
+
+This fix is recommended for custom Flutter apps using their own Firebase project.
+

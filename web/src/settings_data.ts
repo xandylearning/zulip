@@ -73,6 +73,15 @@ export function user_has_permission_for_group_setting(
         return false;
     }
 
+    // When the setting is the "Everyone" system group, all users (including mentors)
+    // have permission. This matches the backend and avoids relying on group membership.
+    if (settings_config.allow_everyone_group && typeof setting_value === "number") {
+        const group = user_groups.maybe_get_user_group_from_id(setting_value);
+        if (group?.name === "role:everyone") {
+            return true;
+        }
+    }
+
     return user_groups.is_user_in_setting_group(setting_value, user.user_id);
 }
 

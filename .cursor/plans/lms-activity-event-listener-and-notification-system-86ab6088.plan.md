@@ -1,4 +1,39 @@
-<!-- 86ab6088-7c56-4c45-9a50-884b359e0253 3eb1c132-1ca7-47aa-9d71-eca0979b20e5 -->
+---
+name: LMS Activity Event Listener and Notification System
+overview: ""
+todos:
+  - id: 8c897ae8-9d14-4b2b-918d-eb74d91296d7
+    content: Create LMSActivityEvent and LMSEventLog models in lms_integration/models.py
+    status: pending
+  - id: 8633d5e7-c70f-4386-92fd-c24e52c676dc
+    content: Generate and configure database migration for new event models
+    status: pending
+  - id: daf20447-d2d0-4b10-a1e0-e4e39236984b
+    content: Update db_router.py to properly route new managed models
+    status: pending
+  - id: 1ce71036-5a6b-482f-9daf-9af28140acfe
+    content: Implement ActivityMonitor class to poll LMS database for new activities
+    status: pending
+  - id: 20ddb54a-8ae7-4d1c-9e43-f9899842ca1e
+    content: Create MessageFormatter class for notification message templates
+    status: pending
+  - id: 46b3e373-7ebe-4d69-8b50-60b05b441923
+    content: Implement UserMapper utility to link LMS users to Zulip UserProfiles
+    status: pending
+  - id: 42e5b260-6135-42e6-98fe-657b5657fa41
+    content: Build LMSActivityEventHandler using Zulip's event listener framework
+    status: pending
+  - id: d324944a-9f9b-4091-83a6-fec803b03a5e
+    content: Create monitor_lms_activities management command for polling service
+    status: pending
+  - id: f8eb4fc3-860e-473c-8c8a-b528ff345481
+    content: Add LMS monitoring configuration to settings
+    status: pending
+  - id: ab6f1c86-6b1c-491e-a4fc-4220aa78d308
+    content: Create unit and integration tests for the event system
+    status: pending
+---
+
 # LMS Activity Event Listener and Notification System
 
 ## Overview
@@ -156,16 +191,3 @@ Events stored in LMSActivityEvent table (in Zulip database) will support:
 - Pattern detection (declining performance, engagement drops)
 - Predictive nudging based on historical patterns
 - Query API for AI agent to fetch student activity history
-
-### To-dos
-
-- [ ] Create LMSActivityEvent and LMSEventLog models in lms_integration/models.py
-- [ ] Generate and configure database migration for new event models
-- [ ] Update db_router.py to properly route new managed models
-- [ ] Implement ActivityMonitor class to poll LMS database for new activities
-- [ ] Create MessageFormatter class for notification message templates
-- [ ] Implement UserMapper utility to link LMS users to Zulip UserProfiles
-- [ ] Build LMSActivityEventHandler using Zulip's event listener framework
-- [ ] Create monitor_lms_activities management command for polling service
-- [ ] Add LMS monitoring configuration to settings
-- [ ] Create unit and integration tests for the event system
