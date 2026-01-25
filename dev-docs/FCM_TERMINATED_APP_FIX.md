@@ -8,6 +8,8 @@ When the Flutter app is terminated (killed/swiped away), data-only FCM messages 
 
 The fix updates the FCM payload format to include both `data` and `notification` blocks, ensuring notifications show when the app is terminated while maintaining backward compatibility.
 
+**Data-only alternative:** If your app always shows its own rich notifications from the `data` payload, sending both blocks can cause duplicates. You can switch to data-only pushes with `FCM_DATA_ONLY_PUSH = True`. See [PUSH_NOTIFICATION_DATA_ONLY.md](PUSH_NOTIFICATION_DATA_ONLY.md) for when and how to use it.
+
 ## Changes Made
 
 ### 1. Updated FCM Message Creation (`zerver/lib/push_notifications.py`)

@@ -2,11 +2,13 @@ import uuid
 import logging
 import json
 from datetime import timedelta
-from typing import Dict, Any
+from collections.abc import Callable
+from typing import Any, Dict
 
 from django.http import JsonResponse, HttpResponse, HttpRequest
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
+from functools import wraps
 from django.utils import timezone
 from django.db import transaction
 from django.db import models
@@ -18,18 +20,34 @@ from django.conf import settings
 # Import Zulip components
 from zerver.decorator import (
     authenticated_rest_api_view,
+    get_basic_credentials,
+    validate_api_key,
+    full_webhook_client_name,
+    rate_limit_user,
+    validate_account_and_subdomain,
     zulip_login_required,
-    authenticated_json_view
+    authenticated_json_view,
 )
+from zerver.lib.exceptions import JsonableError, UnauthorizedError
+from zerver.lib.push_notifications import send_push_notifications
+from zerver.lib.request import RequestNotes
+from zerver.lib.response import json_success
 from zerver.models import UserProfile
 from zerver.models.users import get_user_by_delivery_email
-from zerver.lib.push_notifications import send_push_notifications
-from zerver.lib.exceptions import JsonableError
-from zerver.lib.response import json_success
-from zerver.tornado.django_api import send_event_on_commit
 
 # Import plugin models
 from ..models import Call, CallEvent, CallQueue
+
+# Import action functions for event dispatch
+from ..actions import (
+    do_initiate_call,
+    do_send_call_ringing_event,
+    do_send_call_accepted_event,
+    do_send_call_declined_event,
+    do_send_call_ended_event,
+    do_send_call_cancelled_event,
+    do_send_missed_call_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -440,44 +458,6 @@ def send_call_response_notification(user_profile: UserProfile, call: Call, respo
         logger.error(f"Failed to send call response notification: {str(e)}")
 
 
-def send_call_event(user_profile: UserProfile, call: Call, event_type: str, extra_data: dict = None) -> None:
-    """Send real-time WebSocket event about call status using Zulip's event system"""
-    try:
-        # Prepare event data for WebSocket
-        event_data = {
-            'type': 'call_event',
-            'event_type': event_type,
-            'call_id': str(call.call_id),
-            'call_type': call.call_type,
-            'sender_id': call.sender.id,
-            'sender_name': call.sender.full_name,
-            'receiver_id': call.receiver.id,
-            'receiver_name': call.receiver.full_name,
-            'jitsi_url': call.jitsi_room_url,
-            'state': call.state,
-            'created_at': call.created_at.isoformat(),
-            'timestamp': timezone.now().isoformat(),
-        }
-
-        # Add extra data if provided
-        if extra_data:
-            event_data.update(extra_data)
-
-        # Send WebSocket event to the user
-        send_event_on_commit(
-            realm=user_profile.realm,
-            event=event_data,
-            users=[user_profile.id]
-        )
-
-        logger.info(f"WebSocket call event {event_type} sent to user {user_profile.id} for call {call.call_id}")
-
-    except Exception as e:
-        logger.error(f"Failed to send call event: {str(e)}")
-        # Fallback to logging
-        logger.info(f"Call event {event_type} for call {call.call_id} to user {user_profile.id}")
-
-
 def cleanup_stale_calls() -> int:
     """Clean up stale calls with multiple timeout scenarios"""
     from datetime import timedelta
@@ -498,21 +478,22 @@ def cleanup_stale_calls() -> int:
         call.state = 'missed'
         call.ended_at = now
         call.save()
-        
+
         # Send missed call notification if not already sent
         if not call.is_missed_notified:
             send_missed_call_notification(call.receiver, call)
             call.is_missed_notified = True
             call.save(update_fields=['is_missed_notified'])
-        
+
         CallEvent.objects.create(
             call=call,
             event_type='missed',
             user=call.sender,
             metadata={'reason': 'unanswered_timeout', 'timeout_seconds': 90}
         )
-        send_call_event(call.sender, call, 'missed', {'reason': 'unanswered'})
-        send_call_event(call.receiver, call, 'missed', {'reason': 'unanswered'})
+
+        # Use action function to send missed call event
+        do_send_missed_call_event(call.sender.realm, call, timeout_seconds=90)
         count += 1
 
     # Scenario 2: Network failure - 60 seconds no heartbeat for ACCEPTED calls only
@@ -547,10 +528,11 @@ def cleanup_stale_calls() -> int:
                 call=call,
                 event_type='ended',
                 user=call.sender if sender_inactive else call.receiver,
-                metadata={'reason': 'network_failure', 'timeout_seconds': 30}
+                metadata={'reason': 'network_failure', 'timeout_seconds': 60}
             )
-            send_call_event(call.sender, call, 'ended', {'reason': 'network_failure'})
-            send_call_event(call.receiver, call, 'ended', {'reason': 'network_failure'})
+
+            # Use action function to send ended event with network_failure reason
+            do_send_call_ended_event(call.sender.realm, call, reason='network_failure')
             count += 1
 
     # Scenario 3: Fallback - extremely stale calls (10 minutes)
@@ -571,8 +553,9 @@ def cleanup_stale_calls() -> int:
             user=call.sender,
             metadata={'reason': 'stale_cleanup', 'timeout_minutes': 10}
         )
-        send_call_event(call.sender, call, 'timeout', {'reason': 'stale'})
-        send_call_event(call.receiver, call, 'timeout', {'reason': 'stale'})
+
+        # Use action function to send ended event with timeout reason
+        do_send_call_ended_event(call.sender.realm, call, reason='timeout_stale')
         count += 1
 
     if count > 0:
@@ -776,14 +759,12 @@ def cleanup_expired_queue_entries() -> int:
 
 
 
-@require_http_methods(["POST"])
-@authenticated_rest_api_view(webhook_client_name="Zulip")
-def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
-    """Create a new call with full database tracking"""
+def _create_call_impl(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """Shared implementation for creating a call. Caller is responsible for auth."""
     try:
         # Clean up stale calls before processing
         cleanup_stale_calls()
-        
+
         with transaction.atomic():
             # Get request parameters
             recipient_user_id = request.POST.get("user_id")
@@ -938,7 +919,7 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
             participant_url = f"{base_room_url}{participant_params}#config.prejoinPageEnabled=false"
 
             call.save()
-            
+
             # Initialize sender heartbeat
             call.last_heartbeat_sender = timezone.now()
             call.save(update_fields=['last_heartbeat_sender'])
@@ -953,6 +934,9 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                     "is_video_call": is_video_call
                 }
             )
+
+            # Use action function to send call events with offline detection
+            initiate_status = do_initiate_call(user_profile.realm, call)
 
             # Prepare push notification data
             push_data = {
@@ -987,6 +971,7 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
                 "participant_url": participant_url,  # Available if needed
                 "call_type": call.call_type,
                 "room_name": call.jitsi_room_name,
+                "receiver_online": initiate_status["receiver_online"],  # Add offline status
                 "recipient": {
                     "user_id": recipient.id,
                     "full_name": recipient.full_name,
@@ -1000,6 +985,13 @@ def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse
             "result": "error",
             "message": f"Failed to create call: {str(e)}"
         }, status=500)
+
+
+@require_http_methods(["POST"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def create_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """Create a new call with full database tracking (API Basic auth)."""
+    return _create_call_impl(request, user_profile)
 
 
 @require_http_methods(["POST"])
@@ -1054,22 +1046,18 @@ def respond_to_call(request: HttpRequest, user_profile: UserProfile, call_id: st
 
             call.save()
 
-            # Emit WebSocket events to both participants
-            try:
-                send_call_event(call.sender, call, event_type)
-            except Exception:
-                pass
-            try:
-                send_call_event(call.receiver, call, event_type)
-            except Exception:
-                pass
-
-            # Create event
+            # Create event record
             CallEvent.objects.create(
                 call=call,
                 event_type=event_type,
                 user=user_profile
             )
+
+            # Use action functions to send events to both participants
+            if response == "accept":
+                do_send_call_accepted_event(user_profile.realm, call)
+            else:
+                do_send_call_declined_event(user_profile.realm, call)
             
             # If call was declined, process queue for the receiver
             if response == "decline":
@@ -1135,16 +1123,9 @@ def end_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> J
                     metadata={"ended_by_moderator": True}
                 )
 
-                # Emit WebSocket events to both participants
-                try:
-                    send_call_event(call.sender, call, 'ended')
-                except Exception:
-                    pass
-                try:
-                    send_call_event(call.receiver, call, 'ended')
-                except Exception:
-                    pass
-                
+                # Use action function to send ended event to both participants
+                do_send_call_ended_event(user_profile.realm, call, reason="ended_by_moderator")
+
                 # Process queue for both participants
                 try:
                     process_call_queue(call.sender)
@@ -1164,16 +1145,21 @@ def end_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> J
                     event_type="participant_left",
                     user=user_profile
                 )
-                
-                # Notify other participant
+
+                # Notify other participant using direct event (not a standard action function)
+                # This is a special case where we send to only one user
                 other_user = call.sender if user_profile.id == call.receiver.id else call.receiver
-                try:
-                    send_call_event(other_user, call, 'participant_left', {
+                from ..actions import do_send_call_event
+                do_send_call_event(
+                    user_profile.realm,
+                    call,
+                    "participant_left",
+                    [other_user.id],
+                    extra_data={
                         'left_user_id': user_profile.id,
                         'left_user_name': user_profile.full_name
-                    })
-                except Exception:
-                    pass
+                    }
+                )
                 
                 # Process queue for the user who left
                 try:
@@ -1236,15 +1222,8 @@ def cancel_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -
                 user=user_profile
             )
 
-            # Notify both users via WS
-            try:
-                send_call_event(call.sender, call, 'cancelled')
-            except Exception:
-                pass
-            try:
-                send_call_event(call.receiver, call, 'cancelled')
-            except Exception:
-                pass
+            # Use action function to send cancelled event to both participants
+            do_send_call_cancelled_event(user_profile.realm, call)
 
             return JsonResponse({
                 "result": "success",
@@ -1447,8 +1426,55 @@ def get_call_history(request: HttpRequest, user_profile: UserProfile) -> JsonRes
 
 # Essential API Endpoints for Flutter Integration
 
+
+def session_or_basic_api_view(
+    webhook_client_name: str = "Zulip",
+) -> Callable:
+    """Allow session auth (web app) or HTTP Basic auth (API clients) for the same endpoint."""
+
+    def decorator(
+        view_func: Callable[..., JsonResponse],
+    ) -> Callable[..., HttpResponse]:
+        @csrf_exempt
+        @wraps(view_func)
+        def _wrapped(
+            request: HttpRequest, *args: object, **kwargs: object
+        ) -> HttpResponse:
+            # Prefer session when the user is already logged in (e.g. web app with cookies).
+            if request.user.is_authenticated:
+                user_profile = request.user
+                rate_limit_user(request, user_profile, domain="api_by_user")
+                validate_account_and_subdomain(request, user_profile)
+                return view_func(request, user_profile, *args, **kwargs)
+
+            # Otherwise require HTTP Basic auth for API clients.
+            if "Authorization" not in request.headers:
+                raise UnauthorizedError()
+
+            try:
+                role, api_key = get_basic_credentials(request)
+                user_profile = validate_api_key(
+                    request,
+                    role,
+                    api_key,
+                    allow_webhook_access=True,
+                    client_name=full_webhook_client_name(webhook_client_name),
+                )
+                request_notes = RequestNotes.get_notes(request)
+                request_notes.is_webhook_view = True
+            except JsonableError as e:
+                raise UnauthorizedError(e.msg)
+
+            rate_limit_user(request, user_profile, domain="api_by_user")
+            return view_func(request, user_profile, *args, **kwargs)
+
+        return _wrapped
+
+    return decorator
+
+
 @require_http_methods(["POST"])
-@authenticated_rest_api_view(webhook_client_name="Zulip")
+@session_or_basic_api_view(webhook_client_name="Zulip")
 def create_embedded_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
     """
     Create an embedded call for integration with Zulip's compose functionality.
@@ -1467,8 +1493,8 @@ def create_embedded_call(request: HttpRequest, user_profile: UserProfile) -> Jso
                 "message": "user_id is required"
             }, status=400)
 
-        # Use the existing create_call function
-        response = create_call(request, user_profile)
+        # Use shared implementation (avoids re-running Basic auth when already session-authenticated)
+        response = _create_call_impl(request, user_profile)
         
         if response.status_code == 200:
             data = json.loads(response.content)
@@ -1566,11 +1592,8 @@ def acknowledge_call(request: HttpRequest, user_profile: UserProfile) -> JsonRes
                 metadata={'status': status}
             )
 
-        # Send WebSocket event to sender (participant_ringing)
-        send_call_event(call.sender, call, 'participant_ringing', {
-            'receiver_name': user_profile.full_name,
-            'receiver_id': user_profile.id
-        })
+        # Use action function to send ringing event to sender
+        do_send_call_ringing_event(user_profile.realm, call)
 
         logger.info(f"Call {call_id} acknowledged by {user_profile.id}")
 
@@ -1720,3 +1743,643 @@ def leave_call(request: HttpRequest, user_profile: UserProfile, call_id: str) ->
     # If moderator: ends call for everyone
     # If participant: just leaves the call
     return end_call(request, user_profile, call_id)
+
+
+# ============================================================================
+# GROUP CALL ENDPOINTS
+# ============================================================================
+
+
+@require_http_methods(["POST"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def create_group_call(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
+    """
+    Create a new group call.
+
+    POST parameters:
+    - call_type: "video" or "audio" (required)
+    - title: Optional title for the call
+    - stream_id: Optional stream ID to associate call with
+    - topic: Optional topic name (requires stream_id)
+    - user_ids: Optional comma-separated list of user IDs to invite immediately
+    """
+    from ..models import GroupCall, GroupCallParticipant
+    from ..actions import do_create_group_call, do_invite_to_group_call
+
+    try:
+        with transaction.atomic():
+            # Extract and validate parameters
+            call_type = request.POST.get("call_type", "video").lower()
+            if call_type not in ["video", "audio"]:
+                return JsonResponse({
+                    "result": "error",
+                    "message": "call_type must be 'video' or 'audio'"
+                }, status=400)
+
+            title = request.POST.get("title", "").strip()
+            stream_id = request.POST.get("stream_id", "").strip()
+            topic = request.POST.get("topic", "").strip()
+
+            # Validate stream/topic combination
+            stream = None
+            if stream_id:
+                try:
+                    from zerver.models import Stream
+                    stream = Stream.objects.get(id=int(stream_id), realm=user_profile.realm)
+                except (Stream.DoesNotExist, ValueError):
+                    return JsonResponse({
+                        "result": "error",
+                        "message": f"Stream not found: {stream_id}"
+                    }, status=404)
+
+            # Generate Jitsi room details
+            room_id = f"zulip-group-call-{uuid.uuid4().hex[:16]}"
+            jitsi_server = getattr(settings, 'JITSI_SERVER_URL', 'https://dev.meet.xandylearning.in')
+            jitsi_url = f"{jitsi_server}/{room_id}"
+
+            # Create group call
+            group_call = GroupCall.objects.create(
+                call_type=call_type,
+                host=user_profile,
+                stream=stream,
+                topic=topic if stream else None,
+                jitsi_room_name=room_id,
+                jitsi_room_url=jitsi_url,
+                title=title if title else None,
+                realm=user_profile.realm,
+            )
+
+            # Create host as first participant (already joined)
+            GroupCallParticipant.objects.create(
+                call=group_call,
+                user=user_profile,
+                state="joined",
+                is_host=True,
+                joined_at=timezone.now(),
+                last_heartbeat=timezone.now(),
+            )
+
+            # Send group call created event
+            do_create_group_call(user_profile.realm, group_call)
+
+            # Invite users if specified
+            user_ids_str = request.POST.get("user_ids", "").strip()
+            invited_users = []
+            if user_ids_str:
+                try:
+                    user_ids = [int(uid.strip()) for uid in user_ids_str.split(",")]
+                    invited_users = list(
+                        UserProfile.objects.filter(
+                            id__in=user_ids,
+                            realm=user_profile.realm,
+                            is_active=True
+                        ).exclude(id=user_profile.id)  # Don't invite host
+                    )
+
+                    if invited_users:
+                        invite_results = do_invite_to_group_call(
+                            user_profile.realm,
+                            group_call,
+                            user_profile,
+                            invited_users
+                        )
+
+                        # Send push notifications to all invited users
+                        for user in invited_users:
+                            push_data = {
+                                "call_id": str(group_call.call_id),
+                                "sender_id": str(user_profile.id),
+                                "sender_name": user_profile.full_name,
+                                "call_type": group_call.call_type,
+                                "jitsi_url": jitsi_url,
+                                "title": title or "Group Call",
+                            }
+                            transaction.on_commit(
+                                lambda u=user, d=push_data: send_call_push_notification(u, d)
+                            )
+
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Invalid user_ids format: {e}")
+
+            logger.info(
+                f"Group call {group_call.call_id} created by {user_profile.id} "
+                f"with {len(invited_users)} invites"
+            )
+
+            return JsonResponse({
+                "result": "success",
+                "call_id": str(group_call.call_id),
+                "call_url": jitsi_url,
+                "call_type": group_call.call_type,
+                "title": group_call.title,
+                "room_name": group_call.jitsi_room_name,
+                "host": {
+                    "user_id": user_profile.id,
+                    "full_name": user_profile.full_name,
+                },
+                "invited_count": len(invited_users),
+            })
+
+    except Exception as e:
+        logger.error(f"Failed to create group call: {e}", exc_info=True)
+        return JsonResponse({
+            "result": "error",
+            "message": f"Failed to create group call: {str(e)}"
+        }, status=500)
+
+
+@require_http_methods(["POST"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def invite_to_group_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
+    """
+    Invite users to an existing group call.
+
+    POST parameters:
+    - user_ids: Comma-separated list of user IDs to invite (required)
+    """
+    from ..models import GroupCall
+    from ..actions import do_invite_to_group_call
+
+    try:
+        # Get the group call
+        try:
+            group_call = GroupCall.objects.get(
+                call_id=call_id,
+                realm=user_profile.realm
+            )
+        except GroupCall.DoesNotExist:
+            return JsonResponse({
+                "result": "error",
+                "message": "Group call not found"
+            }, status=404)
+
+        # Check if call is still active
+        if group_call.state != "active":
+            return JsonResponse({
+                "result": "error",
+                "message": f"Cannot invite to ended call"
+            }, status=400)
+
+        # Check authorization - only host and joined participants can invite
+        participant = group_call.participants.filter(user=user_profile).first()
+        if not participant or participant.state not in ["joined"]:
+            return JsonResponse({
+                "result": "error",
+                "message": "Only active participants can invite others"
+            }, status=403)
+
+        # Parse user IDs
+        user_ids_str = request.POST.get("user_ids", "").strip()
+        if not user_ids_str:
+            return JsonResponse({
+                "result": "error",
+                "message": "user_ids parameter is required"
+            }, status=400)
+
+        try:
+            user_ids = [int(uid.strip()) for uid in user_ids_str.split(",")]
+        except ValueError:
+            return JsonResponse({
+                "result": "error",
+                "message": "Invalid user_ids format"
+            }, status=400)
+
+        # Get valid users to invite
+        users_to_invite = list(
+            UserProfile.objects.filter(
+                id__in=user_ids,
+                realm=user_profile.realm,
+                is_active=True
+            )
+        )
+
+        if not users_to_invite:
+            return JsonResponse({
+                "result": "error",
+                "message": "No valid users to invite"
+            }, status=400)
+
+        # Invite users using action function
+        invite_results = do_invite_to_group_call(
+            user_profile.realm,
+            group_call,
+            user_profile,
+            users_to_invite
+        )
+
+        # Send push notifications to all invited users
+        with transaction.atomic():
+            for user in users_to_invite:
+                push_data = {
+                    "call_id": str(group_call.call_id),
+                    "sender_id": str(user_profile.id),
+                    "sender_name": user_profile.full_name,
+                    "call_type": group_call.call_type,
+                    "jitsi_url": group_call.jitsi_room_url,
+                    "title": group_call.title or "Group Call",
+                }
+                transaction.on_commit(
+                    lambda u=user, d=push_data: send_call_push_notification(u, d)
+                )
+
+        logger.info(
+            f"Group call {call_id}: {len(users_to_invite)} users invited by {user_profile.id}"
+        )
+
+        return JsonResponse({
+            "result": "success",
+            "invited_count": len(users_to_invite),
+            "online_count": len(invite_results["invited"]),
+            "offline_count": len(invite_results["offline"]),
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to invite to group call: {e}", exc_info=True)
+        return JsonResponse({
+            "result": "error",
+            "message": f"Failed to invite users: {str(e)}"
+        }, status=500)
+
+
+@require_http_methods(["POST"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def join_group_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
+    """Join an existing group call."""
+    from ..models import GroupCall, GroupCallParticipant
+    from ..actions import do_join_group_call
+
+    try:
+        with transaction.atomic():
+            # Get the group call
+            try:
+                group_call = GroupCall.objects.select_for_update().get(
+                    call_id=call_id,
+                    realm=user_profile.realm
+                )
+            except GroupCall.DoesNotExist:
+                return JsonResponse({
+                    "result": "error",
+                    "message": "Group call not found"
+                }, status=404)
+
+            # Check if call is still active
+            if group_call.state != "active":
+                return JsonResponse({
+                    "result": "error",
+                    "message": "Call has ended"
+                }, status=400)
+
+            # Check participant limit
+            active_count = group_call.get_active_participant_count()
+            if active_count >= group_call.max_participants:
+                return JsonResponse({
+                    "result": "error",
+                    "message": f"Call is full ({group_call.max_participants} participants)"
+                }, status=400)
+
+            # Get or create participant record
+            participant, created = GroupCallParticipant.objects.get_or_create(
+                call=group_call,
+                user=user_profile,
+                defaults={"state": "joined", "joined_at": timezone.now()}
+            )
+
+            if not created:
+                # Update existing participant
+                if participant.state == "joined":
+                    return JsonResponse({
+                        "result": "error",
+                        "message": "Already in call"
+                    }, status=400)
+
+                participant.state = "joined"
+                participant.joined_at = timezone.now()
+                participant.save(update_fields=["state", "joined_at"])
+
+            # Update heartbeat
+            participant.last_heartbeat = timezone.now()
+            participant.save(update_fields=["last_heartbeat"])
+
+            # Send join event to all participants
+            do_join_group_call(user_profile.realm, group_call, user_profile)
+
+            logger.info(f"User {user_profile.id} joined group call {call_id}")
+
+            return JsonResponse({
+                "result": "success",
+                "call_url": group_call.jitsi_room_url,
+                "call_type": group_call.call_type,
+                "title": group_call.title,
+                "participant_count": group_call.get_active_participant_count(),
+            })
+
+    except Exception as e:
+        logger.error(f"Failed to join group call: {e}", exc_info=True)
+        return JsonResponse({
+            "result": "error",
+            "message": f"Failed to join call: {str(e)}"
+        }, status=500)
+
+
+@require_http_methods(["POST"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def leave_group_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
+    """Leave a group call."""
+    from ..models import GroupCall
+    from ..actions import do_leave_group_call
+
+    try:
+        with transaction.atomic():
+            # Get the group call
+            try:
+                group_call = GroupCall.objects.select_for_update().get(
+                    call_id=call_id,
+                    realm=user_profile.realm
+                )
+            except GroupCall.DoesNotExist:
+                return JsonResponse({
+                    "result": "error",
+                    "message": "Group call not found"
+                }, status=404)
+
+            # Get participant record
+            try:
+                participant = group_call.participants.select_for_update().get(
+                    user=user_profile
+                )
+            except group_call.participants.model.DoesNotExist:
+                return JsonResponse({
+                    "result": "error",
+                    "message": "Not in this call"
+                }, status=404)
+
+            # Check if already left
+            if participant.state in ["left", "declined", "missed"]:
+                return JsonResponse({
+                    "result": "error",
+                    "message": "Already left call"
+                }, status=400)
+
+            # Update participant state
+            participant.state = "left"
+            participant.left_at = timezone.now()
+            participant.save(update_fields=["state", "left_at"])
+
+            # Send leave event to other participants
+            do_leave_group_call(user_profile.realm, group_call, user_profile)
+
+            logger.info(f"User {user_profile.id} left group call {call_id}")
+
+            return JsonResponse({
+                "result": "success",
+                "message": "Left call successfully"
+            })
+
+    except Exception as e:
+        logger.error(f"Failed to leave group call: {e}", exc_info=True)
+        return JsonResponse({
+            "result": "error",
+            "message": f"Failed to leave call: {str(e)}"
+        }, status=500)
+
+
+@require_http_methods(["POST"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def decline_group_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
+    """Decline a group call invitation."""
+    from ..models import GroupCall
+    from ..actions import do_decline_group_call
+
+    try:
+        with transaction.atomic():
+            # Get the group call
+            try:
+                group_call = GroupCall.objects.select_for_update().get(
+                    call_id=call_id,
+                    realm=user_profile.realm
+                )
+            except GroupCall.DoesNotExist:
+                return JsonResponse({
+                    "result": "error",
+                    "message": "Group call not found"
+                }, status=404)
+
+            # Get participant record
+            try:
+                participant = group_call.participants.select_for_update().get(
+                    user=user_profile
+                )
+            except group_call.participants.model.DoesNotExist:
+                return JsonResponse({
+                    "result": "error",
+                    "message": "Not invited to this call"
+                }, status=404)
+
+            # Can only decline if invited or ringing
+            if participant.state not in ["invited", "ringing"]:
+                return JsonResponse({
+                    "result": "error",
+                    "message": f"Cannot decline call in state: {participant.state}"
+                }, status=400)
+
+            # Update participant state
+            participant.state = "declined"
+            participant.save(update_fields=["state"])
+
+            # Send decline event
+            do_decline_group_call(user_profile.realm, group_call, user_profile)
+
+            logger.info(f"User {user_profile.id} declined group call {call_id}")
+
+            return JsonResponse({
+                "result": "success",
+                "message": "Call declined"
+            })
+
+    except Exception as e:
+        logger.error(f"Failed to decline group call: {e}", exc_info=True)
+        return JsonResponse({
+            "result": "error",
+            "message": f"Failed to decline call: {str(e)}"
+        }, status=500)
+
+
+@require_http_methods(["POST"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def end_group_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
+    """End a group call (host only)."""
+    from ..models import GroupCall
+    from ..actions import do_end_group_call
+
+    try:
+        with transaction.atomic():
+            # Get the group call
+            try:
+                group_call = GroupCall.objects.select_for_update().get(
+                    call_id=call_id,
+                    realm=user_profile.realm
+                )
+            except GroupCall.DoesNotExist:
+                return JsonResponse({
+                    "result": "error",
+                    "message": "Group call not found"
+                }, status=404)
+
+            # Check if user is the host
+            if group_call.host.id != user_profile.id:
+                return JsonResponse({
+                    "result": "error",
+                    "message": "Only the host can end the call"
+                }, status=403)
+
+            # Check if already ended
+            if group_call.state == "ended":
+                return JsonResponse({
+                    "result": "error",
+                    "message": "Call already ended"
+                }, status=400)
+
+            # End the call
+            group_call.state = "ended"
+            group_call.ended_at = timezone.now()
+            group_call.save(update_fields=["state", "ended_at"])
+
+            # Update all joined participants to left
+            group_call.participants.filter(state="joined").update(
+                state="left",
+                left_at=timezone.now()
+            )
+
+            # Send end event to all participants
+            do_end_group_call(user_profile.realm, group_call)
+
+            logger.info(f"Group call {call_id} ended by host {user_profile.id}")
+
+            return JsonResponse({
+                "result": "success",
+                "message": "Call ended successfully"
+            })
+
+    except Exception as e:
+        logger.error(f"Failed to end group call: {e}", exc_info=True)
+        return JsonResponse({
+            "result": "error",
+            "message": f"Failed to end call: {str(e)}"
+        }, status=500)
+
+
+@require_http_methods(["GET"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def get_group_call_status(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
+    """Get the current status of a group call."""
+    from ..models import GroupCall
+
+    try:
+        # Get the group call
+        try:
+            group_call = GroupCall.objects.get(
+                call_id=call_id,
+                realm=user_profile.realm
+            )
+        except GroupCall.DoesNotExist:
+            return JsonResponse({
+                "result": "error",
+                "message": "Group call not found"
+            }, status=404)
+
+        # Check if user is a participant
+        is_participant = group_call.participants.filter(user=user_profile).exists()
+        if not is_participant:
+            return JsonResponse({
+                "result": "error",
+                "message": "Not authorized to view this call"
+            }, status=403)
+
+        # Get participant counts by state
+        participants_data = group_call.participants.select_related("user").all()
+
+        return JsonResponse({
+            "result": "success",
+            "call": {
+                "call_id": str(group_call.call_id),
+                "call_type": group_call.call_type,
+                "state": group_call.state,
+                "title": group_call.title,
+                "jitsi_url": group_call.jitsi_room_url,
+                "host": {
+                    "user_id": group_call.host.id,
+                    "full_name": group_call.host.full_name,
+                },
+                "stream_id": group_call.stream_id if group_call.stream else None,
+                "topic": group_call.topic,
+                "created_at": group_call.created_at.isoformat(),
+                "ended_at": group_call.ended_at.isoformat() if group_call.ended_at else None,
+                "participant_count": len([p for p in participants_data if p.state == "joined"]),
+                "max_participants": group_call.max_participants,
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to get group call status: {e}", exc_info=True)
+        return JsonResponse({
+            "result": "error",
+            "message": f"Failed to get call status: {str(e)}"
+        }, status=500)
+
+
+@require_http_methods(["GET"])
+@authenticated_rest_api_view(webhook_client_name="Zulip")
+def get_group_call_participants(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
+    """Get the list of participants in a group call."""
+    from ..models import GroupCall
+
+    try:
+        # Get the group call
+        try:
+            group_call = GroupCall.objects.get(
+                call_id=call_id,
+                realm=user_profile.realm
+            )
+        except GroupCall.DoesNotExist:
+            return JsonResponse({
+                "result": "error",
+                "message": "Group call not found"
+            }, status=404)
+
+        # Check if user is a participant
+        is_participant = group_call.participants.filter(user=user_profile).exists()
+        if not is_participant:
+            return JsonResponse({
+                "result": "error",
+                "message": "Not authorized to view participants"
+            }, status=403)
+
+        # Get all participants with user info
+        participants = group_call.participants.select_related("user").all()
+
+        participants_list = []
+        for p in participants:
+            participants_list.append({
+                "user_id": p.user.id,
+                "full_name": p.user.full_name,
+                "email": p.user.delivery_email,
+                "state": p.state,
+                "is_host": p.is_host,
+                "invited_at": p.invited_at.isoformat(),
+                "joined_at": p.joined_at.isoformat() if p.joined_at else None,
+                "left_at": p.left_at.isoformat() if p.left_at else None,
+            })
+
+        return JsonResponse({
+            "result": "success",
+            "participants": participants_list,
+            "total_count": len(participants_list),
+            "joined_count": len([p for p in participants if p.state == "joined"]),
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to get group call participants: {e}", exc_info=True)
+        return JsonResponse({
+            "result": "error",
+            "message": f"Failed to get participants: {str(e)}"
+        }, status=500)

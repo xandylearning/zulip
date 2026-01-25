@@ -478,6 +478,13 @@ APNS_SANDBOX = True
 # ZULIP_IOS_APP_ID is obsolete. Clients now pass the iOS app ID to use for APNs.
 ANDROID_FCM_CREDENTIALS_PATH: str | None = None
 
+# When True, FCM messages are sent as data-only (no "notification" block).
+# Use this when the mobile app shows its own rich notifications from the
+# "data" payload to avoid duplicates. Trade-off: when the app is terminated,
+# the system may not show a notification (the app handles display when it runs).
+# See dev-docs/PUSH_NOTIFICATION_DATA_ONLY.md.
+FCM_DATA_ONLY_PUSH = False
+
 # Limits related to the size of file uploads; last few in MB.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
 MAX_AVATAR_FILE_SIZE_MIB = 5

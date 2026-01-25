@@ -789,7 +789,7 @@ export function initialize() {
                 'X-CSRFToken': $('meta[name="csrf-token"]').attr('content') || $('input[name="csrfmiddlewaretoken"]').val()
             },
             data: {
-                recipient_email: recipientEmail,
+                user_id: recipientUser.user_id,
                 is_video_call: isVideoCall,
                 redirect_to_meeting: true
             },
@@ -812,8 +812,8 @@ export function initialize() {
                     $textarea.trigger('input');
                     $textarea.focus();
 
-                    // Show success message
-                    const successMessage = `${callType} call started with ${response.recipient.full_name}`;
+                    // Show success message (use recipientUser from closure; API may not include recipient)
+                    const successMessage = `${callType} call started with ${recipientUser.full_name}`;
                     const successBannerHtml = render_compose_banner({
                         banner_type: compose_banner.SUCCESS,
                         stream_id: null,

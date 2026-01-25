@@ -95,24 +95,23 @@ Add to Zulip's base template (templates/zerver/app/index.html):
 POST /api/v1/calls/create-embedded
 Content-Type: application/x-www-form-urlencoded
 
-recipient_email=user@example.com
+user_id=123
 is_video_call=true
 redirect_to_meeting=true
 ```
 
-**Response:**
+**Response** (when `redirect_to_meeting=true`):
 ```json
 {
   "result": "success",
-  "call_id": "12345",
   "action": "redirect",
   "redirect_url": "https://meet.jit.si/zulip-call-abc123",
-  "recipient": {
-    "full_name": "John Doe",
-    "email": "user@example.com"
-  }
+  "call_id": "550e8400-e29b-41d4-a716-446655440000",
+  "message": "Call created successfully"
 }
 ```
+
+**Note:** The API does not return a `recipient` object. For success text like "Call started with X", use the recipient from your request context (e.g. the user matching `user_id` or your compose/people lookup).
 
 ## Troubleshooting
 

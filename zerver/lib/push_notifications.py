@@ -591,7 +591,18 @@ def create_fcm_call_notification_message(
     # Convert all values to strings as required by FCM
     data_payload = {k: str(v) for k, v in data_payload.items()}
 
-    # Create Android notification configuration exactly as specified
+    data_only = getattr(settings, "FCM_DATA_ONLY_PUSH", False)
+
+    if data_only:
+        # Data-only: app displays the notification (avoids duplicates, enables rich UI).
+        android_config = firebase_messaging.AndroidConfig(priority="high")
+        return firebase_messaging.Message(
+            token=token,
+            data=data_payload,
+            android=android_config,
+        )
+
+    # Data + notification: system shows a notification when app is terminated.
     android_notification = firebase_messaging.AndroidNotification(
         channel_id="calls-1",
         tag=f"call:{call_id}",
@@ -600,20 +611,14 @@ def create_fcm_call_notification_message(
         sound="default",
         click_action="android.intent.action.VIEW"
     )
-
-    # Create Android config with high priority
     android_config = firebase_messaging.AndroidConfig(
         priority="high",
         notification=android_notification
     )
-
-    # Create cross-platform notification
     notification = firebase_messaging.Notification(
         title=f"Incoming {call_type} call",
         body=f"From {sender_name}"
     )
-
-    # Create the complete FCM message
     return firebase_messaging.Message(
         token=token,
         data=data_payload,
@@ -766,13 +771,16 @@ def send_android_push_notification(
     # things like an integer realm and user ids etc., so just convert everything
     # like that.
     data = {k: str(v) if not isinstance(v, str) else v for k, v in data.items()}
-    
-    # Create FCM messages with both data and notification blocks for terminated app support
+
+    data_only = getattr(settings, "FCM_DATA_ONLY_PUSH", False)
+
+    # Create FCM messages. Data-only: only "data" block (app shows its own UI).
+    # Default: data + notification for terminated-app system notifications.
     messages = []
     for token in token_list:
-        # Determine notification content based on data type
-        notification_content = _create_fcm_notification_content(data, options)
-        
+        # Determine notification content based on data type (omit when data-only)
+        notification_content = None if data_only else _create_fcm_notification_content(data, options)
+
         # Create Android-specific notification configuration
         android_notification = None
         if notification_content:

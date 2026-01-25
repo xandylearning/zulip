@@ -110,28 +110,23 @@ class CallEvent(models.Model):
 
 **Parameters**:
 ```
-recipient_email: string (required) - Email of the user to call
+user_id: integer (required) - User ID of the recipient to call
 is_video_call: boolean (optional, default: true) - Video or audio call
-redirect_to_meeting: boolean (optional, default: false) - Auto-redirect to Jitsi
+redirect_to_meeting: boolean (optional, default: false) - If true, response uses redirect format and client opens Jitsi
 ```
 
-**Response**:
+**Response** when `redirect_to_meeting=true`:
 ```json
 {
   "result": "success",
+  "action": "redirect",
+  "redirect_url": "https://meet.jit.si/zulip-call-abc123?userInfo.displayName=...",
   "call_id": "550e8400-e29b-41d4-a716-446655440000",
-  "call_url": "https://meet.jit.si/zulip-call-abc123?userInfo.displayName=John&config.startWithAudioMuted=false",
-  "participant_url": "https://meet.jit.si/zulip-call-abc123?userInfo.displayName=Jane&config.startWithAudioMuted=true",
-  "embedded_url": "/calls/embed/550e8400-e29b-41d4-a716-446655440000",
-  "call_type": "video",
-  "room_name": "zulip-call-abc123",
-  "recipient": {
-    "user_id": 456,
-    "full_name": "Jane Doe",
-    "email": "jane@example.com"
-  }
+  "message": "Call created successfully"
 }
 ```
+
+**Note:** The response does **not** include a `recipient` object. For UI text such as "Call started with Jane", use the recipient you already have from the request (e.g. the user identified by `user_id` or your local people/compose context).
 
 #### POST `/api/v1/calls/create`
 **Purpose**: Create a call with full database tracking for mobile/API clients

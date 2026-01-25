@@ -251,8 +251,16 @@ SELF_HOSTING_MANAGEMENT_SUBDOMAIN = "selfhosting"
 DEVELOPMENT_DISABLE_PUSH_BOUNCER_DOMAIN_CHECK = True
 ZULIP_SERVICES_URL = f"http://{EXTERNAL_HOST}"
 
-ZULIP_SERVICE_PUSH_NOTIFICATIONS = True
+# Disable the Zulip push notification bouncer; send directly to FCM instead.
+# Explicitly set PUSH_NOTIFICATION_BOUNCER_URL to None to prevent computed_settings.py
+# from overriding ZULIP_SERVICE_PUSH_NOTIFICATIONS = False
+PUSH_NOTIFICATION_BOUNCER_URL = None
+ZULIP_SERVICE_PUSH_NOTIFICATIONS = False
 ZULIP_SERVICE_SUBMIT_USAGE_STATISTICS = True
+
+# Path to the Firebase service account JSON used for FCM.
+# Update this path to point to your Firebase credentials file.
+# ANDROID_FCM_CREDENTIALS_PATH = "/path/to/your/firebase-credentials.json"
 
 # This value needs to be lower in development than usual to allow
 # for quicker testing of the feature.

@@ -102,6 +102,69 @@ class EventChannelFolderUpdate(BaseEvent):
     data: ChannelFolderDataForUpdate
 
 
+class CallParticipant(BaseModel):
+    user_id: int
+    full_name: str
+
+
+class EventCall(BaseEvent):
+    type: Literal["call"]
+    op: Literal[
+        "initiated",
+        "incoming_call",
+        "ringing",
+        "accepted",
+        "declined",
+        "ended",
+        "cancelled",
+        "missed",
+    ]
+    call_id: str
+    call_type: Literal["audio", "video"]
+    sender: CallParticipant
+    receiver: CallParticipant
+    state: str
+    jitsi_url: str | None = None
+    timestamp: str
+    # Optional fields for additional context
+    receiver_was_offline: bool | None = None
+    reason: str | None = None
+    timeout_seconds: int | None = None
+
+
+class GroupCallParticipantInfo(BaseModel):
+    user_id: int
+    full_name: str
+    state: str
+    is_host: bool
+
+
+class EventGroupCall(BaseEvent):
+    type: Literal["group_call"]
+    op: Literal[
+        "created",
+        "participant_invited",
+        "participant_joined",
+        "participant_left",
+        "participant_declined",
+        "participant_missed",
+        "ended",
+    ]
+    call_id: str
+    call_type: Literal["audio", "video"]
+    host: CallParticipant
+    participants: list[GroupCallParticipantInfo]
+    jitsi_url: str
+    title: str | None = None
+    stream_id: int | None = None
+    topic: str | None = None
+    timestamp: str
+    # Optional fields for additional context
+    inviter_id: int | None = None
+    was_offline: bool | None = None
+    new_participants: list[int] | None = None
+
+
 class DetailedCustomProfileCore(BaseModel):
     id: int
     type: int

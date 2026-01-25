@@ -853,6 +853,18 @@ def user_has_permission_for_group_setting(
     if not setting_config.allow_everyone_group and user.role in [UserProfile.ROLE_STUDENT, UserProfile.ROLE_PARENT]:
         return False
 
+    # When the setting is the "Everyone" system group, all users in the realm
+    # have permission regardless of group membership (e.g. mentors, faculty).
+    # This avoids relying on role→system-group membership being in sync.
+    if setting_config.allow_everyone_group and not direct_member_only:
+        if NamedUserGroup.objects.filter(
+            realm_id=user.realm_id,
+            id=user_group_id,
+            name=SystemGroups.EVERYONE,
+            is_system_group=True,
+        ).exists():
+            return True
+
     return is_user_in_group(user_group_id, user, direct_member_only=direct_member_only)
 
 
