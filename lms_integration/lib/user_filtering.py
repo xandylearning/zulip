@@ -265,7 +265,9 @@ def get_filtered_user_ids_by_role(user_profile: UserProfile, realm: Realm) -> Li
         if set(allowed_roles) == set(all_roles):
             return None
         
-        # For LMS roles (mentor/student), use specialized filtering
+        # For LMS roles (mentor/student), use specialized filtering.
+        # TODO: Add parent and faculty roles and get_*_filtered_user_ids when
+        # LMSUserMapping and permission matrix support them.
         if user_role == 'mentor':
             return get_mentor_filtered_user_ids(user_profile, realm)
         elif user_role == 'student':

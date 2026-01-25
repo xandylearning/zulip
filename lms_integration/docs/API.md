@@ -10,9 +10,10 @@ This document provides comprehensive API documentation for the LMS Activity Even
 4. [Message Formatter API](#message-formatter-api)
 5. [User Mapper API](#user-mapper-api)
 6. [Management Command API](#management-command-api)
-7. [Admin REST API](#admin-rest-api)
-8. [Database Queries](#database-queries)
-9. [Configuration API](#configuration-api)
+7. [Users for chat API](#users-for-chat-api)
+8. [Admin REST API](#admin-rest-api)
+9. [Database Queries](#database-queries)
+10. [Configuration API](#configuration-api)
 
 ## Models API
 
@@ -450,6 +451,52 @@ python manage.py monitor_lms_activities --stats
 # Enable verbose logging
 python manage.py monitor_lms_activities --daemon --verbose
 ```
+
+## Users for chat API
+
+Endpoint for fetching users that the requester is allowed to DM or add to streams (e.g. for DM creation and stream subscription). Response shape matches Zulip’s **GET /api/v1/users** so the same client logic can be used.
+
+### GET /api/v1/lms/users/for-chat
+
+**Purpose:** Return users the requester can use for DM and stream subscription.
+
+**Authentication:** Any authenticated user (no realm-admin required).
+
+**Query parameters (optional):**
+
+- `client_gravatar` (boolean, default `true`): Same as in GET /api/v1/users.
+- `include_custom_profile_fields` (boolean, default `false`): Same as in GET /api/v1/users.
+
+**Response:** Same as GET /api/v1/users:
+
+```json
+{
+    "result": "success",
+    "msg": "",
+    "members": [
+        {
+            "user_id": 1,
+            "email": "user@example.com",
+            "full_name": "Full Name",
+            ...
+        }
+    ]
+}
+```
+
+When the realm’s DM permission matrix (GET/PATCH `/api/v1/lms/dm-permissions`) is enabled, results are filtered by role:
+
+- **Mentor:** admins/owners, other mentors, and their students (per permission matrix).
+- **Student:** admins/owners and their assigned mentors only.
+- **Owner/Admin:** unfiltered (see everyone).
+
+Only **mentor** and **student** roles are implemented currently.
+
+**Future work:**
+
+- **Parent:** return only faculty and mentors (and optionally only those linked to their children; TBD).
+- **Faculty:** return students, mentors, and faculty (and optionally only “linked” users; TBD).
+- Add `parent` and `faculty` as `lms_user_type` in `LMSUserMapping` and wire them in the permission matrix and filtering logic when LMS data is available.
 
 ## Admin REST API
 

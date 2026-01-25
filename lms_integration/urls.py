@@ -4,6 +4,7 @@ from zerver.lib.rest import rest_path
 
 from lms_integration.views import (
     lms_user_webhook,
+    lms_users_for_chat,
     # Admin API endpoints
     lms_dashboard_status,
     lms_start_user_sync,
@@ -76,4 +77,7 @@ urlpatterns = [
     
     # DM Permission Matrix endpoints
     rest_path('dm-permissions', GET=get_dm_permissions, PATCH=update_dm_permissions),
+
+    # Users for DM/stream chat (role-filtered; mentor/student only for now)
+    rest_path('users/for-chat', GET=lms_users_for_chat),
 ]

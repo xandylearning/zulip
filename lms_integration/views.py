@@ -14,7 +14,7 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.db import connections, DatabaseError, models
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -28,6 +28,7 @@ from zerver.lib.exceptions import JsonableError
 from zerver.lib.response import json_success, json_error
 from zerver.lib.typed_endpoint import typed_endpoint, typed_endpoint_without_parameters
 from zerver.models import UserProfile, Realm
+from zerver.views.users import get_user_data
 
 from lms_integration.lib.user_sync import UserSync
 from lms_integration.lib.activity_monitor import ActivityMonitor
@@ -317,6 +318,52 @@ def lms_user_webhook(request: HttpRequest) -> JsonResponse:
             'result': 'error',
             'message': f'Internal server error: {str(e)}'
         }, status=500)
+
+
+# ===================================
+# USERS FOR CHAT (DM / STREAM SUBSCRIPTION)
+# ===================================
+# Returns users the requester can DM or add to streams. Same response shape as
+# GET /api/v1/users. Currently supports mentor and student only; parent and
+# faculty are documented as future work (see lms_integration/docs/API.md).
+
+
+@typed_endpoint
+def lms_users_for_chat(
+    request: HttpRequest,
+    user_profile: UserProfile,
+    *,
+    client_gravatar: Json[bool] = True,
+    include_custom_profile_fields: Json[bool] = False,
+) -> HttpResponse:
+    """
+    GET /api/v1/lms/users/for-chat
+
+    Return users the requester is allowed to DM or add to streams, in the same
+    shape as GET /api/v1/users. When the realm's DM permission matrix is
+    enabled, results are filtered by role (mentor/student only for now).
+    """
+    realm = user_profile.realm
+    filtered_user_ids: list[int] | None = None
+    try:
+        from lms_integration.models import RealmDMPermissionMatrix
+        from lms_integration.lib.user_filtering import get_filtered_user_ids_by_role
+
+        permission_matrix = RealmDMPermissionMatrix.objects.filter(realm=realm).first()
+        if permission_matrix and permission_matrix.enabled:
+            filtered_user_ids = get_filtered_user_ids_by_role(user_profile, realm)
+    except Exception:
+        filtered_user_ids = None
+
+    data = get_user_data(
+        user_profile,
+        include_custom_profile_fields=include_custom_profile_fields,
+        client_gravatar=client_gravatar,
+        realm=realm,
+        target_user=None,
+        user_ids=filtered_user_ids,
+    )
+    return json_success(request, data)
 
 
 # ===================================
