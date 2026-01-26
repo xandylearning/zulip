@@ -6,7 +6,7 @@ can see and direct message other roles.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Annotated, Dict, Any
 
 from django.http import HttpRequest, HttpResponse
 from django.db import transaction
@@ -14,7 +14,7 @@ from django.db import transaction
 from zerver.decorator import require_realm_admin
 from zerver.lib.exceptions import JsonableError
 from zerver.lib.response import json_success, json_error
-from zerver.lib.typed_endpoint import typed_endpoint, typed_endpoint_without_parameters
+from zerver.lib.typed_endpoint import ApiParamConfig, typed_endpoint, typed_endpoint_without_parameters
 from zerver.models import UserProfile, Realm
 from pydantic import Json
 
@@ -22,8 +22,8 @@ from lms_integration.models import RealmDMPermissionMatrix
 
 logger = logging.getLogger(__name__)
 
-# Valid role names
-VALID_ROLES = ['owner', 'admin', 'moderator', 'member', 'guest', 'mentor', 'student']
+# Valid role names (owner, admin, mentor, student only; member/moderator/guest not used)
+VALID_ROLES = ['owner', 'admin', 'mentor', 'student']
 
 
 @require_realm_admin
@@ -60,19 +60,20 @@ def update_dm_permissions(
     request: HttpRequest,
     user_profile: UserProfile,
     *,
-    enabled: Json[bool] | None = None,
-    permission_matrix: Json[Dict[str, list[str]]] | None = None,
+    body: Annotated[Json[dict], ApiParamConfig(argument_type_is_body=True)],
 ) -> HttpResponse:
     """
     PATCH /api/v1/lms/dm-permissions
     
     Update the DM permission matrix configuration for the realm.
     
-    Parameters:
-    - enabled: Boolean to enable/disable the feature
-    - permission_matrix: Dict mapping source roles to lists of allowed target roles
+    Request body (JSON):
+    - enabled: Boolean to enable/disable the feature (optional)
+    - permission_matrix: Dict mapping source roles to lists of allowed target roles (optional)
                         Format: {"mentor": ["admin", "mentor", "student"], ...}
     """
+    enabled = body.get("enabled")
+    permission_matrix = body.get("permission_matrix")
     try:
         with transaction.atomic():
             permission_matrix_obj, created = RealmDMPermissionMatrix.objects.get_or_create(
@@ -82,7 +83,7 @@ def update_dm_permissions(
             
             # Update enabled status if provided
             if enabled is not None:
-                permission_matrix_obj.enabled = enabled
+                permission_matrix_obj.enabled = bool(enabled)
             
             # Update permission matrix if provided
             if permission_matrix is not None:

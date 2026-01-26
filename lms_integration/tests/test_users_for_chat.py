@@ -46,7 +46,8 @@ class LmsUsersForChatEndpointTest(ZulipTestCase):
             defaults={
                 "enabled": True,
                 "permission_matrix": {
-                    "member": ["admin", "owner"],
+                    "mentor": ["admin","owner","mentor","student"],
+                    "student": [],
                 },
             },
         )

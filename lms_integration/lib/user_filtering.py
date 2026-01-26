@@ -63,17 +63,17 @@ def get_allowed_target_roles(source_role: str, realm: Realm) -> List[str]:
     """
     # Owners and admins always have access to everyone
     if source_role in ['owner', 'admin']:
-        return ['owner', 'admin', 'moderator', 'member', 'guest', 'mentor', 'student']
+        return ['owner', 'admin', 'mentor', 'student']
     
     # Check if feature is enabled
     try:
         permission_matrix = RealmDMPermissionMatrix.objects.filter(realm=realm).first()
         if not permission_matrix or not permission_matrix.enabled:
             # Feature disabled - return all roles (no filtering)
-            return ['owner', 'admin', 'moderator', 'member', 'guest', 'mentor', 'student']
+            return ['owner', 'admin', 'mentor', 'student']
         
         # Get allowed roles from matrix
-        allowed_roles = permission_matrix.permission_matrix.get(source_role, [])
+        allowed_roles = list(permission_matrix.permission_matrix.get(source_role, []))
         
         # Always allow seeing admins and owners (for security/contact purposes)
         if 'admin' not in allowed_roles:
@@ -84,7 +84,7 @@ def get_allowed_target_roles(source_role: str, realm: Realm) -> List[str]:
         return allowed_roles
     except Exception:
         # On error, return all roles (fail open for safety)
-        return ['owner', 'admin', 'moderator', 'member', 'guest', 'mentor', 'student']
+        return ['owner', 'admin', 'mentor', 'student']
 
 
 def get_mentor_filtered_user_ids(user_profile: UserProfile, realm: Realm) -> List[int]:
@@ -261,8 +261,12 @@ def get_filtered_user_ids_by_role(user_profile: UserProfile, realm: Realm) -> Li
         allowed_roles = get_allowed_target_roles(user_role, realm)
         
         # If all roles are allowed, no filtering needed
-        all_roles = ['owner', 'admin', 'moderator', 'member', 'guest', 'mentor', 'student']
+        all_roles = ['owner', 'admin', 'mentor', 'student']
         if set(allowed_roles) == set(all_roles):
+            return None
+        
+        # Moderator/member/guest (Zulip roles with no LMS mapping): no matrix entry, no filtering
+        if user_role not in ('owner', 'admin', 'mentor', 'student'):
             return None
         
         # For LMS roles (mentor/student), use specialized filtering.
@@ -273,63 +277,7 @@ def get_filtered_user_ids_by_role(user_profile: UserProfile, realm: Realm) -> Li
         elif user_role == 'student':
             return get_student_filtered_user_ids(user_profile, realm)
         
-        # For Zulip roles (moderator, member, guest), filter by role
-        # Get all users with allowed roles
-        user_ids = set()
-        
-        # Always include admins and owners
-        admin_owners = UserProfile.objects.filter(
-            realm=realm,
-            is_active=True
-        ).filter(
-            models.Q(role=UserProfile.ROLE_REALM_OWNER) |
-            models.Q(role=UserProfile.ROLE_REALM_ADMINISTRATOR)
-        ).values_list('id', flat=True)
-        user_ids.update(admin_owners)
-        
-        # Include users with allowed Zulip roles
-        if 'moderator' in allowed_roles:
-            moderators = UserProfile.objects.filter(
-                realm=realm,
-                is_active=True,
-                role=UserProfile.ROLE_MODERATOR
-            ).values_list('id', flat=True)
-            user_ids.update(moderators)
-        
-        if 'member' in allowed_roles:
-            members = UserProfile.objects.filter(
-                realm=realm,
-                is_active=True,
-                role=UserProfile.ROLE_MEMBER
-            ).values_list('id', flat=True)
-            user_ids.update(members)
-        
-        if 'guest' in allowed_roles:
-            guests = UserProfile.objects.filter(
-                realm=realm,
-                is_active=True,
-                role=UserProfile.ROLE_GUEST
-            ).values_list('id', flat=True)
-            user_ids.update(guests)
-        
-        # Include LMS users with allowed roles
-        if 'mentor' in allowed_roles:
-            mentors = LMSUserMapping.objects.filter(
-                zulip_user__realm=realm,
-                lms_user_type='mentor',
-                is_active=True
-            ).values_list('zulip_user_id', flat=True)
-            user_ids.update(mentors)
-        
-        if 'student' in allowed_roles:
-            students = LMSUserMapping.objects.filter(
-                zulip_user__realm=realm,
-                lms_user_type='student',
-                is_active=True
-            ).values_list('zulip_user_id', flat=True)
-            user_ids.update(students)
-        
-        return list(user_ids)
+        return None
     except Exception:
         # On error, return None (fail open - no filtering)
         return None

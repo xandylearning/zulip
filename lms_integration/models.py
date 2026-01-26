@@ -1266,7 +1266,7 @@ class RealmDMPermissionMatrix(models.Model):
     # Permission matrix stored as JSON
     # Format: {"source_role": ["target_role1", "target_role2", ...]}
     # Example: {"mentor": ["admin", "mentor", "student"], "student": ["admin", "mentor"]}
-    # Roles: owner, admin, moderator, member, guest, mentor, student
+    # Roles: owner, admin, mentor, student
     permission_matrix = models.JSONField(
         default=dict,
         help_text="Permission matrix defining which roles can see/DM which other roles"
