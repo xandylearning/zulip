@@ -10,11 +10,14 @@ import {$t} from "./i18n.ts";
 import * as loading from "./loading.ts";
 import * as ui_report from "./ui_report.ts";
 
-const VALID_ROLES = ['owner', 'admin', 'mentor', 'student'];
+const VALID_ROLES = ['owner', 'admin', 'mentor', 'student', 'parent', 'faculty'];
 const ROLE_LABELS: Record<string, string> = {
     owner: $t({defaultMessage: "Owner"}),
     admin: $t({defaultMessage: "Admin"}),
+ 
     mentor: $t({defaultMessage: "Mentor"}),
+    parent: $t({defaultMessage: "Parent"}),
+    faculty: $t({defaultMessage: "Faculty"}),
     student: $t({defaultMessage: "Student"}),
 };
 

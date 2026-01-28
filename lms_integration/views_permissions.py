@@ -19,12 +19,12 @@ from zerver.models import UserProfile, Realm
 from pydantic import Json
 
 from lms_integration.models import RealmDMPermissionMatrix
-from lms_integration.permission_utils import get_default_permission_matrix
+from lms_integration.permission_utils import get_default_permission_matrix, ALL_ROLES
 
 logger = logging.getLogger(__name__)
 
-# Valid role names (owner, admin, mentor, student only; member/moderator/guest not used)
-VALID_ROLES = ['owner', 'admin', 'mentor', 'student']
+# Valid role names
+VALID_ROLES = ALL_ROLES + ['parent', 'faculty']
 
 
 @require_realm_admin

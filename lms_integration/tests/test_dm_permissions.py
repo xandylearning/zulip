@@ -67,10 +67,14 @@ class LmsDMPermissionsEndpointTest(ZulipTestCase):
         data = self.assert_json_success(result)
 
         self.assertTrue(data["enabled"])
+        all_roles = ["owner", "admin", "moderator", "member", "guest", "mentor", "student"]
         expected_matrix = {
-            "owner": ["owner", "admin", "mentor", "student"],
-            "admin": ["owner", "admin", "mentor", "student"],
-            "mentor": ["owner", "admin", "mentor", "student"],
+            "owner": all_roles,
+            "admin": all_roles,
+            "moderator": all_roles,
+            "member": all_roles,
+            "guest": all_roles,
+            "mentor": all_roles,
             "student": ["mentor"],
         }
         self.assertEqual(data["permission_matrix"], expected_matrix)
