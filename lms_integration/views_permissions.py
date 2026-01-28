@@ -19,6 +19,7 @@ from zerver.models import UserProfile, Realm
 from pydantic import Json
 
 from lms_integration.models import RealmDMPermissionMatrix
+from lms_integration.permission_utils import get_default_permission_matrix
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ def get_dm_permissions(
     try:
         permission_matrix, _ = RealmDMPermissionMatrix.objects.get_or_create(
             realm=user_profile.realm,
-            defaults={'enabled': False, 'permission_matrix': {}}
+            defaults={'enabled': True, 'permission_matrix': get_default_permission_matrix()}
         )
         
         return json_success(request, {
@@ -78,7 +79,7 @@ def update_dm_permissions(
         with transaction.atomic():
             permission_matrix_obj, created = RealmDMPermissionMatrix.objects.get_or_create(
                 realm=user_profile.realm,
-                defaults={'enabled': False, 'permission_matrix': {}}
+                defaults={'enabled': True, 'permission_matrix': get_default_permission_matrix()}
             )
             
             # Update enabled status if provided

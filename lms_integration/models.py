@@ -2,6 +2,7 @@
 # External LMS models and Zulip mapping models will be defined here
 
 from django.db import models
+from lms_integration.permission_utils import get_default_permission_matrix
 
 
 # =============================================================================
@@ -1259,7 +1260,7 @@ class RealmDMPermissionMatrix(models.Model):
     
     # Enable the feature
     enabled = models.BooleanField(
-        default=False,
+        default=True,
         help_text="Whether role-based DM restrictions are enabled for this realm"
     )
     
@@ -1268,7 +1269,7 @@ class RealmDMPermissionMatrix(models.Model):
     # Example: {"mentor": ["admin", "mentor", "student"], "student": ["admin", "mentor"]}
     # Roles: owner, admin, mentor, student
     permission_matrix = models.JSONField(
-        default=dict,
+        default=get_default_permission_matrix,
         help_text="Permission matrix defining which roles can see/DM which other roles"
     )
     

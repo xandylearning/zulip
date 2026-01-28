@@ -55,3 +55,22 @@ class LmsDMPermissionsEndpointTest(ZulipTestCase):
         obj = RealmDMPermissionMatrix.objects.get(realm=realm)
         self.assertTrue(obj.enabled)
         self.assertEqual(obj.permission_matrix, matrix)
+
+    def test_get_dm_permissions_defaults(self) -> None:
+        """GET returns correct defaults (enabled=True and default matrix)."""
+        iago = self.example_user("iago")
+        realm = iago.realm
+        # Ensure no existing matrix
+        RealmDMPermissionMatrix.objects.filter(realm=realm).delete()
+
+        result = self.client_get("/api/v1/lms/dm-permissions", HTTP_AUTHORIZATION=self.encode_user(iago))
+        data = self.assert_json_success(result)
+
+        self.assertTrue(data["enabled"])
+        expected_matrix = {
+            "owner": ["owner", "admin", "mentor", "student"],
+            "admin": ["owner", "admin", "mentor", "student"],
+            "mentor": ["owner", "admin", "mentor", "student"],
+            "student": ["mentor"],
+        }
+        self.assertEqual(data["permission_matrix"], expected_matrix)
