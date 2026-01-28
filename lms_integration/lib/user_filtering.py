@@ -17,7 +17,7 @@ from lms_integration.models import (
     Batchtostudent,
     RealmDMPermissionMatrix,
 )
-from lms_integration.permission_utils import ALL_ROLES
+from lms_integration.permission_utils import ALL_ROLES, get_default_permission_matrix
 
 
 def get_user_role(user_profile: UserProfile, realm: Realm) -> str:
@@ -88,7 +88,12 @@ def get_allowed_target_roles(source_role: str, realm: Realm) -> List[str]:
         return ALL_ROLES
 
 
-def get_mentor_filtered_user_ids(user_profile: UserProfile, realm: Realm) -> List[int]:
+def get_mentor_filtered_user_ids(
+    user_profile: UserProfile,
+    realm: Realm,
+    *,
+    allowed_roles: List[str] | None = None,
+) -> List[int]:
     """
     Get filtered user IDs for a mentor user.
     
@@ -112,8 +117,9 @@ def get_mentor_filtered_user_ids(user_profile: UserProfile, realm: Realm) -> Lis
         
         mentor_lms_id = lms_mapping.lms_user_id
         
-        # Get allowed target roles from permission matrix
-        allowed_roles = get_allowed_target_roles('mentor', realm)
+        # Get allowed target roles from permission matrix if not provided
+        if allowed_roles is None:
+            allowed_roles = get_allowed_target_roles('mentor', realm)
         
         user_ids = set()
         
@@ -173,7 +179,12 @@ def get_mentor_filtered_user_ids(user_profile: UserProfile, realm: Realm) -> Lis
         return []
 
 
-def get_student_filtered_user_ids(user_profile: UserProfile, realm: Realm) -> List[int]:
+def get_student_filtered_user_ids(
+    user_profile: UserProfile,
+    realm: Realm,
+    *,
+    allowed_roles: List[str] | None = None,
+) -> List[int]:
     """
     Get filtered user IDs for a student user.
     
@@ -195,8 +206,9 @@ def get_student_filtered_user_ids(user_profile: UserProfile, realm: Realm) -> Li
         
         student_lms_id = lms_mapping.lms_user_id
         
-        # Get allowed target roles from permission matrix
-        allowed_roles = get_allowed_target_roles('student', realm)
+        # Get allowed target roles from permission matrix if not provided
+        if allowed_roles is None:
+            allowed_roles = get_allowed_target_roles('student', realm)
         
         user_ids = set()
         
@@ -239,23 +251,54 @@ def get_filtered_user_ids_by_role(user_profile: UserProfile, realm: Realm) -> Li
     
     This is the main entry point for role-based filtering.
     Returns None if:
-    - Feature is disabled
+    - Feature is disabled for non-LMS roles
     - User has no role mapping
     - Error occurs (fail open)
     
     Returns list of user IDs if filtering should be applied.
     """
     try:
-        # Check if feature is enabled
         permission_matrix = RealmDMPermissionMatrix.objects.filter(realm=realm).first()
-        if not permission_matrix or not permission_matrix.enabled:
-            return None
         
-        # Get user's role
+        # Get user's effective role (may be LMS-based)
         user_role = get_user_role(user_profile, realm)
         
         # Owners and admins are not filtered (they see everyone)
         if user_role in ['owner', 'admin']:
+            return None
+        
+        # For LMS roles (mentor/student), always apply specialized filtering,
+        # even if the permission matrix row is missing or disabled.
+        if user_role in ('mentor', 'student'):
+            if permission_matrix and permission_matrix.enabled:
+                allowed_roles = get_allowed_target_roles(user_role, realm)
+            else:
+                # Fall back to default matrix when no custom matrix is configured.
+                default_matrix = get_default_permission_matrix()
+                allowed_roles = list(default_matrix.get(user_role, []))
+            
+            # If all roles are allowed, no filtering needed
+            if set(allowed_roles) >= set(ALL_ROLES):
+                return None
+            
+            if user_role == 'mentor':
+                return get_mentor_filtered_user_ids(
+                    user_profile,
+                    realm,
+                    allowed_roles=allowed_roles,
+                )
+            else:
+                return get_student_filtered_user_ids(
+                    user_profile,
+                    realm,
+                    allowed_roles=allowed_roles,
+                )
+        
+        # For non-LMS roles:
+        # - If the feature is disabled, or no matrix exists, do not filter.
+        # - If enabled, we currently do not implement generic filtering beyond
+        #   the mentor/student logic, so fail open (no filtering) unless we add it.
+        if not permission_matrix or not permission_matrix.enabled:
             return None
         
         # Get allowed target roles
@@ -265,25 +308,10 @@ def get_filtered_user_ids_by_role(user_profile: UserProfile, realm: Realm) -> Li
         if set(allowed_roles) >= set(ALL_ROLES):
             return None
         
-        # Moderator/member/guest (Zulip roles with no LMS mapping): no matrix entry, no filtering
-        # (unless they are restricted in the matrix, but we handled "all roles allowed" above)
-        if user_role not in ('mentor', 'student') and user_role in ALL_ROLES:
-             # If we reached here, it means this role is restricted (not all roles allowed)
-             # But we don't have specialized filtering for mod/member/guest yet.
-             # They rely on standard Zulip visibility plus this matrix check.
-             # If we return None, they see everyone. If we want to restrict, we need to return a list of IDs.
-             # Currently we only support filtering for mentor/student logic or "see everyone".
-             # If a standard role is restricted, we should probably implement generic filtering.
-             # For now, let's return None (fail open) unless we implement generic filtering.
-             pass
-
-        # For LMS roles (mentor/student), use specialized filtering.
-        # TODO: Add parent and faculty roles and get_*_filtered_user_ids when
-        # LMSUserMapping and permission matrix support them.
-        if user_role == 'mentor':
-            return get_mentor_filtered_user_ids(user_profile, realm)
-        elif user_role == 'student':
-            return get_student_filtered_user_ids(user_profile, realm)
+        # Moderator/member/guest (Zulip roles with no LMS mapping): no matrix entry,
+        # no specialized filtering implemented yet. They rely on standard Zulip
+        # visibility plus this matrix check. Returning None here means they see
+        # everyone until generic filtering is implemented.
         
         return None
     except Exception:

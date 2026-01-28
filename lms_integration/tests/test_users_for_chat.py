@@ -1,15 +1,18 @@
 """
 Tests for the LMS "users for chat" endpoint (GET /api/v1/lms/users/for-chat).
 
-Covers response shape, permission-matrix-disabled behavior, and role-based
-filtering (mentor/student) when the matrix is enabled.
+Covers response shape, default behavior, and role-based filtering for mentor
+and student users, including behavior when the DM permission matrix is absent
+or disabled.
 """
-
-from unittest.mock import patch
 
 from zerver.lib.test_classes import ZulipTestCase
 
-from lms_integration.models import LMSUserMapping, RealmDMPermissionMatrix
+from lms_integration.models import (
+    LMSUserMapping,
+    RealmDMPermissionMatrix,
+    Mentortostudent,
+)
 
 
 class LmsUsersForChatEndpointTest(ZulipTestCase):
@@ -29,7 +32,7 @@ class LmsUsersForChatEndpointTest(ZulipTestCase):
             self.assertIn("full_name", member)
 
     def test_lms_users_for_chat_permission_matrix_disabled(self) -> None:
-        """With no permission matrix or disabled, endpoint returns realm members."""
+        """With no permission matrix, non-LMS users see realm members (no filtering)."""
         hamlet = self.example_user("hamlet")
         result = self.api_get(hamlet, "/api/v1/lms/users/for-chat")
         data = self.assert_json_success(result)
@@ -57,23 +60,27 @@ class LmsUsersForChatEndpointTest(ZulipTestCase):
         # Admin should see full realm membership (no filtering)
         self.assertGreaterEqual(len(data["members"]), 1)
 
-    def test_lms_users_for_chat_permission_matrix_enabled_mentor_filtered(self) -> None:
-        """With matrix enabled and user as mentor, members are restricted to filtered set."""
-        hamlet = self.example_user("hamlet")
-        othello = self.example_user("othello")
-        realm = hamlet.realm
-        RealmDMPermissionMatrix.objects.update_or_create(
-            realm=realm,
-            defaults={
-                "enabled": True,
-                "permission_matrix": {
-                    "mentor": ["admin", "owner", "mentor", "student"],
-                    "student": ["admin", "owner", "mentor"],
-                },
-            },
-        )
+    def test_lms_users_for_chat_mentor_sees_only_assigned_students_and_staff(self) -> None:
+        """
+        Mentor users see:
+        - themselves
+        - admins/owners
+        - other mentors (per default matrix)
+        - only students assigned to them via Mentortostudent
+        even when no explicit permission matrix row exists.
+        """
+        # Set up users
+        mentor = self.example_user("hamlet")
+        admin = self.example_user("iago")
+        other_mentor = self.example_user("othello")
+        assigned_student = self.example_user("cordelia")
+        unassigned_student = self.example_user("prospero")
+
+        realm = mentor.realm
+
+        # Map mentor and students into LMS with distinct IDs
         LMSUserMapping.objects.update_or_create(
-            zulip_user=hamlet,
+            zulip_user=mentor,
             defaults={
                 "lms_user_id": 1001,
                 "lms_user_type": "mentor",
@@ -81,48 +88,119 @@ class LmsUsersForChatEndpointTest(ZulipTestCase):
                 "is_active": True,
             },
         )
-        allowed_ids = {hamlet.id, othello.id}
-        with patch(
-            "lms_integration.lib.user_filtering.get_filtered_user_ids_by_role",
-            return_value=list(allowed_ids),
-        ):
-            result = self.api_get(hamlet, "/api/v1/lms/users/for-chat")
-        data = self.assert_json_success(result)
-        self.assertIn("members", data)
-        returned_ids = {m["user_id"] for m in data["members"]}
-        self.assertEqual(returned_ids, allowed_ids)
-
-    def test_lms_users_for_chat_permission_matrix_enabled_student_filtered(self) -> None:
-        """With matrix enabled and user as student, members are restricted to filtered set."""
-        hamlet = self.example_user("hamlet")
-        iago = self.example_user("iago")
-        realm = hamlet.realm
-        RealmDMPermissionMatrix.objects.update_or_create(
-            realm=realm,
+        LMSUserMapping.objects.update_or_create(
+            zulip_user=assigned_student,
             defaults={
-                "enabled": True,
-                "permission_matrix": {
-                    "mentor": ["admin", "owner", "mentor", "student"],
-                    "student": ["admin", "owner", "mentor"],
-                },
+                "lms_user_id": 2001,
+                "lms_user_type": "student",
+                "lms_username": "cordelia_student",
+                "is_active": True,
             },
         )
         LMSUserMapping.objects.update_or_create(
-            zulip_user=hamlet,
+            zulip_user=unassigned_student,
             defaults={
-                "lms_user_id": 2001,
+                "lms_user_id": 2002,
+                "lms_user_type": "student",
+                "lms_username": "prospero_student",
+                "is_active": True,
+            },
+        )
+        LMSUserMapping.objects.update_or_create(
+            zulip_user=other_mentor,
+            defaults={
+                "lms_user_id": 1002,
+                "lms_user_type": "mentor",
+                "lms_username": "othello_mentor",
+                "is_active": True,
+            },
+        )
+
+        # Create mentor→student assignment in LMS junction table
+        # Mentortostudent.a_id is mentor LMS ID, b_id is student LMS ID
+        Mentortostudent.objects.using("lms_db").create(
+            a_id=1001,
+            b_id=2001,
+        )
+
+        result = self.api_get(mentor, "/api/v1/lms/users/for-chat")
+        data = self.assert_json_success(result)
+        member_ids = {m["user_id"] for m in data["members"]}
+
+        # Mentor should see:
+        # - themself
+        # - admin (owner/admin roles are always visible)
+        # - other mentor (per default matrix mentor -> mentor)
+        # - assigned student
+        self.assertIn(mentor.id, member_ids)
+        self.assertIn(admin.id, member_ids)
+        self.assertIn(other_mentor.id, member_ids)
+        self.assertIn(assigned_student.id, member_ids)
+
+        # Mentor should NOT see unassigned student
+        self.assertNotIn(unassigned_student.id, member_ids)
+
+    def test_lms_users_for_chat_student_sees_only_assigned_mentors_and_staff(self) -> None:
+        """
+        Student users see:
+        - themselves (through standard /users data)
+        - admins/owners
+        - only mentors assigned to them via Mentortostudent
+        even when no explicit permission matrix row exists.
+        """
+        student = self.example_user("hamlet")
+        admin = self.example_user("iago")
+        assigned_mentor = self.example_user("othello")
+        unassigned_mentor = self.example_user("cordelia")
+
+        realm = student.realm
+
+        # Map student and mentors into LMS with distinct IDs
+        LMSUserMapping.objects.update_or_create(
+            zulip_user=student,
+            defaults={
+                "lms_user_id": 3001,
                 "lms_user_type": "student",
                 "lms_username": "hamlet_student",
                 "is_active": True,
             },
         )
-        allowed_ids = {hamlet.id, iago.id}
-        with patch(
-            "lms_integration.lib.user_filtering.get_filtered_user_ids_by_role",
-            return_value=list(allowed_ids),
-        ):
-            result = self.api_get(hamlet, "/api/v1/lms/users/for-chat")
+        LMSUserMapping.objects.update_or_create(
+            zulip_user=assigned_mentor,
+            defaults={
+                "lms_user_id": 4001,
+                "lms_user_type": "mentor",
+                "lms_username": "othello_mentor",
+                "is_active": True,
+            },
+        )
+        LMSUserMapping.objects.update_or_create(
+            zulip_user=unassigned_mentor,
+            defaults={
+                "lms_user_id": 4002,
+                "lms_user_type": "mentor",
+                "lms_username": "cordelia_mentor",
+                "is_active": True,
+            },
+        )
+
+        # Create mentor→student assignment in LMS junction table
+        Mentortostudent.objects.using("lms_db").create(
+            a_id=4001,
+            b_id=3001,
+        )
+
+        result = self.api_get(student, "/api/v1/lms/users/for-chat")
         data = self.assert_json_success(result)
-        self.assertIn("members", data)
-        returned_ids = {m["user_id"] for m in data["members"]}
-        self.assertEqual(returned_ids, allowed_ids)
+        member_ids = {m["user_id"] for m in data["members"]}
+
+        # Student should see:
+        # - themself
+        # - admin
+        # - assigned mentor
+        self.assertIn(student.id, member_ids)
+        self.assertIn(admin.id, member_ids)
+        self.assertIn(assigned_mentor.id, member_ids)
+
+        # Student should NOT see unassigned mentor
+        self.assertNotIn(unassigned_mentor.id, member_ids)

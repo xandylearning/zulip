@@ -767,6 +767,17 @@ class AbstractAttachment(models.Model):
     # if the person isn't logged in.
     is_web_public = models.BooleanField(default=False, null=True)
 
+    # Media retention / deletion tracking.
+    #
+    # media_expires_at controls when the physical file backing this
+    # attachment should be deleted from storage, while keeping the
+    # database row for historical/audit purposes.
+    media_expires_at = models.DateTimeField(null=True, db_index=True)
+    # Whether the backing file has been deleted from storage.
+    deleted_from_storage = models.BooleanField(default=False, db_index=True)
+    # When the backing file was deleted from storage.
+    deleted_at = models.DateTimeField(null=True)
+
     class Meta:
         abstract = True
 

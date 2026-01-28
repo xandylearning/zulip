@@ -338,23 +338,30 @@ def lms_users_for_chat(
 ) -> HttpResponse:
     """
     GET /api/v1/lms/users/for-chat
-
+    
     Return users the requester is allowed to DM or add to streams, in the same
-    shape as GET /api/v1/users. When the realm's DM permission matrix is
-    enabled, results are filtered by role (mentor/student only for now).
+    shape as GET /api/v1/users.
+    
+    For LMS roles:
+    - Mentors: see admins/owners, other mentors/faculty (per matrix/defaults),
+      and only the students assigned to them in the LMS.
+    - Students: see admins/owners and only their assigned mentors.
+    
+    This mentor/student filtering is applied even if the realm's DM permission
+    matrix has not been explicitly configured; in that case the default matrix
+    is used for LMS roles.
     """
     realm = user_profile.realm
-    filtered_user_ids: list[int] | None = None
     try:
-        from lms_integration.models import RealmDMPermissionMatrix
         from lms_integration.lib.user_filtering import get_filtered_user_ids_by_role
-
-        permission_matrix = RealmDMPermissionMatrix.objects.filter(realm=realm).first()
-        if permission_matrix and permission_matrix.enabled:
-            filtered_user_ids = get_filtered_user_ids_by_role(user_profile, realm)
+        
+        filtered_user_ids: list[int] | None = get_filtered_user_ids_by_role(
+            user_profile,
+            realm,
+        )
     except Exception:
         filtered_user_ids = None
-
+    
     data = get_user_data(
         user_profile,
         include_custom_profile_fields=include_custom_profile_fields,

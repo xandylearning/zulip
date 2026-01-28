@@ -484,11 +484,17 @@ Endpoint for fetching users that the requester is allowed to DM or add to stream
 }
 ```
 
-When the realm’s DM permission matrix (GET/PATCH `/api/v1/lms/dm-permissions`) is enabled, results are filtered by role:
+When the realm’s DM permission matrix (GET/PATCH `/api/v1/lms/dm-permissions`) is enabled, results are filtered by role.
+For LMS roles (mentor and student), this filtering is effectively always on:
 
-- **Mentor:** admins/owners, other mentors, and their students (per permission matrix).
-- **Student:** admins/owners and their assigned mentors only.
-- **Owner/Admin:** unfiltered (see everyone).
+- **Mentor:** always sees admins/owners, other mentors, and only the students assigned
+  to them in the LMS (directly and via batch relationships). If no custom matrix is
+  configured for the realm, the default matrix is used to determine which staff
+  roles (e.g. mentors, faculty) are visible.
+- **Student:** always sees admins/owners and only their assigned mentors (based on LMS
+  mentor–student mappings). As with mentors, if no custom matrix exists the default
+  matrix is used for staff visibility.
+- **Owner/Admin:** unfiltered (see everyone) regardless of the matrix setting.
 
 By default (before any custom configuration is saved), the DM permission matrix is:
 

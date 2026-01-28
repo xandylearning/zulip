@@ -40,6 +40,8 @@ from psycopg2.sql import SQL, Composable, Identifier, Literal
 
 from zerver.lib.logging_util import log_to_file
 from zerver.lib.request import RequestVariableConversionError
+from zerver.lib.upload import delete_message_attachments
+from zerver.lib.thumbnail import StoredThumbnailFormat, get_image_thumbnail_path
 from zerver.models import (
     ArchivedAttachment,
     ArchivedReaction,
@@ -47,6 +49,7 @@ from zerver.models import (
     ArchivedUserMessage,
     ArchiveTransaction,
     Attachment,
+    ImageAttachment,
     Message,
     Reaction,
     Realm,
@@ -337,6 +340,44 @@ def delete_expired_attachments(realm: Realm) -> None:
 
     if num_deleted > 0:
         logger.info("Cleaned up %s attachments for realm %s", num_deleted, realm.string_id)
+
+
+def delete_expired_media_files(batch_size: int = 500) -> None:
+    """Physically delete media files whose retention window has expired.
+
+    This removes the backing storage (original upload and all generated
+    thumbnails) but keeps Attachment/ArchivedAttachment rows so that
+    message history and audit trails remain intact.
+    """
+    now = timezone_now()
+
+    expired_attachments = (
+        Attachment.objects.filter(
+            media_expires_at__isnull=False,
+            media_expires_at__lte=now,
+            deleted_from_storage=False,
+        )
+        .order_by("id")
+        .iterator(chunk_size=batch_size)
+    )
+
+    for attachment in expired_attachments:
+        path_ids: list[str] = [attachment.path_id]
+        # Include any generated thumbnails for this attachment.
+        try:
+            image_attachment = ImageAttachment.objects.get(path_id=attachment.path_id)
+        except ImageAttachment.DoesNotExist:
+            image_attachment = None
+
+        if image_attachment is not None:
+            for meta in image_attachment.thumbnail_metadata:
+                fmt = StoredThumbnailFormat(**meta)
+                path_ids.append(get_image_thumbnail_path(image_attachment, fmt))
+
+        delete_message_attachments(path_ids)
+        attachment.deleted_from_storage = True
+        attachment.deleted_at = now
+        attachment.save(update_fields=["deleted_from_storage", "deleted_at"])
 
 
 def move_related_objects_to_archive(msg_ids: list[int]) -> None:

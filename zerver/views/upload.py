@@ -26,8 +26,8 @@ from django.utils.translation import gettext as _
 
 from zerver.context_processors import get_valid_realm_from_request
 from zerver.decorator import zulip_redirect_to_login
-from zerver.lib.attachments import validate_attachment_request
-from zerver.lib.exceptions import JsonableError
+from zerver.lib.attachments import attachment_is_media_expired, validate_attachment_request
+from zerver.lib.exceptions import ErrorCode, JsonableError
 from zerver.lib.mime_types import INLINE_MIME_TYPES, guess_type
 from zerver.lib.response import json_success
 from zerver.lib.storage import static_path
@@ -290,6 +290,30 @@ def serve_file(
             response = zulip_redirect_to_login(request)
         else:
             response = HttpResponseForbidden(_("<p>You are not authorized to view this file.</p>"))
+        patch_vary_headers(response, ("Accept",))
+        return response
+
+    if attachment_is_media_expired(attachment):
+        # Expired media: Keep Attachment row but report that the file
+        # content is no longer available.
+        preferred = request.get_preferred_type(["application/json", "text/html", "image/png"])
+        if preferred == "application/json":
+            raise JsonableError(
+                _("This media file has expired."),
+                error_code=ErrorCode.MEDIA_EXPIRED,
+                data={"is_expired": True, "attachment_id": attachment.id},
+            )
+
+        def serve_image_error(status: int, image_path: str) -> HttpResponseBase:
+            return FileResponse(open(static_path(image_path), "rb"), status=status)
+
+        if preferred == "image/png":
+            response = serve_image_error(410, "images/errors/image-no-longer-available.png")
+        else:
+            response = HttpResponse(
+                _("<p>This file is no longer available (expired by retention policy).</p>"),
+                status=410,
+            )
         patch_vary_headers(response, ("Accept",))
         return response
     if url_only:

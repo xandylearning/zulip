@@ -4,7 +4,7 @@ import os
 import re
 import unicodedata
 from collections.abc import Callable, Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 from typing import IO, Any
 from urllib.parse import unquote, urljoin
@@ -14,6 +14,7 @@ import pyvips
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
+from django.utils.timezone import now as timezone_now
 from django.utils.translation import gettext as _
 
 from zerver.lib.avatar_hash import user_avatar_base_path_from_ids, user_avatar_path
@@ -86,6 +87,62 @@ def maybe_add_charset(content_type: str, file_data: bytes | StreamingSourceWithS
     return fake_msg["content-type"]
 
 
+def _get_media_expires_at_for_realm(realm: Realm) -> datetime | None:
+    """Compute when media for this realm should expire in storage.
+
+    For now this uses the global MEDIA_RETENTION_DAYS setting; in the
+    future this can be extended to support per-realm overrides.
+    """
+    retention_days = getattr(settings, "MEDIA_RETENTION_DAYS", None)
+    if retention_days is None or retention_days <= 0:
+        return None
+    return timezone_now() + timedelta(days=retention_days)
+
+
+def _maybe_recompress_image_bytes(file_data: bytes, content_type: str) -> tuple[bytes, str]:
+    """Optionally recompress uploaded images to WebP to save space.
+
+    This only operates on simple image uploads where we have the bytes
+    in memory (the standard /json/user_uploads path). Chunked/streaming
+    uploads continue to store the original bytes.
+    """
+    if not getattr(settings, "MEDIA_IMAGE_RECOMPRESS", False):
+        return file_data, content_type
+
+    # Only recompress "safe" raster image formats; leave SVG/ICO/etc and
+    # non-image media untouched.
+    if content_type not in {"image/jpeg", "image/png", "image/heic"}:
+        return file_data, content_type
+
+    try:
+        image = pyvips.Image.new_from_buffer(file_data, "")
+    except pyvips.Error:
+        # If libvips can't decode the image, fall back to original bytes.
+        return file_data, content_type
+
+    max_dim = getattr(settings, "MEDIA_IMAGE_MAX_DIMENSION", 2048)
+    quality = getattr(settings, "MEDIA_IMAGE_WEBP_QUALITY", 80)
+
+    longest_side = max(image.width, image.height)
+    if longest_side > max_dim:
+        # Downscale to fit within max_dim on the longest side while preserving aspect ratio.
+        resized = pyvips.Image.thumbnail_buffer(
+            file_data,
+            max_dim,
+            height=max_dim,
+            size=pyvips.Size.DOWN,
+        )
+    else:
+        resized = image
+
+    try:
+        recompressed = resized.write_to_buffer(".webp", Q=quality)
+    except pyvips.Error:
+        return file_data, content_type
+
+    return recompressed, "image/webp"
+
+
 def create_attachment(
     file_name: str,
     path_id: str,
@@ -98,6 +155,8 @@ def create_attachment(
         user_profile.delivery_email
     )
     if isinstance(file_data, bytes):
+        # Optionally recompress original image uploads to WebP to save space.
+        file_data, content_type = _maybe_recompress_image_bytes(file_data, content_type)
         file_size = len(file_data)
         file_vips_data: bytes | pyvips.Source = file_data
     else:
@@ -105,6 +164,7 @@ def create_attachment(
         file_vips_data = file_data.vips_source
 
     content_type = maybe_add_charset(content_type, file_data)
+    media_expires_at = _get_media_expires_at_for_realm(realm)
     attachment = Attachment.objects.create(
         file_name=file_name,
         path_id=path_id,
@@ -112,6 +172,7 @@ def create_attachment(
         realm=realm,
         size=file_size,
         content_type=content_type,
+        media_expires_at=media_expires_at,
     )
     maybe_thumbnail(file_vips_data, content_type, path_id, realm.id)
     from zerver.actions.uploads import notify_attachment_update

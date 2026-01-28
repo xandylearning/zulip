@@ -17,6 +17,18 @@ _Unreleased_
 
 - None yet.
 
+#### Full feature changelog
+
+- Added configurable media retention and image compression for uploaded files.
+  Uploaded attachments now record when their backing storage should expire,
+  and a new cleanup helper can permanently delete only the stored files while
+  leaving message history intact. When an attachment has expired or been
+  deleted from storage, file download endpoints now return a clear “media no
+  longer available” response (HTTP 410 for browsers and a structured JSON
+  error for API clients). Added server settings to control the default media
+  retention window and to optionally recompress uploaded images to WebP with a
+  bounded maximum dimension and quality to reduce storage usage.
+
 ## Zulip Server 11.x series
 
 ### Zulip Server 11.0

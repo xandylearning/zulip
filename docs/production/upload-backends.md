@@ -21,6 +21,19 @@ size of individual uploaded files using the `MAX_FILE_UPLOAD_SIZE`
 file uploads, and hides the UI for uploading files from the web and
 desktop apps.
 
+In addition to controlling the size of individual uploads, Zulip
+supports retention and compression policies for uploaded media:
+
+- `MEDIA_RETENTION_DAYS` controls how long uploaded attachment content
+  is kept in durable storage. After this window, Zulip can delete the
+  backing files and thumbnails while keeping the database records and
+  message history intact so that clients can display an "expired media"
+  indicator instead of a broken link.
+- `MEDIA_IMAGE_RECOMPRESS`, `MEDIA_IMAGE_MAX_DIMENSION`, and
+  `MEDIA_IMAGE_WEBP_QUALITY` control optional recompression of uploaded
+  images (JPEG/PNG/HEIC) to WebP on upload, bounding the longest side
+  and quality to reduce disk usage without affecting non-image media.
+
 ## S3 backend configuration
 
 Here, we document the process for configuring Zulip's S3 file upload

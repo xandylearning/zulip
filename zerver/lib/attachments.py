@@ -26,7 +26,30 @@ from zerver.models import (
 
 def user_attachments(user_profile: UserProfile) -> list[dict[str, Any]]:
     attachments = Attachment.objects.filter(owner=user_profile).prefetch_related("messages")
-    return [a.to_dict() for a in attachments]
+    return [attachment_to_dict(a) for a in attachments]
+
+
+def attachment_is_media_expired(attachment: Attachment) -> bool:
+    if attachment.deleted_from_storage:
+        return True
+    if attachment.media_expires_at is None:
+        return False
+    return attachment.media_expires_at <= timezone_now()
+
+
+def attachment_to_dict(attachment: Attachment) -> dict[str, Any]:
+    base = attachment.to_dict()
+    base.update(
+        {
+            "media_expires_at": (
+                int(attachment.media_expires_at.timestamp() * 1000)
+                if attachment.media_expires_at is not None
+                else None
+            ),
+            "is_media_expired": attachment_is_media_expired(attachment),
+        }
+    )
+    return base
 
 
 def access_attachment_by_id(

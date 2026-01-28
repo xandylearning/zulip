@@ -176,6 +176,18 @@ MAX_FILE_UPLOAD_SIZE = 100
 # on zulipchat.com.
 UPLOAD_QUOTA_PER_USER_GB = 5
 
+# Media retention and image recompression
+# Number of days after which uploaded media files are eligible to have
+# their backing storage deleted. Attachment database rows and message
+# history remain for audit/history purposes.
+MEDIA_RETENTION_DAYS = 60
+# Whether to recompress original uploaded images to WebP on upload.
+MEDIA_IMAGE_RECOMPRESS = True
+# Maximum dimension (in pixels) for the longest side of recompressed images.
+MEDIA_IMAGE_MAX_DIMENSION = 2048
+# Quality setting (0-100) for WebP recompression of uploaded images.
+MEDIA_IMAGE_WEBP_QUALITY = 80
+
 # Jitsi Meet video call integration; set to None to disable integration.
 JITSI_SERVER_URL: str | None = "https://meet.jit.si"
 

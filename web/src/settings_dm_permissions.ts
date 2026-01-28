@@ -14,11 +14,19 @@ const VALID_ROLES = ['owner', 'admin', 'mentor', 'student', 'parent', 'faculty']
 const ROLE_LABELS: Record<string, string> = {
     owner: $t({defaultMessage: "Owner"}),
     admin: $t({defaultMessage: "Admin"}),
- 
     mentor: $t({defaultMessage: "Mentor"}),
     parent: $t({defaultMessage: "Parent"}),
     faculty: $t({defaultMessage: "Faculty"}),
     student: $t({defaultMessage: "Student"}),
+};
+
+const DEFAULT_MATRIX: Record<string, string[]> = {
+    owner: VALID_ROLES,
+    admin: VALID_ROLES,
+    mentor: ["mentor", "student", "parent"],
+    student: ["mentor"],
+    parent: ["mentor", "faculty", "student"],
+    faculty: ["mentor", "student"],
 };
 
 let permission_matrix: Record<string, string[]> = {};
@@ -190,6 +198,21 @@ export function reset_dm_permissions(): void {
     $subsection.find(".save-button-controls").addClass("hide");
 }
 
+export function restore_defaults(): void {
+    permission_matrix = JSON.parse(JSON.stringify(DEFAULT_MATRIX));
+    
+    // Ensure enabled is true
+    enabled = true;
+    $("#id_lms_dm_permissions_enabled").prop("checked", true);
+    toggle_matrix_visibility(true);
+
+    render_permission_matrix();
+    
+    // Show save buttons so user can persist the defaults
+    const $subsection = $("#org-role-dm-permissions");
+    $subsection.find(".save-button-controls").removeClass("hide");
+}
+
 export function initialize(): void {
     // Load initial state
     load_dm_permissions();
@@ -218,6 +241,13 @@ export function initialize(): void {
         e.preventDefault();
         e.stopPropagation();
         reset_dm_permissions();
+        return false;
+    });
+
+    $("#org-role-dm-permissions").on("click", ".restore-defaults-button", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        restore_defaults();
         return false;
     });
     
