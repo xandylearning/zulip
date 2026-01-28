@@ -7,6 +7,7 @@ Covers loading the matrix and saving enabled/permission_matrix via JSON body.
 from zerver.lib.test_classes import ZulipTestCase
 
 from lms_integration.models import RealmDMPermissionMatrix
+from lms_integration.permission_utils import get_default_permission_matrix
 
 
 class LmsDMPermissionsEndpointTest(ZulipTestCase):
@@ -63,18 +64,12 @@ class LmsDMPermissionsEndpointTest(ZulipTestCase):
         # Ensure no existing matrix
         RealmDMPermissionMatrix.objects.filter(realm=realm).delete()
 
-        result = self.client_get("/api/v1/lms/dm-permissions", HTTP_AUTHORIZATION=self.encode_user(iago))
+        result = self.client_get(
+            "/api/v1/lms/dm-permissions",
+            HTTP_AUTHORIZATION=self.encode_user(iago),
+        )
         data = self.assert_json_success(result)
 
         self.assertTrue(data["enabled"])
-        all_roles = ["owner", "admin", "moderator", "member", "guest", "mentor", "student"]
-        expected_matrix = {
-            "owner": all_roles,
-            "admin": all_roles,
-            "moderator": all_roles,
-            "member": all_roles,
-            "guest": all_roles,
-            "mentor": all_roles,
-            "student": ["mentor"],
-        }
-        self.assertEqual(data["permission_matrix"], expected_matrix)
+        # Defaults should match get_default_permission_matrix().
+        self.assertEqual(data["permission_matrix"], get_default_permission_matrix())

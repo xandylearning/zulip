@@ -23,7 +23,6 @@ const ROLE_LABELS: Record<string, string> = {
 
 let permission_matrix: Record<string, string[]> = {};
 let enabled = false;
-let has_unsaved_changes = false;
 
 export function load_dm_permissions(): void {
     loading.make_indicator($("#dm-permission-matrix-container .loading-indicator"), {
@@ -47,8 +46,6 @@ export function load_dm_permissions(): void {
             if (enabled) {
                 render_permission_matrix();
             }
-            
-            has_unsaved_changes = false;
             
             // Hide save/discard buttons after loading
             const $subsection = $("#org-role-dm-permissions");
@@ -135,7 +132,6 @@ function handle_permission_change(source_role: string, target_role: string, allo
         );
     }
     
-    has_unsaved_changes = true;
     // Trigger change event to enable save button via settings_save_discard_widget
     $("#org-role-dm-permissions").trigger("input");
 }
@@ -148,9 +144,8 @@ export function save_dm_permissions(): void {
     }
     
     const data = {
-        enabled: enabled,
-        permission_matrix: permission_matrix,
-        csrfmiddlewaretoken: csrf_token,
+        enabled,
+        permission_matrix,
     };
     
     loading.make_indicator($("#dm-permission-matrix-container .loading-indicator"), {
@@ -163,13 +158,15 @@ export function save_dm_permissions(): void {
         data: JSON.stringify(data),
         contentType: "application/json",
         dataType: "json",
+        headers: {
+            "X-CSRFToken": csrf_token,
+        },
     })
         .done(() => {
             ui_report.success(
                 $t({defaultMessage: "DM permissions saved successfully"}),
                 $("#dm-permission-matrix-container .alert"),
             );
-            has_unsaved_changes = false;
             // Hide save/discard buttons after successful save
             const $subsection = $("#org-role-dm-permissions");
             $subsection.find(".save-button-controls").addClass("hide");
@@ -204,7 +201,6 @@ export function initialize(): void {
         if (enabled) {
             render_permission_matrix();
         }
-        has_unsaved_changes = true;
         // Show save/discard buttons
         const $subsection = $("#org-role-dm-permissions");
         $subsection.find(".save-button-controls").removeClass("hide");
@@ -226,11 +222,14 @@ export function initialize(): void {
     });
     
     // Mark checkbox changes in the permission matrix to show save/discard buttons
-    $("#org-role-dm-permissions").on("change", "#dm-permission-matrix input[type='checkbox']", function () {
-        has_unsaved_changes = true;
-        // Show save/discard buttons
-        const $subsection = $("#org-role-dm-permissions");
-        $subsection.find(".save-button-controls").removeClass("hide");
-    });
+    $("#org-role-dm-permissions").on(
+        "change",
+        "#dm-permission-matrix input[type='checkbox']",
+        function () {
+            // Show save/discard buttons
+            const $subsection = $("#org-role-dm-permissions");
+            $subsection.find(".save-button-controls").removeClass("hide");
+        },
+    );
 }
 

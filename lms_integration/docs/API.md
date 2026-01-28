@@ -490,6 +490,14 @@ When the realm’s DM permission matrix (GET/PATCH `/api/v1/lms/dm-permissions`)
 - **Student:** admins/owners and their assigned mentors only.
 - **Owner/Admin:** unfiltered (see everyone).
 
+By default (before any custom configuration is saved), the DM permission matrix is:
+
+- **Owner/Admin:** can see/DM all roles.
+- **Mentor:** can see/DM mentors, students, and parents. (Admins/owners are always visible in addition to the matrix.)
+- **Student:** can see/DM mentors.
+- **Parent:** can see/DM mentors, faculty, and students.
+- **Faculty:** can see/DM mentors and students.
+
 The permission matrix configurable roles are **owner**, **admin**, **mentor**, and **student** only. Only **mentor** and **student** roles are implemented for filtering currently.
 
 **Future work:**
