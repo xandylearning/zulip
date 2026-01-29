@@ -6,6 +6,7 @@ Handles both students and mentors.
 """
 
 import logging
+import re
 import uuid
 from typing import Dict, Optional, Tuple, List, Set
 from django.db import transaction
@@ -72,6 +73,14 @@ MENTOR_HIERARCHY_LEVELS = {
 
 # Default hierarchy value if not specified
 DEFAULT_MENTOR_HIERARCHY = 'mentor'
+
+# Skip LMS users whose full_name is a 32-char hex string (system-generated placeholder IDs)
+HEX_NAME_RE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
+
+
+def _should_skip_lms_user_by_name(name: str) -> bool:
+    """Return True if name is a 32-character hex string (bogus/system ID); skip syncing such users."""
+    return bool(HEX_NAME_RE.fullmatch((name or "").strip()))
 
 
 class UserSync:
@@ -517,6 +526,12 @@ class UserSync:
             is_placeholder = user_data.get('is_placeholder', False)
             username = user_data.get('username')
             
+            # Skip users whose name is a 32-char hex string (system-generated placeholder)
+            if _should_skip_lms_user_by_name(full_name):
+                skipped_count += 1
+                logger.debug(f"Skipping user with hex name: {full_name}")
+                continue
+            
             # Check if user already exists (case-insensitive check)
             email_key = email.lower()
             existing_user = self._existing_users_cache.get(email_key)
@@ -883,6 +898,16 @@ class UserSync:
             logger.debug(f"Skipping student {student.id} ({email}) - user exists as mentor and will be synced from Mentors table")
             return False, None, f"User {email} exists as mentor and will be synced from Mentors table"
         
+        # Skip users whose name is a 32-char hex string (system-generated placeholder)
+        full_name = self._get_full_name(
+            student.first_name,
+            student.last_name,
+            student.display_name
+        )
+        if _should_skip_lms_user_by_name(full_name):
+            logger.debug(f"Skipping student {student.id} - name is system-generated hex ID")
+            return False, None, "Skipped: name is system-generated hex ID"
+        
         # Check if user already exists (by email or by username-based placeholder email)
         try:
             # First try exact email match
@@ -1101,6 +1126,16 @@ class UserSync:
             )
         except ValidationError as e:
             return False, None, f"Mentor {mentor.user_id}: Invalid email/username: {e}"
+        
+        # Skip users whose name is a 32-char hex string (system-generated placeholder)
+        full_name = self._get_full_name(
+            mentor.first_name,
+            mentor.last_name,
+            mentor.display_name
+        )
+        if _should_skip_lms_user_by_name(full_name):
+            logger.debug(f"Skipping mentor {mentor.user_id} - name is system-generated hex ID")
+            return False, None, "Skipped: name is system-generated hex ID"
         
         # Check if user already exists (by email or by username-based placeholder email)
         try:
@@ -1548,6 +1583,18 @@ class UserSync:
                         processed += 1
                         continue
 
+                    # Skip users whose name is a 32-char hex string (system-generated placeholder)
+                    full_name = self._get_full_name(
+                        student.first_name,
+                        student.last_name,
+                        student.display_name
+                    )
+                    if _should_skip_lms_user_by_name(full_name):
+                        stats['skipped'] += 1
+                        logger.debug(f"Skipping student {student.id} - name is system-generated hex ID")
+                        processed += 1
+                        continue
+
                     # Find existing user
                     existing_user = None
                     if self.use_bulk_operations:
@@ -1894,6 +1941,18 @@ class UserSync:
                     except ValidationError as e:
                         stats['skipped'] += 1
                         batch_errors.append(f"Mentor {mentor.user_id}: Invalid email/username: {e}")
+                        processed += 1
+                        continue
+
+                    # Skip users whose name is a 32-char hex string (system-generated placeholder)
+                    full_name = self._get_full_name(
+                        mentor.first_name,
+                        mentor.last_name,
+                        mentor.display_name
+                    )
+                    if _should_skip_lms_user_by_name(full_name):
+                        stats['skipped'] += 1
+                        logger.debug(f"Skipping mentor {mentor.user_id} - name is system-generated hex ID")
                         processed += 1
                         continue
 

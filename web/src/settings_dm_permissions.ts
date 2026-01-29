@@ -244,6 +244,13 @@ export function initialize(): void {
         return false;
     });
 
+    $("#org-role-dm-permissions").on("click", ".matrix-save-button", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        save_dm_permissions();
+        return false;
+    });
+
     $("#org-role-dm-permissions").on("click", ".restore-defaults-button", (e) => {
         e.preventDefault();
         e.stopPropagation();

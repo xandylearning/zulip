@@ -277,10 +277,6 @@ def get_filtered_user_ids_by_role(user_profile: UserProfile, realm: Realm) -> Li
                 default_matrix = get_default_permission_matrix()
                 allowed_roles = list(default_matrix.get(user_role, []))
             
-            # If all roles are allowed, no filtering needed
-            if set(allowed_roles) >= set(ALL_ROLES):
-                return None
-            
             if user_role == 'mentor':
                 return get_mentor_filtered_user_ids(
                     user_profile,

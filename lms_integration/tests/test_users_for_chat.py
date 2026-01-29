@@ -140,6 +140,70 @@ class LmsUsersForChatEndpointTest(ZulipTestCase):
         # Mentor should NOT see unassigned student
         self.assertNotIn(unassigned_student.id, member_ids)
 
+    def test_lms_users_for_chat_mentor_filtered_even_with_full_permissions(self) -> None:
+        """
+        Verify that mentors are filtered to their assigned students even if the
+        permission matrix allows them to see ALL roles (which is the default, as
+        admin/owner are implicitly allowed and the matrix covers the rest).
+        """
+        mentor = self.example_user("hamlet")
+        assigned_student = self.example_user("cordelia")
+        unassigned_student = self.example_user("prospero")
+        realm = mentor.realm
+
+        # 1. Enable matrix with ALL roles allowed for mentor
+        RealmDMPermissionMatrix.objects.update_or_create(
+            realm=realm,
+            defaults={
+                "enabled": True,
+                "permission_matrix": {
+                    "mentor": ["admin", "owner", "mentor", "student", "parent", "faculty"],
+                    "student": ["mentor"],
+                },
+            },
+        )
+
+        # 2. Map users
+        LMSUserMapping.objects.update_or_create(
+            zulip_user=mentor,
+            defaults={
+                "lms_user_id": 1001,
+                "lms_user_type": "mentor",
+                "lms_username": "hamlet_mentor",
+                "is_active": True,
+            },
+        )
+        LMSUserMapping.objects.update_or_create(
+            zulip_user=assigned_student,
+            defaults={
+                "lms_user_id": 2001,
+                "lms_user_type": "student",
+                "lms_username": "cordelia_student",
+                "is_active": True,
+            },
+        )
+        LMSUserMapping.objects.update_or_create(
+            zulip_user=unassigned_student,
+            defaults={
+                "lms_user_id": 2002,
+                "lms_user_type": "student",
+                "lms_username": "prospero_student",
+                "is_active": True,
+            },
+        )
+
+        # 3. Create LMS relationship
+        Mentortostudent.objects.using("lms_db").create(a_id=1001, b_id=2001)
+
+        # 4. Fetch users
+        result = self.api_get(mentor, "/api/v1/lms/users/for-chat")
+        data = self.assert_json_success(result)
+        member_ids = {m["user_id"] for m in data["members"]}
+
+        # 5. Assert filtering applied
+        self.assertIn(assigned_student.id, member_ids)
+        self.assertNotIn(unassigned_student.id, member_ids)
+
     def test_lms_users_for_chat_student_sees_only_assigned_mentors_and_staff(self) -> None:
         """
         Student users see:
