@@ -343,13 +343,9 @@ def lms_users_for_chat(
     shape as GET /api/v1/users.
     
     For LMS roles:
-    - Mentors: see admins/owners, other mentors/faculty (per matrix/defaults),
-      and only the students assigned to them in the LMS.
+    - Mentors: see admins/owners, other mentors, and only the students assigned
+      to them in the LMS.
     - Students: see admins/owners and only their assigned mentors.
-    
-    This mentor/student filtering is applied even if the realm's DM permission
-    matrix has not been explicitly configured; in that case the default matrix
-    is used for LMS roles.
     """
     realm = user_profile.realm
     try:
