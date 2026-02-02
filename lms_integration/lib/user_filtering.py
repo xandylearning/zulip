@@ -5,6 +5,7 @@ This module provides functions to filter users based on role-based permission
 matrices configured by realm administrators.
 """
 
+import logging
 from typing import List
 
 from django.db import models
@@ -13,9 +14,12 @@ from zerver.models import Realm, UserProfile
 
 from lms_integration.models import (
     LMSUserMapping,
+    Mentors,
     Mentortostudent,
     Batchtostudent,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def get_user_role(user_profile: UserProfile, realm: Realm) -> str:
@@ -25,7 +29,7 @@ def get_user_role(user_profile: UserProfile, realm: Realm) -> str:
     LMS roles (mentor, student) take precedence over Zulip roles.
     If no LMS mapping exists, returns the Zulip role.
     
-    Returns one of: 'owner', 'admin', 'moderator', 'member', 'guest', 'mentor', 'student'
+    Returns one of: 'owner', 'admin', 'faculty', 'mentor', 'student', 'parent', 'member'
     """
     # Check for LMS role first (takes precedence)
     try:
@@ -45,10 +49,14 @@ def get_user_role(user_profile: UserProfile, realm: Realm) -> str:
         return 'owner'
     elif user_profile.is_realm_admin:
         return 'admin'
-    elif user_profile.is_moderator:
-        return 'moderator'
-    elif user_profile.is_guest:
-        return 'guest'
+    elif user_profile.is_faculty:
+        return 'faculty'
+    elif user_profile.is_mentor:
+        return 'mentor'
+    elif user_profile.is_student:
+        return 'student'
+    elif user_profile.is_parent:
+        return 'parent'
     else:
         return 'member'
 
@@ -75,10 +83,22 @@ def get_mentor_filtered_user_ids(
         ).first()
         
         if not lms_mapping:
-            # Not a mentor, return empty list
+            # User has Zulip role mentor but no LMSUserMapping with lms_user_type='mentor'.
+            # Ensure LMS user sync has run so this user has an LMSUserMapping row.
+            logger.info(
+                "users/for-chat: empty list for mentor %s (id=%s): no LMSUserMapping with lms_user_type='mentor'",
+                user_profile.delivery_email,
+                user_profile.id,
+            )
             return []
-        
+
         mentor_lms_id = lms_mapping.lms_user_id
+        
+        # Mentortostudent.a_id references Mentors.id (table PK), not Mentors.user_id.
+        # LMSUserMapping.lms_user_id for mentors stores Mentors.user_id, so resolve PK.
+        mentor_pk = Mentors.objects.using('lms_db').filter(
+            user_id=mentor_lms_id
+        ).values_list('id', flat=True).first()
         
         user_ids = set()
         
@@ -92,29 +112,34 @@ def get_mentor_filtered_user_ids(
         ).values_list('id', flat=True)
         user_ids.update(admin_owners)
         
-        # Include other mentors
+        # Include other mentors (LMSUserMapping has no realm field; filter via zulip_user)
         other_mentors = LMSUserMapping.objects.filter(
-            realm=realm,
+            zulip_user__realm=realm,
             lms_user_type='mentor',
             is_active=True
         ).exclude(zulip_user=user_profile).values_list('zulip_user_id', flat=True)
         user_ids.update(other_mentors)
         
-        # Include students
-        # Get direct students
-        direct_student_ids = Mentortostudent.objects.using('lms_db').filter(
-            a_id=mentor_lms_id
-        ).values_list('b_id', flat=True)
+        # Include the requesting mentor so they appear in their own chat list
+        user_ids.add(user_profile.id)
+        
+        # Include students (only if we could resolve mentor PK from LMS)
+        direct_student_ids = []
+        if mentor_pk is not None:
+            direct_student_ids = list(
+                Mentortostudent.objects.using('lms_db').filter(
+                    a_id=mentor_pk
+                ).values_list('b_id', flat=True)
+            )
         
         # Get batches where mentor has students
         batch_ids = Batchtostudent.objects.using('lms_db').filter(
             b_id__in=direct_student_ids
         ).values_list('a_id', flat=True).distinct()
         
-        # Get all students in those batches assigned to this mentor
+        # Get all students in those batches (expanding visibility)
         batch_student_ids = Batchtostudent.objects.using('lms_db').filter(
-            a_id__in=batch_ids,
-            b_id__in=direct_student_ids
+            a_id__in=batch_ids
         ).values_list('b_id', flat=True).distinct()
         
         # Combine direct and batch students
@@ -131,8 +156,15 @@ def get_mentor_filtered_user_ids(
         user_ids.update(student_mappings)
         
         return list(user_ids)
-    except Exception:
-        # On error, return empty list (fail secure)
+    except Exception as e:
+        # On error, return empty list (fail secure). Log so admins can fix lms_db/config.
+        logger.warning(
+            "users/for-chat: get_mentor_filtered_user_ids failed for %s (id=%s): %s",
+            user_profile.delivery_email,
+            user_profile.id,
+            e,
+            exc_info=True,
+        )
         return []
 
 
@@ -156,9 +188,14 @@ def get_student_filtered_user_ids(
         ).first()
         
         if not lms_mapping:
-            # Not a student, return empty list
+            # User has Zulip role student but no LMSUserMapping with lms_user_type='student'.
+            logger.info(
+                "users/for-chat: empty list for student %s (id=%s): no LMSUserMapping with lms_user_type='student'",
+                user_profile.delivery_email,
+                user_profile.id,
+            )
             return []
-        
+
         student_lms_id = lms_mapping.lms_user_id
         
         user_ids = set()

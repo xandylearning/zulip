@@ -140,7 +140,52 @@ webhook_endpoint_url: "",
 
 ---
 
-### 5. Unknown Section Error
+### 5. Users/for-chat Empty List: `realm` FieldError on LMSUserMapping
+
+**Problem:**
+`GET /api/v1/lms/users/for-chat` returned an empty `members` list and the server logged:
+
+```
+FieldError: Cannot resolve keyword 'realm' into field. Choices are: created_at, id, is_active, last_error, last_synced_at, lms_user_id, lms_user_type, lms_username, sync_count, zulip_user, zulip_user_id
+```
+
+**Root Cause:**
+`LMSUserMapping` has no `realm` field. It only has a `zulip_user` foreign key to `UserProfile`. The user-filtering code in `get_mentor_filtered_user_ids()` was querying:
+
+```python
+LMSUserMapping.objects.filter(realm=realm, lms_user_type='mentor', ...)
+```
+
+which is invalid for this model.
+
+**Solution:**
+Filter by realm via the related user: use `zulip_user__realm=realm` instead of `realm=realm` when querying `LMSUserMapping`:
+
+```python
+# Before (invalid)
+other_mentors = LMSUserMapping.objects.filter(
+    realm=realm,
+    lms_user_type='mentor',
+    is_active=True
+).exclude(zulip_user=user_profile).values_list('zulip_user_id', flat=True)
+
+# After (correct)
+other_mentors = LMSUserMapping.objects.filter(
+    zulip_user__realm=realm,
+    lms_user_type='mentor',
+    is_active=True
+).exclude(zulip_user=user_profile).values_list('zulip_user_id', flat=True)
+```
+
+**Additional changes:**
+- Added logging in `lms_integration/lib/user_filtering.py` when the mentor/student list is empty: one log when the user has no `LMSUserMapping` (mentor/student), and a warning with traceback when an exception occurs (e.g. LMS DB misconfiguration). This makes it easier to diagnose empty chat lists.
+
+**Files Modified:**
+- `lms_integration/lib/user_filtering.py`: Use `zulip_user__realm=realm` for the "other mentors" query; added logger and log messages for empty-list cases.
+
+---
+
+### 6. Unknown Section Error
 
 **Problem:**
 ```
