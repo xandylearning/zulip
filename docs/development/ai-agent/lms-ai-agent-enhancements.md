@@ -1,5 +1,13 @@
 # AI Agent Enhancements with LMS Data Integration
 
+:::{warning}
+**Status: Proposed Architecture**
+
+This document describes **proposed/enhanced** architecture for LMS data integration with the AI Agent system. The core AI Agent system (Style Analysis, Context Analysis, Response Generation, Decision Agent, and Intelligent Suggestion Agent) is implemented, but the specific LMS-enhanced agents described here (Academic Context Agent, Performance Analysis Agent, Enhanced Response Generation Agent with academic awareness) are **not yet implemented** in the current codebase.
+
+The existing `lms_integration` app provides different integration patterns (e.g., `RealmDMPermissionMatrix`, `user_filtering`). This document outlines a future enhancement path.
+:::
+
 ## Executive Summary
 
 This document outlines how to enhance the existing Zulip AI Agent system with rich academic context from your LMS database. The integration transforms the AI agent from a generic conversation assistant into an intelligent academic mentor that understands student performance, learning patterns, and educational context.

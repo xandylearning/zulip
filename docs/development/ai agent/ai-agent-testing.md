@@ -73,8 +73,23 @@ def test_agent_orchestrator_workflow()     # Complete workflow
 
 A specialized test runner is provided at `/tools/test-ai-agents`:
 
+:::{note}
+**Running Tests Locally vs in Vagrant**
+
+The `test-ai-agents` script is written for the vagrant development environment (uses `/srv/zulip` path). For local development outside vagrant, you can run the tests directly using Django's test runner:
+
 ```bash
-# Run all AI tests
+# Local development (outside vagrant)
+./tools/test-backend zerver.tests.test_ai_agent_integration
+./tools/test-backend zerver.tests.test_ai_event_system
+./tools/test-backend zerver.tests.test_ai_agent_core
+```
+
+Or use the test runner script if you adjust the paths:
+:::
+
+```bash
+# Run all AI tests (vagrant environment)
 vagrant ssh -c "cd /srv/zulip && ./tools/test-ai-agents"
 
 # Run specific test module
@@ -277,6 +292,6 @@ To include AI agent tests in your CI pipeline:
 ## Related Documentation
 
 - [AI Messaging Integration](../subsystems/ai-messaging-integration.md)
-- [AI Mentor Response System](../subsystems/ai-mentor-response-system.md)
-- [AI Agent Environment Variables](../production/ai-agent-environment-variables.md)
+- [AI Mentor Configuration](../production/ai-mentor-configuration.md) - Production configuration guide
+- [AI Integrations](../production/ai-integrations.md) - AI features overview
 - [Zulip Testing Guide](../testing/testing.md)

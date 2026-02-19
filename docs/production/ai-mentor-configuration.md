@@ -161,7 +161,7 @@ USE_LANGGRAPH_AGENTS = True
 PORTKEY_API_KEY = get_secret("portkey_api_key")
 
 # AI Model Configuration
-AI_MENTOR_MODEL = "gemini-1.5-flash"  # AI model to use
+AI_MENTOR_MODEL = "gemini-2.0-flash-lite"  # AI model to use (default)
 AI_MENTOR_TEMPERATURE = 0.7  # Response creativity (0.0-1.0)
 AI_MENTOR_MAX_TOKENS = 1000  # Maximum response length
 AI_MENTOR_MAX_RETRIES = 3  # Number of retry attempts on failure
@@ -312,7 +312,7 @@ export AI_MENTOR_URGENCY_THRESHOLD=0.3
 
 | Setting | Description | Default | Recommended |
 |---------|-------------|---------|-------------|
-| `AI_MENTOR_MODEL` | AI model to use | `gemini-1.5-flash` | `gemini-1.5-flash` or `gpt-4` |
+| `AI_MENTOR_MODEL` | AI model to use | `gemini-2.0-flash-lite` | `gemini-2.0-flash-lite`, `gemini-1.5-flash`, or `gpt-4` |
 | `AI_MENTOR_TEMPERATURE` | Response creativity (0.0-1.0) | `0.7` | `0.7` for balanced creativity |
 | `AI_MENTOR_MAX_TOKENS` | Maximum response length | `1000` | `1000-2000` depending on needs |
 | `AI_MENTOR_TIMEOUT` | Request timeout (seconds) | `30` | `30-60` for complex models |

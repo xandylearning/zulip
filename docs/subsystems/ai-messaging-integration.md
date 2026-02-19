@@ -1,5 +1,25 @@
 # AI Messaging Integration - Production System
 
+:::{note}
+**Documentation Status**
+
+This document describes both **implemented** and **planned/specification** components of the AI messaging integration system. Sections marked with ✅ are production-ready and implemented. Code examples for components like `AIMessageEnhancer`, `AIPrivacyController`, `LMSDataFetcher`, database models (`AIMessageEnhancement`, `MentorCommunicationStyle`, etc.), and API endpoints (`zerver/views/ai_mentor_messages.py`) are **specification/planned features** and do not exist in the current codebase.
+
+**Implemented Components:**
+- ✅ AI Mentor Worker (`zerver/worker/ai_mentor_worker.py`)
+- ✅ AI Agent Orchestrator (`zerver/lib/ai_agent_core.py`)
+- ✅ Event listeners (`zerver/event_listeners/ai_mentor.py`, `ai_message_monitor.py`)
+- ✅ Message pipeline integration (`zerver/actions/message_send.py`)
+- ✅ Event dispatch (`zerver/actions/ai_mentor_events.py`)
+- ✅ Database fields (`is_ai_generated`, `ai_metadata` in Message model)
+
+**Planned/Specification Components:**
+- 📋 LMS-enhanced agents (see [LMS AI Agent Enhancements](../development/ai-agent/lms-ai-agent-enhancements.md))
+- 📋 `AIMessageEnhancer`, `AIPrivacyController` classes
+- 📋 Additional database models for AI message tracking
+- 📋 REST API endpoints for AI mentor messages
+:::
+
 This document describes the production-ready AI-powered messaging system that enhances mentor-student communication using LangGraph multi-agent workflows, Portkey AI gateway, and comprehensive event-driven processing.
 
 ## Overview
@@ -53,7 +73,7 @@ The system operates on a modern event-driven architecture that processes AI conv
 - **Decision Agent**: Configurable thresholds optimized for immediate testing
 
 #### Portkey AI Gateway
-- **Fast Model**: Uses `gemini-1.5-flash` for optimal speed/quality balance
+- **Fast Model**: Uses `gemini-2.0-flash-lite` for optimal speed/quality balance
 - **Reduced Latency**: 10-second timeouts, 2 retry attempts max
 - **Error Handling**: Detailed logging with structured error responses
 - **Cost Optimization**: Token limits and efficient prompt engineering
@@ -363,7 +383,7 @@ The AI Mentor Response System is now fully operational with the following capabi
 - **Location**: `zerver/lib/ai_mentor_response.py` - Complete implementation
 - **API Endpoints**: `zerver/views/ai_mentor_messages.py` - REST API access
 - **Event System**: `zerver/actions/ai_mentor_events.py` - Event tracking and notifications
-- **Documentation**: `docs/subsystems/ai-mentor-response-system.md` - Complete technical documentation
+- **Documentation**: See [AI Mentor Configuration](../production/ai-mentor-configuration.md) and [AI Integrations](../production/ai-integrations.md) for complete technical documentation
 
 When a student messages a mentor and the mentor doesn't respond within a configurable time period (default: 4 hours), the AI system can automatically generate a response that mimics the mentor's communication style.
 
@@ -1950,14 +1970,14 @@ USE_LANGGRAPH_AGENTS=true                          # Enable AI agent system
 PORTKEY_API_KEY=your_portkey_api_key              # Required for AI processing
 
 # Model Configuration  
-AI_MENTOR_MODEL=gemini-1.5-flash                  # Fast, cost-effective model
+AI_MENTOR_MODEL=gemini-2.0-flash-lite             # Fast, cost-effective model
 AI_MENTOR_TEMPERATURE=0.7                         # Response creativity
 AI_MENTOR_MAX_TOKENS=1000                         # Token limit per request
 
 # Performance Settings (Optimized)
 AI_MENTOR_MAX_RETRIES=2                           # Reduced for speed
 AI_MENTOR_TIMEOUT=10                              # Fast timeout (10s vs 30s)
-AI_AGENT_STATE_DB_PATH=/var/lib/zulip/ai_state.db # State persistence
+AI_AGENT_STATE_DB_PATH=/var/lib/zulip/ai_agent_state.db # State persistence
 
 # Testing Configuration (Immediate Response)
 AI_MENTOR_MIN_ABSENCE_MINUTES=1                   # 1 minute for testing
@@ -1973,7 +1993,7 @@ python manage.py run_ai_mentor_worker
 
 # Or with supervisor (recommended)
 # Add to supervisor configuration:
-[program:ai_mentor_worker]
+[program:zulip-ai-mentor-worker]
 command=/path/to/zulip/manage.py run_ai_mentor_worker
 directory=/path/to/zulip
 user=zulip
@@ -2175,7 +2195,7 @@ export USE_LANGGRAPH_AGENTS=true
 export PORTKEY_API_KEY=your_portkey_api_key
 
 # Performance optimized defaults
-export AI_MENTOR_MODEL=gemini-1.5-flash
+export AI_MENTOR_MODEL=gemini-2.0-flash-lite
 export AI_MENTOR_TIMEOUT=10
 export AI_MENTOR_MAX_RETRIES=2
 ```
@@ -2186,7 +2206,7 @@ export AI_MENTOR_MAX_RETRIES=2
 python manage.py run_ai_mentor_worker
 
 # Production (with supervisor)
-supervisorctl start ai_mentor_worker
+supervisorctl start zulip-ai-mentor-worker
 ```
 
 ### Production Readiness Checklist
@@ -2224,7 +2244,7 @@ supervisorctl start ai_mentor_worker
 **System Health Checks:**
 ```bash
 # Check AI worker status
-supervisorctl status ai_mentor_worker
+supervisorctl status zulip-ai-mentor-worker
 
 # Verify configuration
 python -c "from zproject.ai_agent_settings import validate_ai_agent_settings; print(validate_ai_agent_settings())"
@@ -2259,10 +2279,10 @@ print(f"Daily Responses: {metrics.get('daily_count', 0)}")
 tail -f /var/log/zulip/ai_mentor_worker.log
 
 # Verify permissions
-ls -la /var/lib/zulip/ai_state.db
+ls -la /var/lib/zulip/ai_agent_state.db
 
 # Restart worker
-supervisorctl restart ai_mentor_worker
+supervisorctl restart zulip-ai-mentor-worker
 ```
 
 **2. API Connection Issues**
@@ -2288,10 +2308,10 @@ print(get_token_usage_stats())
 **4. State Database Issues**
 ```bash
 # Check database integrity
-sqlite3 /var/lib/zulip/ai_state.db ".tables"
+sqlite3 /var/lib/zulip/ai_agent_state.db ".tables"
 
 # Reset if corrupted
-rm /var/lib/zulip/ai_state.db && supervisorctl restart ai_mentor_worker
+rm /var/lib/zulip/ai_agent_state.db && supervisorctl restart zulip-ai-mentor-worker
 ```
 
 ## Related Documentation
@@ -2299,11 +2319,11 @@ rm /var/lib/zulip/ai_state.db && supervisorctl restart ai_mentor_worker
 - 🏗️ **[AI Agent Architecture](../development/ai-agent/ai-agent-architecture.md)** - Detailed system design
 - 🔧 **[Configuration Guide](../production/ai-mentor-configuration.md)** - Production settings  
 - 🐛 **[Error Resolution](../development/ai-agent-error-resolution-comprehensive.md)** - Troubleshooting
-- 📊 **[Performance Guide](../production/ai-performance-monitoring.md)** - Optimization tips
+- 📊 **[AI Mentor Configuration](../production/ai-mentor-configuration.md)** - Production configuration and optimization tips
 
 ## Testing Strategy
 
-The spike test in `/Users/straxs/Work/zulip/zerver/tests/test_ai_messaging_integration.py` covers:
+The AI agent tests in `zerver/tests/test_ai_agent_integration.py`, `test_ai_event_system.py`, and `test_ai_agent_core.py` cover:
 
 1. **Core Functionality Testing**
    - Mentor-student communication validation

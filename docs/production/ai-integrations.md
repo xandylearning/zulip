@@ -72,32 +72,38 @@ the system:
 
 #### Configuration
 
-Enable the AI mentor system by configuring the following settings in `/etc/zulip/settings.py`:
+The AI mentor system is configured through environment variables and settings
+in `zproject/ai_agent_settings.py`. For production deployments, set these
+environment variables:
 
-```python
+```bash
 # Enable AI mentor system
-USE_LANGGRAPH_AGENTS = True
+USE_LANGGRAPH_AGENTS=true
 
 # Portkey AI Gateway Configuration
-PORTKEY_API_KEY = get_secret("portkey_api_key")
+PORTKEY_API_KEY=your_portkey_api_key_here
 
 # AI Model Configuration
-AI_MENTOR_MODEL = "gemini-1.5-flash"
-AI_MENTOR_TEMPERATURE = 0.7
-AI_MENTOR_MAX_TOKENS = 1000
+AI_MENTOR_MODEL=gemini-2.0-flash-lite
+AI_MENTOR_TEMPERATURE=0.7
+AI_MENTOR_MAX_TOKENS=1000
 
 # Decision Thresholds
-AI_MENTOR_MIN_ABSENCE_MINUTES = 240  # 4 hours minimum absence
-AI_MENTOR_MAX_DAILY_RESPONSES = 3     # Max 3 AI responses per mentor per day
-AI_MENTOR_URGENCY_THRESHOLD = 0.7     # High urgency required
-AI_MENTOR_CONFIDENCE_THRESHOLD = 0.6  # High confidence required
+AI_MENTOR_MIN_ABSENCE_MINUTES=240  # 4 hours minimum absence
+AI_MENTOR_MAX_DAILY_RESPONSES=3     # Max 3 AI responses per mentor per day
+AI_MENTOR_URGENCY_THRESHOLD=0.7     # High urgency required
+AI_MENTOR_CONFIDENCE_THRESHOLD=0.6  # High confidence required
 
 # Feature Flags
-AI_ENABLE_STYLE_ANALYSIS = True
-AI_ENABLE_CONTEXT_ANALYSIS = True
-AI_ENABLE_RESPONSE_GEN = True
-AI_ENABLE_AUTO_RESPONSES = True
+AI_ENABLE_STYLE_ANALYSIS=true
+AI_ENABLE_CONTEXT_ANALYSIS=true
+AI_ENABLE_RESPONSE_GEN=true
+AI_ENABLE_SUGGESTIONS=true
+AI_ENABLE_AUTO_RESPONSES=true
 ```
+
+See [AI Mentor Configuration](ai-mentor-configuration.md) for detailed
+configuration options and production deployment instructions.
 
 #### Security and Privacy
 

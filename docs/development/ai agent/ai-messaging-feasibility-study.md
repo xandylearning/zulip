@@ -103,7 +103,7 @@ PORTKEY_VIRTUAL_KEY = os.environ.get('PORTKEY_VIRTUAL_KEY', '')
 PORTKEY_BASE_URL = os.environ.get('PORTKEY_BASE_URL', 'https://api.portkey.ai/v1')
 
 # Multi-provider LLM access with automatic failover
-AI_MENTOR_MODEL = os.environ.get('AI_MENTOR_MODEL', 'gpt-4')
+AI_MENTOR_MODEL = os.environ.get('AI_MENTOR_MODEL', 'gemini-2.0-flash-lite')
 AI_MENTOR_MAX_RETRIES = int(os.environ.get('AI_MENTOR_MAX_RETRIES', '3'))
 AI_MENTOR_TIMEOUT = int(os.environ.get('AI_MENTOR_TIMEOUT', '30'))
 ```
@@ -127,7 +127,7 @@ CREATE INDEX zerver_message_is_ai_generated_idx ON zerver_message(is_ai_generate
 -- AI Metadata Structure
 {
   "ai_system": "langgraph_agents",
-  "model": "gpt-4",
+  "model": "gemini-2.0-flash-lite",
   "confidence_score": 0.85,
   "urgency_score": 0.7,
   "response_type": "mentor_response",
@@ -193,7 +193,7 @@ export PORTKEY_API_KEY=your_portkey_api_key
 export PORTKEY_VIRTUAL_KEY=your_portkey_virtual_key
 
 # AI Model Configuration
-export AI_MENTOR_MODEL=gpt-4
+export AI_MENTOR_MODEL=gemini-2.0-flash-lite
 export AI_MENTOR_MIN_ABSENCE_MINUTES=240
 export AI_MENTOR_MAX_DAILY_RESPONSES=3
 export AI_MENTOR_CONFIDENCE_THRESHOLD=0.6
@@ -224,9 +224,9 @@ vagrant ssh -c "cd /srv/zulip && python test_ai_integration.py"
 ### 3.2 Documentation and Support ✅ COMPREHENSIVE
 
 **Complete Documentation Package:**
-- **Environment Variables**: [AI Agent Environment Variables Guide](../production/ai-agent-environment-variables.md)
+- **Environment Variables**: [AI Mentor Configuration](../production/ai-mentor-configuration.md) - Complete configuration guide
 - **System Integration**: [AI Messaging Integration Documentation](../subsystems/ai-messaging-integration.md)
-- **Agent System**: [AI Mentor Response System Documentation](../subsystems/ai-mentor-response-system.md)
+- **Production Setup**: [AI Integrations](../production/ai-integrations.md) - Production deployment guide
 - **Implementation Report**: This feasibility study (updated to success report)
 
 ## 4. Conclusion
@@ -253,7 +253,7 @@ vagrant ssh -c "cd /srv/zulip && python test_ai_integration.py"
 5. ✅ Test student-to-mentor message AI response generation
 
 **Optional Enhancements:**
-- LMS data integration for enhanced context (configurable)
+- LMS data integration for enhanced context (configurable) - *Note: Core LMS integration exists in the `lms_integration` app, but the specific LMS-enhanced AI agents described in [LMS AI Agent Enhancements](../ai-agent/lms-ai-agent-enhancements.md) are planned features, not yet implemented.*
 - Advanced analytics dashboard for AI interaction monitoring
 - Mobile app integration for AI features
 - Custom agent training for specific institutional needs

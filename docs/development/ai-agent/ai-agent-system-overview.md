@@ -101,7 +101,7 @@ sequenceDiagram
 python manage.py run_ai_mentor_worker
 
 # Supervisor configuration
-[program:ai_mentor_worker]
+[program:zulip-ai-mentor-worker]
 command=/path/to/zulip/manage.py run_ai_mentor_worker
 directory=/path/to/zulip
 user=zulip
@@ -169,7 +169,7 @@ class AIAgentOrchestrator:
 ```python
 PORTKEY_API_KEY = "your_api_key"
 PORTKEY_PROVIDER = "google"
-AI_MENTOR_MODEL = "gemini-1.5-flash"  # Fast, cost-effective
+AI_MENTOR_MODEL = "gemini-2.0-flash-lite"  # Fast, cost-effective (default)
 AI_MENTOR_TIMEOUT = 10  # Optimized for speed
 AI_MENTOR_MAX_RETRIES = 2
 ```
@@ -235,7 +235,7 @@ USE_LANGGRAPH_AGENTS=true
 PORTKEY_API_KEY=your_portkey_api_key
 
 # Model Configuration (Optimized)
-AI_MENTOR_MODEL=gemini-1.5-flash
+AI_MENTOR_MODEL=gemini-2.0-flash-lite
 AI_MENTOR_TEMPERATURE=0.7
 AI_MENTOR_MAX_TOKENS=1000
 AI_MENTOR_TIMEOUT=10
@@ -248,7 +248,7 @@ AI_MENTOR_CONFIDENCE_THRESHOLD=0.6
 AI_MENTOR_URGENCY_THRESHOLD=0.7
 
 # State Persistence
-AI_AGENT_STATE_DB_PATH=/var/lib/zulip/ai_state.db
+AI_AGENT_STATE_DB_PATH=/var/lib/zulip/ai_agent_state.db
 ```
 
 **Testing Configuration:**
@@ -311,7 +311,7 @@ AI_AGENT_WORKFLOW_CONFIG = {
 
 ```bash
 # System status
-supervisorctl status ai_mentor_worker
+supervisorctl status zulip-ai-mentor-worker
 
 # Configuration validation
 python -c "from zproject.ai_agent_settings import validate_ai_agent_settings; print(validate_ai_agent_settings())"

@@ -290,7 +290,7 @@ graph TB
 ```
 
 **Optimized Features**:
-- **Fast Model**: Uses `gemini-1.5-flash` for speed (vs GPT-4)
+- **Fast Model**: Uses `gemini-2.0-flash-lite` for speed (default, configurable)
 - **Reduced Retries**: 2 attempts max (vs 3) for faster failure
 - **Short Timeouts**: 10 seconds (vs 30) for responsive failure
 - **Detailed Logging**: Comprehensive error information for debugging
@@ -505,7 +505,7 @@ USE_LANGGRAPH_AGENTS=true
 PORTKEY_API_KEY=your_portkey_api_key
 
 # AI Model Configuration
-AI_MENTOR_MODEL=gpt-4
+AI_MENTOR_MODEL=gemini-2.0-flash-lite  # Default model, configurable
 AI_MENTOR_TEMPERATURE=0.7
 AI_MENTOR_MAX_TOKENS=1000
 
