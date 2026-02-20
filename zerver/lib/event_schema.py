@@ -89,6 +89,8 @@ from zerver.lib.event_types import (
     EventTypingEditMessageStop,
     EventTypingStart,
     EventTypingStop,
+    EventVoiceRecordingStart,
+    EventVoiceRecordingStop,
     EventUpdateDisplaySettings,
     EventUpdateGlobalNotifications,
     EventUpdateMessage,
@@ -218,6 +220,8 @@ check_subscription_peer_remove = make_checker(EventSubscriptionPeerRemove)
 check_subscription_remove = make_checker(EventSubscriptionRemove)
 check_typing_start = make_checker(EventTypingStart)
 check_typing_stop = make_checker(EventTypingStop)
+check_voice_recording_start = make_checker(EventVoiceRecordingStart)
+check_voice_recording_stop = make_checker(EventVoiceRecordingStop)
 check_typing_edit_message_start = make_checker(EventTypingEditMessageStart)
 check_typing_edit_message_stop = make_checker(EventTypingEditMessageStop)
 check_update_message_flags_add = make_checker(EventUpdateMessageFlagsAdd)

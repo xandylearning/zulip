@@ -136,6 +136,10 @@ from zerver.actions.typing import (
     do_send_stream_message_edit_typing_notification,
     do_send_stream_typing_notification,
 )
+from zerver.actions.voice_recording import (
+    check_send_voice_recording_notification,
+    do_send_stream_voice_recording_notification,
+)
 from zerver.actions.user_groups import (
     add_subgroups_to_user_group,
     bulk_add_members_to_user_groups,
@@ -232,6 +236,8 @@ from zerver.lib.event_schema import (
     check_typing_edit_message_stop,
     check_typing_start,
     check_typing_stop,
+    check_voice_recording_start,
+    check_voice_recording_stop,
     check_update_display_settings,
     check_update_global_notifications,
     check_update_message,
@@ -1664,6 +1670,31 @@ class NormalActionsTest(BaseAction):
                 topic_name,
             )
         self.assertEqual(events, [])
+
+    def test_voice_recording_events(self) -> None:
+        with self.verify_action(state_change_expected=False) as events:
+            check_send_voice_recording_notification(
+                self.user_profile, [self.example_user("cordelia").id], "start"
+            )
+        check_voice_recording_start("events[0]", events[0])
+        with self.verify_action(state_change_expected=False) as events:
+            check_send_voice_recording_notification(
+                self.user_profile, [self.example_user("cordelia").id], "stop"
+            )
+        check_voice_recording_stop("events[0]", events[0])
+
+        stream = get_stream("Denmark", self.user_profile.realm)
+        topic_name = "voice"
+        with self.verify_action(state_change_expected=False) as events:
+            do_send_stream_voice_recording_notification(
+                self.user_profile, "start", stream, topic_name
+            )
+        check_voice_recording_start("events[0]", events[0])
+        with self.verify_action(state_change_expected=False) as events:
+            do_send_stream_voice_recording_notification(
+                self.user_profile, "stop", stream, topic_name
+            )
+        check_voice_recording_stop("events[0]", events[0])
 
     def test_edit_direct_message_typing_events(self) -> None:
         msg_id = self.send_personal_message(self.user_profile, self.example_user("cordelia"))

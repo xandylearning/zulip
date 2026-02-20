@@ -25,6 +25,13 @@ releases.
 
 ## Changes in Zulip 11.0
 
+**Feature level 425**
+
+* [`POST /voice_recording`](/api/set-voice-recording-status): Added a new endpoint
+  to set the voice recording status.
+* [`GET /events`](/api/get-events): Added `voice_recording` event type to
+  notify clients when a user starts or stops recording a voice message.
+
 **Feature level 421**
 
 No changes; API feature level used for the Zulip 11.0 release.

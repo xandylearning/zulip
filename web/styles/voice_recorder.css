@@ -1,26 +1,49 @@
 .voice-recorder-panel {
     grid-area: message-content;
+    z-index: 10;
     border-radius: 6px;
     padding: 6px 8px;
     margin-bottom: 4px;
     background-color: var(--color-background-2);
     min-height: 44px;
     display: flex;
-    flex-direction: column;
-    justify-content: center;
+    flex-direction: row;
+    align-items: center;
+}
+
+.voice-recorder-label {
+    margin-right: 12px;
+    font-weight: 600;
+    color: var(--color-text-default);
+    flex-shrink: 0;
 }
 
 .voice-recorder-waveform {
     height: 32px;
-    border-radius: 999px;
-    background-color: var(--color-background-3);
-    margin-bottom: 6px;
+    border-radius: 8px;
+    background-color: hsla(0, 0%, 50%, 0.2);
+    flex: 1;
+    margin-right: 12px;
+    min-width: 0;
+    /* Create a fake waveform effect using a repeating gradient */
+    background-image: repeating-linear-gradient(
+        90deg,
+        transparent 0px,
+        transparent 3px,
+        var(--color-text-default) 3px,
+        var(--color-text-default) 5px
+    );
+    background-size: 100% 60%;
+    background-position: center;
+    background-repeat: no-repeat;
+    opacity: 0.8;
 }
 
 .voice-recorder-controls {
     display: flex;
     gap: 8px;
     align-items: center;
+    flex-shrink: 0;
 }
 
 .voice-recorder-stop {

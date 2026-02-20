@@ -246,6 +246,8 @@ class ClientDescriptor:
             # delivered if the stream_typing_notifications
             # client_capability is enabled, for backwards compatibility.
             return self.stream_typing_notifications
+        if event["type"] == "voice_recording" and "stream_id" in event:
+            return self.stream_typing_notifications
         if self.user_settings_object and event["type"] in [
             "update_display_settings",
             "update_global_notifications",
@@ -1680,6 +1682,27 @@ def process_stream_typing_notification_event(
                 client.add_event(empty_topic_name_fallback_event)
 
 
+def process_stream_voice_recording_notification_event(
+    event: Mapping[str, Any], users: Iterable[int]
+) -> None:
+    empty_topic_name_fallback_event: Mapping[str, Any] | dict[str, Any]
+    if event.get("topic") == "":
+        empty_topic_name_fallback_event = dict(event)
+        empty_topic_name_fallback_event["topic"] = Message.EMPTY_TOPIC_FALLBACK_NAME
+    else:
+        empty_topic_name_fallback_event = event
+
+    for user_profile_id in users:
+        for client in get_client_descriptors_for_user(user_profile_id):
+            if not client.accepts_event(event):
+                continue
+
+            if client.empty_topic_name:
+                client.add_event(event)
+            else:
+                client.add_event(empty_topic_name_fallback_event)
+
+
 def process_mark_message_unread_event(event: Mapping[str, Any], users: Iterable[int]) -> None:
     empty_topic_name_fallback_event = copy.deepcopy(dict(event))
     for message_id, message_detail in empty_topic_name_fallback_event["message_details"].items():
@@ -1727,6 +1750,8 @@ def process_notification(notice: Mapping[str, Any]) -> None:
         process_user_topic_event(event, cast(list[int], users))
     elif event["type"] == "typing" and event["message_type"] == "stream":
         process_stream_typing_notification_event(event, cast(list[int], users))
+    elif event["type"] == "voice_recording" and event["message_type"] == "stream":
+        process_stream_voice_recording_notification_event(event, cast(list[int], users))
     elif (
         event["type"] == "update_message_flags"
         and event["op"] == "remove"

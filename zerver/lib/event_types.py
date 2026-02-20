@@ -1096,6 +1096,32 @@ class EventTypingStop(EventTypingStopCore):
     topic: str | None = None
 
 
+class EventVoiceRecordingStartCore(BaseEvent):
+    type: Literal["voice_recording"]
+    op: Literal["start"]
+    message_type: Literal["direct", "stream"]
+    sender: TypingPerson
+
+
+class EventVoiceRecordingStart(EventVoiceRecordingStartCore):
+    recipients: list[TypingPerson] | None = None
+    stream_id: int | None = None
+    topic: str | None = None
+
+
+class EventVoiceRecordingStopCore(BaseEvent):
+    type: Literal["voice_recording"]
+    op: Literal["stop"]
+    message_type: Literal["direct", "stream"]
+    sender: TypingPerson
+
+
+class EventVoiceRecordingStop(EventVoiceRecordingStopCore):
+    recipients: list[TypingPerson] | None = None
+    stream_id: int | None = None
+    topic: str | None = None
+
+
 class RecipientFieldForTypingEditChannelMessage(BaseModel):
     type: Literal["channel"]
     channel_id: int

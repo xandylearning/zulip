@@ -231,6 +231,7 @@ from zerver.views.submessage import process_submessage
 from zerver.views.thumbnail import backend_serve_thumbnail
 from zerver.views.tusd import handle_tusd_hook
 from zerver.views.typing import send_message_edit_notification_backend, send_notification_backend
+from zerver.views.voice_recording import send_voice_recording_backend
 from zerver.views.unsubscribe import email_unsubscribe
 from zerver.views.upload import (
     serve_file_backend,
@@ -465,6 +466,8 @@ v1_api_and_json_patterns = [
     rest_path("typing", POST=send_notification_backend),
     # POST sends a message edit typing notification
     rest_path("messages/<int:message_id>/typing", POST=send_message_edit_notification_backend),
+    # voice_recording -> zerver.views.voice_recording
+    rest_path("voice_recording", POST=send_voice_recording_backend),
     # broadcast notifications -> zerver.views.notifications
     # Template management endpoints
     rest_path("notification_templates", GET=list_notification_templates, POST=create_notification_template),

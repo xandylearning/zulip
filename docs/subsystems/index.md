@@ -31,6 +31,7 @@ analytics
 client
 logging
 typing-indicators
+voice-recording
 django-upgrades
 release-checklist
 api-release-checklist

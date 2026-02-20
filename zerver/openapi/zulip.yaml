@@ -23792,6 +23792,111 @@ paths:
                     description: |
                       An example JSON error response when the user composes a channel message
                       and `stream_id` is not specified:
+  /voice_recording:
+    post:
+      operationId: set-voice-recording-status
+      summary: Set "voice_recording" status
+      tags: ["users"]
+      description: |
+        Notify other users whether the current user is
+        recording a voice message.
+
+        Clients implementing Zulip's voice recording notifications
+        protocol should work as follows:
+
+        - Send a request to this endpoint with `"op": "start"` when a user
+          starts recording a voice message.
+        - Send a request to this endpoint with `"op": "stop"` when a user
+          has stopped recording.
+        - Start displaying a visual indicator for a given conversation
+          when a [`voice_recording op:start`][start-voice] event is received
+          from the server.
+        - Continue displaying a visual indicator for the conversation
+          until a [`voice_recording op:stop`][stop-voice] event is received
+          from the server.
+
+        [start-voice]: /api/get-events#voice-recording-start
+        [stop-voice]: /api/get-events#voice-recording-stop
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                type:
+                  description: |
+                    Type of the message being composed.
+                  type: string
+                  enum:
+                    - direct
+                    - stream
+                    - channel
+                  default: direct
+                  example: direct
+                op:
+                  description: |
+                    Whether the user has started (`"start"`) or stopped (`"stop"`) recording.
+                  type: string
+                  enum:
+                    - start
+                    - stop
+                  example: start
+                to:
+                  description: |
+                    User IDs of the recipients of the message being recorded. Required for the
+                    `"direct"` type. Ignored in the case of `"stream"` or `"channel"` type.
+
+                    Clients should send a JSON-encoded list of user IDs, even if there is only
+                    one recipient.
+                  type: array
+                  items:
+                    type: integer
+                  minLength: 1
+                  example: [9, 10]
+                stream_id:
+                  description: |
+                    ID of the channel in which the message is being recorded. Required for the `"stream"`
+                    or `"channel"` type. Ignored in the case of `"direct"` type.
+                  type: integer
+                  example: 7
+                topic:
+                  description: |
+                    Topic to which message is being recorded. Required for the `"stream"` or `"channel"`
+                    type. Ignored in the case of `"direct"` type.
+
+                    Note: When `"(no topic)"` or the value of `realm_empty_topic_display_name`
+                    found in the [POST /register](/api/register-queue) response is used for this
+                    parameter, it is interpreted as an empty string.
+                  type: string
+                  example: voice recording
+              required:
+                - op
+            encoding:
+              to:
+                contentType: application/json
+              stream_id:
+                contentType: application/json
+      responses:
+        "200":
+          $ref: "#/components/responses/SimpleSuccess"
+        "400":
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/CodedError"
+                  - example:
+                      {
+                        "code": "BAD_REQUEST",
+                        "msg": "Missing channel ID",
+                        "result": "error",
+                      }
+                    description: |
+                      An example JSON error response when the user composes a channel message
+                      and `stream_id` is not specified:
+
   /messages/{message_id}/typing:
     post:
       operationId: set-typing-status-for-message-edit

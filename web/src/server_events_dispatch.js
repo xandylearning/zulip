@@ -95,6 +95,7 @@ import * as theme from "./theme.ts";
 import {group_setting_value_schema} from "./types.ts";
 import * as typing_events from "./typing_events.ts";
 import * as unread_ops from "./unread_ops.ts";
+import * as voice_recording_events from "./voice_recording_events.ts";
 import * as unread_ui from "./unread_ui.ts";
 import * as user_events from "./user_events.ts";
 import * as user_group_edit from "./user_group_edit.ts";
@@ -921,6 +922,23 @@ export function dispatch_normal_event(event) {
                     break;
                 default:
                     blueslip.error("Unexpected event type typing_edit_message/" + event.op);
+                    break;
+            }
+            break;
+
+        case "voice_recording":
+            if (event.sender.user_id === current_user.user_id) {
+                return;
+            }
+            switch (event.op) {
+                case "start":
+                    voice_recording_events.display_notification(event);
+                    break;
+                case "stop":
+                    voice_recording_events.hide_notification(event);
+                    break;
+                default:
+                    blueslip.error("Unexpected event type voice_recording/" + event.op);
                     break;
             }
             break;

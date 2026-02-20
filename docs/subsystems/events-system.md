@@ -308,7 +308,7 @@ There are some notable optional parameters for `verify_action`:
 - `state_change_expected` must be set to `False` if your action
   doesn't actually require state changes for some reason; otherwise,
   `verify_action` will complain that your test doesn't really
-  exercise any `apply_events` logic. Typing notifications (which
+  exercise any `apply_events` logic. Typing and voice recording notifications (which
   are ephemeral) are a common place where we use this.
 
 - `num_events` will tell `verify_action` how many events the

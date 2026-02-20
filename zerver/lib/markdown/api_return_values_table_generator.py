@@ -214,37 +214,41 @@ class APIReturnValuesTablePreprocessor(Preprocessor):
             if "properties" in schema:
                 ans += self.render_table(schema["properties"], spacing + 4)
             if schema.get("additionalProperties", False):
-                data_type = generate_data_type(schema["additionalProperties"])
-                ans.append(
-                    self.render_desc(
-                        schema["additionalProperties"]["description"],
-                        spacing + 4,
-                        data_type,
-                    )
-                )
-                if "properties" in schema["additionalProperties"]:
-                    ans += self.render_table(
-                        schema["additionalProperties"]["properties"],
-                        spacing + 8,
-                    )
-                elif "oneOf" in schema["additionalProperties"]:
-                    ans += self.render_oneof_block(schema["additionalProperties"], spacing + 8)
-                elif schema["additionalProperties"].get("additionalProperties", False):
-                    data_type = generate_data_type(
-                        schema["additionalProperties"]["additionalProperties"]
-                    )
+                additional_props = schema["additionalProperties"]
+                if not isinstance(additional_props, bool):
+                    data_type = generate_data_type(additional_props)
                     ans.append(
                         self.render_desc(
-                            schema["additionalProperties"]["additionalProperties"]["description"],
-                            spacing + 8,
+                            additional_props["description"],
+                            spacing + 4,
                             data_type,
                         )
                     )
+                    if "properties" in additional_props:
+                        ans += self.render_table(
+                            additional_props["properties"],
+                            spacing + 8,
+                        )
+                    elif "oneOf" in additional_props:
+                        ans += self.render_oneof_block(additional_props, spacing + 8)
+                    elif additional_props.get("additionalProperties", False):
+                        nested_additional_props = additional_props["additionalProperties"]
+                        if not isinstance(nested_additional_props, bool):
+                            data_type = generate_data_type(
+                                nested_additional_props
+                            )
+                            ans.append(
+                                self.render_desc(
+                                    nested_additional_props["description"],
+                                    spacing + 8,
+                                    data_type,
+                                )
+                            )
 
-                    ans += self.render_table(
-                        schema["additionalProperties"]["additionalProperties"]["properties"],
-                        spacing + 12,
-                    )
+                            ans += self.render_table(
+                                nested_additional_props["properties"],
+                                spacing + 12,
+                            )
             if "items" in schema:
                 if "properties" in schema["items"]:
                     ans += self.render_table(schema["items"]["properties"], spacing + 4)
