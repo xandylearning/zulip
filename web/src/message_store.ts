@@ -91,6 +91,33 @@ export const raw_message_schema = z.intersection(
                 message_type: z.literal("broadcast_notification"),
                 broadcast_notification_id: z.optional(z.number()),
             }))),
+            media_type: z.optional(
+                z.nullable(
+                    z.enum([
+                        "image",
+                        "video",
+                        "audio",
+                        "voice_message",
+                        "document",
+                        "location",
+                        "contact",
+                        "sticker",
+                    ]),
+                ),
+            ),
+            caption: z.optional(z.nullable(z.string())),
+            media_metadata: z.optional(z.nullable(z.record(z.string(), z.unknown()))),
+            primary_attachment: z.optional(
+                z.nullable(
+                    z.object({
+                        id: z.number(),
+                        name: z.string(),
+                        path_id: z.string(),
+                        size: z.number(),
+                        content_type: z.nullable(z.string()),
+                    }),
+                ),
+            ),
         }),
         z.discriminatedUnion("type", [
             z.object({
@@ -150,6 +177,18 @@ export type Message = (
     | Omit<MessageWithBooleans & {type: "stream"}, "reactions" | "subject">
 ) & {
     clean_reactions: Map<string, MessageCleanReaction>;
+
+    // Rich media message fields
+    media_type?: null | "image" | "video" | "audio" | "voice_message" | "document" | "location" | "contact" | "sticker";
+    caption?: string | null;
+    media_metadata?: Record<string, unknown> | null;
+    primary_attachment?: {
+        id: number;
+        name: string;
+        path_id: string;
+        size: number;
+        content_type: string | null;
+    } | null;
 
     // Local echo state cluster of fields.
     locally_echoed?: boolean;

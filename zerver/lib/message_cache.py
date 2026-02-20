@@ -15,7 +15,8 @@ from zerver.lib.query_helpers import query_for_ids
 from zerver.lib.timestamp import datetime_to_timestamp
 from zerver.lib.topic import DB_TOPIC_NAME, TOPIC_LINKS, TOPIC_NAME
 from zerver.lib.types import DisplayRecipientT, EditHistoryEvent, UserDisplayRecipient
-from zerver.models import Message, Reaction, Realm, Recipient, Stream, SubMessage, UserProfile
+from zerver.lib.media_type_detection import media_type_to_string
+from zerver.models import Attachment, Message, Reaction, Realm, Recipient, Stream, SubMessage, UserProfile
 from zerver.models.realms import get_fake_email_domain
 
 
@@ -152,6 +153,37 @@ class MessageDict:
         MessageDict.bulk_hydrate_sender_info([obj])
         MessageDict.bulk_hydrate_recipient_info([obj])
 
+        # Add rich media message type fields for events
+        # Note: For events, we always include these fields (they're optional/nullable)
+        # The client capability can be used in the future for filtering if needed
+        message_type_int = obj.get("message_type", Message.MessageType.NORMAL)
+        media_type_str = media_type_to_string(message_type_int)
+        if media_type_str is not None:
+            obj["media_type"] = media_type_str
+        else:
+            obj["media_type"] = None
+
+        # Add primary_attachment object if primary_attachment_id is present
+        primary_attachment_id = obj.get("primary_attachment_id")
+        if primary_attachment_id:
+            try:
+                attachment = Attachment.objects.get(id=primary_attachment_id)
+                obj["primary_attachment"] = {
+                    "id": attachment.id,
+                    "name": attachment.file_name,
+                    "path_id": attachment.path_id,
+                    "size": attachment.size,
+                    "content_type": attachment.content_type,
+                }
+            except Attachment.DoesNotExist:
+                obj["primary_attachment"] = None
+        else:
+            obj["primary_attachment"] = None
+
+        # Remove message_type from event payload (clients use media_type string)
+        if "message_type" in obj:
+            del obj["message_type"]
+
         return obj
 
     @staticmethod
@@ -163,6 +195,7 @@ class MessageDict:
         allow_empty_topic_name: bool,
         realm: Realm,
         user_recipient_id: int | None,
+        rich_media_message_types: bool = False,
     ) -> None:
         """
         NOTE: This function mutates the objects in
@@ -186,6 +219,7 @@ class MessageDict:
                 can_access_sender=can_access_sender,
                 realm_host=realm.host,
                 is_incoming_1_to_1=obj["recipient_id"] == user_recipient_id,
+                rich_media_message_types=rich_media_message_types,
             )
 
     @staticmethod
@@ -200,6 +234,7 @@ class MessageDict:
         can_access_sender: bool,
         realm_host: str,
         is_incoming_1_to_1: bool,
+        rich_media_message_types: bool = False,
     ) -> dict[str, Any]:
         """
         By default, we make a shallow copy of the incoming dict to avoid
@@ -244,6 +279,38 @@ class MessageDict:
             obj["content"] = obj["rendered_content"]
         else:
             obj["content_type"] = "text/x-markdown"
+
+        # Add rich media message type fields (only if client supports it)
+        if rich_media_message_types:
+            # Note: obj["type"] is set to "stream" or "private" by hydrate_recipient_info,
+            # so we use message_type for the MessageType enum value
+            message_type_int = obj.get("message_type", Message.MessageType.NORMAL)
+            media_type_str = media_type_to_string(message_type_int)
+            if media_type_str is not None:
+                obj["media_type"] = media_type_str
+            else:
+                obj["media_type"] = None
+
+            # Add primary_attachment object if primary_attachment_id is present
+            primary_attachment_id = obj.get("primary_attachment_id")
+            if primary_attachment_id:
+                try:
+                    attachment = Attachment.objects.get(id=primary_attachment_id)
+                    obj["primary_attachment"] = {
+                        "id": attachment.id,
+                        "name": attachment.file_name,
+                        "path_id": attachment.path_id,
+                        "size": attachment.size,
+                        "content_type": attachment.content_type,
+                    }
+                except Attachment.DoesNotExist:
+                    # Attachment was deleted, set to None
+                    obj["primary_attachment"] = None
+            else:
+                obj["primary_attachment"] = None
+        # Remove message_type from final payload (clients use media_type string or don't need it)
+        if "message_type" in obj:
+            del obj["message_type"]
 
         if is_incoming_1_to_1 and "sender_recipient_id" in obj:
             # For an incoming 1:1 DM, the recipient’s own recipient_id is
@@ -328,6 +395,10 @@ class MessageDict:
                 "recipient__type_id": message.recipient.type_id,
                 "rendering_realm_id": get_rendering_realm_id(message),
                 "sender_id": message.sender.id,
+                "message_type": message.type,
+                "caption": message.caption,
+                "media_metadata": message.media_metadata,
+                "primary_attachment_id": message.primary_attachment_id if message.primary_attachment else None,
                 "sending_client__name": message.sending_client.name,
                 "sender__realm_id": message.sender.realm_id,
                 "broadcast_template_data": message.broadcast_template_data,
@@ -358,6 +429,10 @@ class MessageDict:
             "sending_client__name",
             "sender__realm_id",
             "broadcast_template_data",
+            "type",
+            "caption",
+            "media_metadata",
+            "primary_attachment_id",
         ]
         # Uses index: zerver_message_pkey
         messages = Message.objects.filter(id__in=needed_ids).values(*fields)
@@ -395,6 +470,10 @@ class MessageDict:
             reactions=row["reactions"],
             submessages=row["submessages"],
             broadcast_template_data=row.get("broadcast_template_data"),
+            message_type=row.get("type", Message.MessageType.NORMAL),
+            caption=row.get("caption"),
+            media_metadata=row.get("media_metadata"),
+            primary_attachment_id=row.get("primary_attachment_id"),
         )
 
     @staticmethod
@@ -417,6 +496,10 @@ class MessageDict:
         reactions: list[RawReactionRow],
         submessages: list[dict[str, Any]],
         broadcast_template_data: dict[str, Any] | None = None,
+        message_type: int = Message.MessageType.NORMAL,
+        caption: str | None = None,
+        media_metadata: dict[str, Any] | None = None,
+        primary_attachment_id: int | None = None,
     ) -> dict[str, Any]:
         obj = dict(
             id=message_id,
@@ -427,6 +510,10 @@ class MessageDict:
             recipient_id=recipient_id,
             timestamp=datetime_to_timestamp(date_sent),
             client=sending_client_name,
+            message_type=message_type,  # Use message_type to avoid conflict with recipient type
+            caption=caption,
+            media_metadata=media_metadata,
+            primary_attachment_id=primary_attachment_id,
         )
 
         obj[TOPIC_NAME] = topic_name

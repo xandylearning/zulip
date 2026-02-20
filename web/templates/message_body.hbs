@@ -51,6 +51,11 @@
 
 {{#unless status_message}}
     {{#unless is_hidden}}
+    {{#if msg/media_type}}
+    <div class="message_content media-message-content" data-media-type="{{msg/media_type}}">
+        {{!-- Filled by media_message_card.ts --}}
+    </div>
+    {{else}}
     <div class="message_content rendered_markdown">
         {{#if use_match_properties}}
             {{rendered_markdown msg/match_content}}
@@ -58,6 +63,7 @@
             {{rendered_markdown msg/content}}
         {{/if}}
     </div>
+    {{/if}}
     {{else}}
     <div class="message_content rendered_markdown">
         {{> message_hidden_dialog}}

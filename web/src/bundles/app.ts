@@ -62,6 +62,7 @@ import "../../styles/widgets.css";
 import "../../styles/print.css";
 import "../../styles/inbox.css";
 import "../../styles/color_picker.css";
+import "../../styles/voice_recorder.css";
 
 // This should be last.
 import "../ui_init.js";

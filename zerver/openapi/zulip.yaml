@@ -8451,6 +8451,67 @@ paths:
 
                     **Changes**: New in Zulip 8.0 (feature level 236).
                   example: true
+                media_type:
+                  type: string
+                  description: |
+                    The type of media message. One of: `"image"`, `"video"`, `"audio"`,
+                    `"voice_message"`, `"document"`, `"location"`, `"contact"`, `"sticker"`.
+
+                    If provided, the message will be treated as a rich media message
+                    with dedicated rendering. If not provided, the message type will
+                    be auto-detected from the attachment's content type if
+                    `primary_attachment_path_id` is provided.
+
+                    **Changes**: New in Zulip (feature level TBD).
+                  enum:
+                    - image
+                    - video
+                    - audio
+                    - voice_message
+                    - document
+                    - location
+                    - contact
+                    - sticker
+                  example: image
+                caption:
+                  type: string
+                  description: |
+                    Caption text for media messages. Only used when `media_type` is provided
+                    or when `primary_attachment_path_id` is provided.
+
+                    **Changes**: New in Zulip (feature level TBD).
+                  example: "Sunset photo from yesterday"
+                media_metadata:
+                  type: object
+                  description: |
+                    Structured metadata for the media message. Schema varies by `media_type`:
+
+                    - **Image**: `{"width": 1920, "height": 1080, "mime_type": "image/jpeg"}`
+                    - **Video**: `{"width": 1920, "height": 1080, "duration_secs": 30, "mime_type": "video/mp4"}`
+                    - **Audio**: `{"duration_secs": 120, "mime_type": "audio/mpeg"}`
+                    - **Voice Message**: `{"duration_secs": 15, "mime_type": "audio/webm", "waveform": [0.1, 0.3, 0.7, ...]}`
+                    - **Document**: `{"mime_type": "application/pdf", "page_count": 5}`
+                    - **Location**: `{"latitude": 40.7128, "longitude": -74.0060, "name": "New York City", "address": "Manhattan, NY"}`
+                    - **Contact**: `{"name": "Jane Doe", "phone": "+1234567890", "email": "jane@example.com"}`
+                    - **Sticker**: `{"pack_id": "emoji_v1", "sticker_id": "thumbs_up"}`
+
+                    **Changes**: New in Zulip (feature level TBD).
+                  additionalProperties: true
+                  example:
+                    width: 1920
+                    height: 1080
+                    mime_type: "image/jpeg"
+                primary_attachment_path_id:
+                  type: string
+                  description: |
+                    Path ID of the primary uploaded file from `/api/v1/user_uploads` or TUS upload.
+                    This attachment will be linked as the primary attachment for the media message.
+
+                    If `media_type` is not provided but this parameter is, the media type will be
+                    auto-detected from the attachment's content type.
+
+                    **Changes**: New in Zulip (feature level TBD).
+                  example: "2/ab/cdef/photo.jpg"
               required:
                 - type
                 - to
@@ -27524,6 +27585,72 @@ components:
           type: string
           description: |
             The type of the message: `"stream"` or `"private"`.
+        media_type:
+          type: string
+          nullable: true
+          description: |
+            The rich media type of the message. One of: `"image"`, `"video"`, `"audio"`,
+            `"voice_message"`, `"document"`, `"location"`, `"contact"`, `"sticker"`.
+
+            `null` for normal text messages. When present, indicates this is a rich media
+            message that should be rendered with dedicated media card UI.
+
+            **Changes**: New in Zulip (feature level TBD).
+          enum:
+            - image
+            - video
+            - audio
+            - voice_message
+            - document
+            - location
+            - contact
+            - sticker
+        caption:
+          type: string
+          nullable: true
+          description: |
+            Caption text for media messages. `null` if no caption was provided.
+
+            **Changes**: New in Zulip (feature level TBD).
+        media_metadata:
+          type: object
+          nullable: true
+          description: |
+            Structured metadata for media messages. Schema varies by `media_type`.
+            See the `media_metadata` parameter documentation in `POST /messages` for
+            the schema for each media type.
+
+            `null` for normal text messages.
+
+            **Changes**: New in Zulip (feature level TBD).
+          additionalProperties: true
+        primary_attachment:
+          type: object
+          nullable: true
+          description: |
+            Primary attachment object for file-based media messages (image, video, audio,
+            voice_message, document). `null` for text messages or media messages without
+            file attachments (location, contact, sticker).
+
+            **Changes**: New in Zulip (feature level TBD).
+          additionalProperties: false
+          properties:
+            id:
+              type: integer
+              description: Attachment ID
+            name:
+              type: string
+              description: Original filename
+            path_id:
+              type: string
+              description: Storage path ID (use with `/user_uploads/{realm_id}/{path_id}`)
+            size:
+              type: integer
+              description: File size in bytes
+            content_type:
+              type: string
+              nullable: true
+              description: MIME content type
     ModernPresenceFormat:
       type: object
       description: |

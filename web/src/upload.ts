@@ -351,6 +351,50 @@ const zulip_upload_response_schema = z.object({
     filename: z.string(),
 });
 
+type ComposeMediaState = {
+    primary_attachment_path_id: string;
+    media_type: string | null;
+    media_metadata: Record<string, unknown>;
+};
+
+let compose_media_state: ComposeMediaState | null = null;
+
+function guess_media_type_from_mime(mime: string | null | undefined): string | null {
+    if (!mime) {
+        return null;
+    }
+    if (mime.startsWith("image/")) {
+        return "image";
+    }
+    if (mime.startsWith("video/")) {
+        return "video";
+    }
+    if (mime.startsWith("audio/")) {
+        return "audio";
+    }
+    return "document";
+}
+
+export function get_compose_media_params(): {
+    media_type?: string;
+    media_metadata?: Record<string, unknown>;
+    primary_attachment_path_id?: string;
+} {
+    if (!compose_media_state) {
+        return {};
+    }
+    const {media_type, media_metadata, primary_attachment_path_id} = compose_media_state;
+    return {
+        media_type: media_type ?? undefined,
+        media_metadata,
+        primary_attachment_path_id,
+    };
+}
+
+export function clear_compose_media_params(): void {
+    compose_media_state = null;
+}
+
 export function setup_upload(config: Config): Uppy<ZulipMeta, TusBody> {
     const uppy = new Uppy<ZulipMeta, TusBody>({
         debug: false,
@@ -549,6 +593,26 @@ export function setup_upload(config: Config): Uppy<ZulipMeta, TusBody> {
         }
 
         compose_ui.autosize_textarea($text_area);
+
+        // Track primary attachment details for rich media messages in compose box.
+        if (config.mode === "compose" && typeof file.meta.zulip_url === "string") {
+            const url: string = file.meta.zulip_url;
+            const prefix = "/user_uploads/";
+            let path_id = url;
+            if (path_id.startsWith(prefix)) {
+                path_id = path_id.slice(prefix.length);
+            }
+            const media_type = guess_media_type_from_mime(file.type);
+            const media_metadata: Record<string, unknown> = {};
+            if (file.type) {
+                media_metadata.mime_type = file.type;
+            }
+            compose_media_state = {
+                primary_attachment_path_id: path_id,
+                media_type,
+                media_metadata,
+            };
+        }
 
         // Hide upload status after waiting 100ms after the 1s transition to 100%
         // so that the user can see the progress bar at 100%.

@@ -151,6 +151,37 @@ hides the UI for uploading files from the web and desktop apps.
 
 [system-settings]: https://zulip.readthedocs.io/en/stable/production/settings.html
 
+## Rich media message types
+
+Zulip supports rich media message types that provide enhanced display and interaction for different media formats:
+
+### Image messages
+When you upload an image, Zulip automatically detects it and displays it as an image message with optional caption support. Image messages show a preview directly in the conversation.
+
+### Video messages
+Video files are displayed as video messages with playback controls. You can add a caption to describe the video content.
+
+### Audio messages
+Audio files are displayed as audio messages with playback controls. Supported formats include MP3, OGG, and WebM audio.
+
+### Voice messages
+Record voice messages directly in Zulip using the microphone button. Voice messages include waveform visualization and playback controls.
+
+### Document messages
+Document files (PDFs, text files, etc.) are displayed as document messages with download links and optional captions.
+
+### Location sharing
+Share your current location or a specific location on a map. Location messages include coordinates and an optional address.
+
+### Contact sharing
+Share contact information (name, phone, email) as a contact card that recipients can easily save.
+
+### Stickers
+Send stickers from available sticker packs. Stickers are displayed as images with special styling.
+
+### Adding captions
+For image, video, audio, document, and sticker messages, you can add a caption by typing text in the compose box before or after uploading the media. The caption will appear below the media content.
+
 ## Related articles
 
 * [Manage your uploaded files](/help/manage-your-uploaded-files)

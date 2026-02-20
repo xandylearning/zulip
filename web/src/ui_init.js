@@ -162,6 +162,7 @@ import * as unread from "./unread.ts";
 import * as unread_ops from "./unread_ops.ts";
 import * as unread_ui from "./unread_ui.ts";
 import * as upload from "./upload.ts";
+import * as voice_recorder from "./voice_recorder.ts";
 import * as user_card_popover from "./user_card_popover.ts";
 import * as user_group_edit from "./user_group_edit.ts";
 import * as user_group_edit_members from "./user_group_edit_members.ts";
@@ -644,6 +645,7 @@ export async function initialize_everything(state_data) {
     compose_validate.initialize();
     compose_textarea.initialize();
     upload.initialize();
+    voice_recorder.initialize();
     search.initialize({
         on_narrow_search: message_view.show,
     });

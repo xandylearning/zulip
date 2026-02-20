@@ -58,6 +58,33 @@ export const server_message_schema = z.intersection(
         sender_realm_str: z.string(),
         submessages: submessage_schema,
         timestamp: z.number(),
+        media_type: z.optional(
+            z.nullable(
+                z.enum([
+                    "image",
+                    "video",
+                    "audio",
+                    "voice_message",
+                    "document",
+                    "location",
+                    "contact",
+                    "sticker",
+                ])
+            )
+        ),
+        caption: z.optional(z.nullable(z.string())),
+        media_metadata: z.optional(z.nullable(z.record(z.string(), z.unknown()))),
+        primary_attachment: z.optional(
+            z.nullable(
+                z.object({
+                    id: z.number(),
+                    name: z.string(),
+                    path_id: z.string(),
+                    size: z.number(),
+                    content_type: z.nullable(z.string()),
+                })
+            )
+        ),
     }),
     z.discriminatedUnion("type", [
         z.object({

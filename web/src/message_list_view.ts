@@ -24,6 +24,7 @@ import type {MessageList} from "./message_list.ts";
 import * as message_list_tooltips from "./message_list_tooltips.ts";
 import * as message_lists from "./message_lists.ts";
 import * as message_store from "./message_store.ts";
+import * as media_message_card from "./media_message_card.ts";
 import type {Message} from "./message_store.ts";
 import * as message_viewport from "./message_viewport.ts";
 import type {MessageViewportInfo} from "./message_viewport.ts";
@@ -1059,18 +1060,18 @@ export class MessageListView {
             blueslip.error("programming error--expected single element");
         }
 
-        const $content = $row.find(".message_content");
-
         const id = rows.id($row);
         const message = message_store.get(id);
 
-        // Check if this is a broadcast message with rich template
-        if (message && broadcast_message_renderer.isBroadcastMessage(message)) {
-            // Replace content with rich template rendering
+        const $content = $row.find(".message_content");
+
+        if (message && message.media_type) {
+            // Rich media message card rendering
+            media_message_card.renderMediaCard(message, $row);
+        } else if (message && broadcast_message_renderer.isBroadcastMessage(message)) {
+            // Broadcast rich template rendering
             const richContent = broadcast_message_renderer.renderBroadcastMessage(message);
             $content.html(richContent);
-
-            // Initialize button click handlers
             broadcast_message_renderer.initializeButtonHandlers($row);
         } else {
             // Standard markdown processing

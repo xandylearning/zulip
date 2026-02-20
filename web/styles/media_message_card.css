@@ -1,0 +1,59 @@
+.message_content.media-message-content {
+    margin-top: 2px;
+}
+
+.media-image-card img,
+.media-video-card video,
+.media-sticker-card img {
+    max-width: 100%;
+    border-radius: 6px;
+    display: block;
+}
+
+.media-image-card,
+.media-video-card,
+.media-audio-card,
+.media-document-card,
+.media-location-card,
+.media-contact-card,
+.media-sticker-card,
+.media-voice-card {
+    padding: 4px 0;
+}
+
+.media-caption {
+    margin-top: 4px;
+    color: var(--color-text-muted);
+    font-size: 90%;
+}
+
+.media-document-name {
+    font-weight: 600;
+}
+
+.media-location-name {
+    font-weight: 600;
+}
+
+.media-location-address {
+    font-size: 90%;
+    color: var(--color-text-muted);
+}
+
+.media-contact-name {
+    font-weight: 600;
+}
+
+.media-contact-phone,
+.media-contact-email {
+    font-size: 90%;
+    color: var(--color-text-muted);
+}
+
+.media-voice-waveform {
+    height: 24px;
+    background-color: var(--color-background-2);
+    border-radius: 999px;
+    margin-bottom: 4px;
+}
+

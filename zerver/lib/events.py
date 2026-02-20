@@ -2036,6 +2036,7 @@ class ClientCapabilities(TypedDict):
     archived_channels: NotRequired[bool]
     empty_topic_name: NotRequired[bool]
     simplified_presence_events: NotRequired[bool]
+    rich_media_message_types: NotRequired[bool]
 
 
 DEFAULT_CLIENT_CAPABILITIES = ClientCapabilities(notification_settings_null=False)

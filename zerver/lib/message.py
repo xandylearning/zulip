@@ -184,6 +184,7 @@ class SendMessageRequest:
     recipients_for_user_creation_events: dict[UserProfile, set[int]] | None = None
     reminder_target_message_id: int | None = None
     reminder_note: str | None = None
+    primary_attachment_path_id: str | None = None
 
 
 # We won't try to fetch more unread message IDs from the database than
@@ -283,6 +284,7 @@ def messages_for_ids(
     message_edit_history_visibility_policy: int,
     user_profile: UserProfile | None,
     realm: Realm,
+    rich_media_message_types: bool = True,
 ) -> list[dict[str, Any]]:
     id_fetcher = lambda row: row["id"]
 
@@ -360,6 +362,7 @@ def messages_for_ids(
         allow_empty_topic_name=allow_empty_topic_name,
         realm=realm,
         user_recipient_id=None if user_profile is None else user_profile.recipient_id,
+        rich_media_message_types=rich_media_message_types,
     )
 
     return message_list

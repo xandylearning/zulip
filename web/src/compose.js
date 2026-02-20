@@ -24,6 +24,7 @@ import {current_user} from "./state_data.ts";
 import * as transmit from "./transmit.js";
 import {user_settings} from "./user_settings.ts";
 import * as util from "./util.ts";
+import {clear_compose_media_params, get_compose_media_params} from "./upload.ts";
 import * as zcommand from "./zcommand.ts";
 
 // Docs: https://zulip.readthedocs.io/en/latest/subsystems/sending-messages.html
@@ -114,6 +115,21 @@ export function create_message_object(message_content = compose_state.message_co
         message.stream_id = stream_id;
         message.to = stream_id;
     }
+
+    // Attach rich media compose parameters if present.
+    const media_params = get_compose_media_params();
+    if (media_params.primary_attachment_path_id) {
+        message.primary_attachment_path_id = media_params.primary_attachment_path_id;
+        if (media_params.media_type) {
+            message.media_type = media_params.media_type;
+        }
+        if (media_params.media_metadata) {
+            message.media_metadata = media_params.media_metadata;
+        }
+        // For now, we treat the entire message content as the caption.
+        message.caption = message_content;
+    }
+
     return message;
 }
 
@@ -139,6 +155,7 @@ export function clear_compose_box() {
     compose_ui.hide_compose_spinner();
     scheduled_messages.reset_selected_schedule_timestamp();
     $(".needs-empty-compose").removeClass("disabled-on-hover");
+    clear_compose_media_params();
 }
 
 export function send_message_success(request, data) {

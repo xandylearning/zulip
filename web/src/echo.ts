@@ -49,6 +49,11 @@ type MessageRequestObject = {
     content: string;
     to: string;
     draft_id: string | undefined;
+    // Optional rich media message fields passed from compose.
+    media_type?: string;
+    caption?: string;
+    media_metadata?: Record<string, unknown>;
+    primary_attachment_path_id?: string;
 };
 
 type PrivateMessageObject = {
@@ -97,7 +102,19 @@ type LocalMessage = MessageRequestObject & {
 } & (
         | (StreamMessageObject & {display_recipient?: string})
         | (PrivateMessageObject & {display_recipient?: DisplayRecipientUser[]})
-    );
+    ) & {
+        // Optional rich media fields for local echo.
+        media_type?: string | null;
+        caption?: string | null;
+        media_metadata?: Record<string, unknown> | null;
+        primary_attachment?: {
+            id: number;
+            name: string;
+            path_id: string;
+            size: number;
+            content_type: string | null;
+        } | null;
+    };
 
 type PostMessageAPIData = z.output<typeof send_message_api_response_schema>;
 

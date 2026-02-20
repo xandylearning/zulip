@@ -41,6 +41,10 @@ from zerver.lib.exceptions import (
 )
 from zerver.lib.markdown import MessageRenderingResult, render_message_markdown
 from zerver.lib.markdown import version as markdown_version
+from zerver.lib.media_type_detection import (
+    detect_media_type,
+    string_to_media_type,
+)
 from zerver.lib.mention import MentionBackend, MentionData
 from zerver.lib.message import (
     SendMessageRequest,
@@ -98,6 +102,7 @@ from zerver.lib.users import (
 from zerver.lib.validator import check_widget_content
 from zerver.lib.widget import do_widget_post_save_actions
 from zerver.models import (
+    Attachment,
     Client,
     Message,
     Realm,
@@ -594,6 +599,7 @@ def build_message_send_dict(
     recipients_for_user_creation_events: dict[UserProfile, set[int]] | None = None,
     acting_user: UserProfile | None = None,
     no_previews: bool = False,
+    primary_attachment_path_id: str | None = None,
 ) -> SendMessageRequest:
     """Returns a dictionary that can be passed into do_send_messages.  In
     production, this is always called by check_message, but some
@@ -725,6 +731,7 @@ def build_message_send_dict(
         disable_external_notifications=disable_external_notifications,
         topic_participant_user_ids=topic_participant_user_ids,
         recipients_for_user_creation_events=recipients_for_user_creation_events,
+        primary_attachment_path_id=primary_attachment_path_id,
     )
 
     return message_send_dict
@@ -885,11 +892,39 @@ def do_send_messages(
 
     # Claim attachments in message
     for send_request in send_message_requests:
-        if do_claim_attachments(
-            send_request.message, send_request.rendering_result.potential_attachment_path_ids
-        ):
+        # Add primary_attachment_path_id to potential_path_ids if provided
+        potential_path_ids = list(send_request.rendering_result.potential_attachment_path_ids)
+        if send_request.primary_attachment_path_id:
+            if send_request.primary_attachment_path_id not in potential_path_ids:
+                potential_path_ids.append(send_request.primary_attachment_path_id)
+
+        if do_claim_attachments(send_request.message, potential_path_ids):
             send_request.message.has_attachment = True
             update_fields = ["has_attachment"]
+
+            # Set primary_attachment if primary_attachment_path_id was provided
+            if send_request.primary_attachment_path_id:
+                try:
+                    primary_attachment = Attachment.objects.get(
+                        path_id=send_request.primary_attachment_path_id,
+                        messages=send_request.message,
+                    )
+                    send_request.message.primary_attachment = primary_attachment
+                    update_fields.append("primary_attachment")
+
+                    # Auto-detect media type from attachment content_type if not already set
+                    if send_request.message.type == Message.MessageType.NORMAL:
+                        detected_type = detect_media_type(primary_attachment.content_type)
+                        if detected_type is not None:
+                            send_request.message.type = detected_type
+                            update_fields.append("type")
+                except Attachment.DoesNotExist:
+                    # Attachment wasn't successfully claimed, log warning
+                    logging.warning(
+                        "Primary attachment %s not found after claiming attachments for message %s",
+                        send_request.primary_attachment_path_id,
+                        send_request.message.id,
+                    )
 
             # Lock the ImageAttachment rows that we pulled when rendering
             # outside of the transaction; they may be out of date now, and we
@@ -1517,6 +1552,10 @@ def check_send_message(
     *,
     skip_stream_access_check: bool = False,
     read_by_sender: bool = False,
+    media_type: str | None = None,
+    caption: str | None = None,
+    media_metadata: dict[str, Any] | None = None,
+    primary_attachment_path_id: str | None = None,
 ) -> SentMessageResult:
     addressee = Addressee.legacy_build(sender, recipient_type_name, message_to, topic_name)
     try:
@@ -1533,6 +1572,10 @@ def check_send_message(
             sender_queue_id,
             widget_content,
             skip_stream_access_check=skip_stream_access_check,
+            media_type=media_type,
+            caption=caption,
+            media_metadata=media_metadata,
+            primary_attachment_path_id=primary_attachment_path_id,
         )
     except ZephyrMessageAlreadySentError as e:
         return SentMessageResult(message_id=e.message_id)
@@ -1819,6 +1862,10 @@ def check_message(
     archived_channel_notice: bool = False,
     no_previews: bool = False,
     acting_user: UserProfile | None = None,
+    media_type: str | None = None,
+    caption: str | None = None,
+    media_metadata: dict[str, Any] | None = None,
+    primary_attachment_path_id: str | None = None,
 ) -> SendMessageRequest:
     """See
     https://zulip.readthedocs.io/en/latest/subsystems/sending-messages.html
@@ -1919,10 +1966,42 @@ def check_message(
 
     message = Message()
     message.sender = sender
-    message.content = message_content
     message.recipient = recipient
     message.type = message_type
     message.realm = realm
+
+    # Handle rich media message types
+    if media_type is not None:
+        # Convert string media_type to MessageType enum
+        detected_type = string_to_media_type(media_type)
+        if detected_type is None:
+            raise JsonableError(_("Invalid media_type: {media_type}").format(media_type=media_type))
+        message.type = detected_type
+
+        # Generate backward-compatible markdown content if content is empty
+        if not message_content.strip() and primary_attachment_path_id:
+            # Generate markdown based on media type
+            if detected_type == Message.MessageType.IMAGE:
+                caption_text = caption or ""
+                message.content = f"![{caption_text}](/user_uploads/{primary_attachment_path_id})"
+            elif detected_type in (
+                Message.MessageType.VIDEO,
+                Message.MessageType.AUDIO,
+                Message.MessageType.VOICE_MESSAGE,
+            ):
+                caption_text = caption or ""
+                filename = primary_attachment_path_id.split("/")[-1]
+                message.content = f"[{caption_text or filename}](/user_uploads/{primary_attachment_path_id})"
+            elif detected_type == Message.MessageType.DOCUMENT:
+                filename = primary_attachment_path_id.split("/")[-1]
+                message.content = f"[{filename}](/user_uploads/{primary_attachment_path_id})"
+            else:
+                # For location, contact, sticker - content can be empty or contain caption
+                message.content = caption or ""
+        else:
+            message.content = message_content
+    else:
+        message.content = message_content
     if addressee.is_stream():
         message.set_topic_name(topic_name)
         message.is_channel_message = True
@@ -1935,6 +2014,13 @@ def check_message(
     else:
         message.date_sent = timezone_now()
     message.sending_client = client
+
+    # Set caption and media_metadata for media messages
+    if media_type is not None or primary_attachment_path_id is not None:
+        if caption is not None:
+            message.caption = caption
+        if media_metadata is not None:
+            message.media_metadata = media_metadata
 
     # We render messages later in the process.
     assert message.rendered_content is None
@@ -1973,6 +2059,7 @@ def check_message(
         recipients_for_user_creation_events=recipients_for_user_creation_events,
         acting_user=acting_user,
         no_previews=no_previews,
+        primary_attachment_path_id=primary_attachment_path_id,
     )
 
     if (

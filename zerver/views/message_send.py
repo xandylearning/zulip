@@ -1,6 +1,6 @@
 from collections.abc import Iterable, Sequence
 from email.headerregistry import Address
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from django.core import validators
 from django.core.exceptions import ValidationError
@@ -151,6 +151,20 @@ def send_message_backend(
     widget_content: Annotated[
         str | None, ApiParamConfig("widget_content", documentation_status=DOCUMENTATION_PENDING)
     ] = None,
+    media_type: Annotated[
+        str | None, ApiParamConfig("media_type", documentation_status=DOCUMENTATION_PENDING)
+    ] = None,
+    caption: Annotated[
+        str | None, ApiParamConfig("caption", documentation_status=DOCUMENTATION_PENDING)
+    ] = None,
+    media_metadata: Annotated[
+        Json[dict[str, Any]] | None,
+        ApiParamConfig("media_metadata", documentation_status=DOCUMENTATION_PENDING),
+    ] = None,
+    primary_attachment_path_id: Annotated[
+        str | None,
+        ApiParamConfig("primary_attachment_path_id", documentation_status=DOCUMENTATION_PENDING),
+    ] = None,
 ) -> HttpResponse:
     recipient_type_name = req_type
     if recipient_type_name == "direct":
@@ -262,6 +276,10 @@ def send_message_backend(
         sender_queue_id=queue_id,
         widget_content=widget_content,
         read_by_sender=read_by_sender,
+        media_type=media_type,
+        caption=caption,
+        media_metadata=media_metadata,
+        primary_attachment_path_id=primary_attachment_path_id,
     )
     data["id"] = sent_message_result.message_id
     if sent_message_result.automatic_new_visibility_policy:

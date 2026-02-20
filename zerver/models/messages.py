@@ -40,6 +40,14 @@ class AbstractMessage(models.Model):
     class MessageType(models.IntegerChoices):
         NORMAL = 1
         RESOLVE_TOPIC_NOTIFICATION = 2
+        IMAGE = 3
+        VIDEO = 4
+        AUDIO = 5
+        DOCUMENT = 6
+        LOCATION = 7
+        CONTACT = 8
+        STICKER = 9
+        VOICE_MESSAGE = 10
 
     # IMPORTANT: message.type is not to be confused with the
     # "recipient type" ("channel" or "direct"), which is sometimes
@@ -130,6 +138,31 @@ class AbstractMessage(models.Model):
     #   "message_type": "broadcast_notification"
     # }
     broadcast_template_data = models.JSONField(null=True, blank=True)
+
+    # Rich Media Message Fields
+    # Caption for media messages (separate from content for structured access)
+    caption = models.TextField(null=True, blank=True)
+
+    # Primary attachment FK for quick access (avoids M2M lookup)
+    primary_attachment = models.ForeignKey(
+        "Attachment",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="%(class)s_primary_messages",
+    )
+
+    # Structured media metadata as JSON
+    # Examples:
+    #   Image: {"width": 1920, "height": 1080, "mime_type": "image/jpeg"}
+    #   Video: {"width": 1920, "height": 1080, "duration_secs": 30, "mime_type": "video/mp4"}
+    #   Audio: {"duration_secs": 120, "mime_type": "audio/mpeg"}
+    #   Voice: {"duration_secs": 15, "mime_type": "audio/webm", "waveform": [0.1, 0.5, 0.8, ...]}
+    #   Document: {"mime_type": "application/pdf", "page_count": 5}
+    #   Location: {"latitude": 40.7128, "longitude": -74.0060, "name": "New York"}
+    #   Contact: {"name": "John Doe", "phone": "+1234567890", "email": "john@example.com"}
+    #   Sticker: {"pack_id": "emoji_v1", "sticker_id": "thumbs_up"}
+    media_metadata = models.JSONField(null=True, blank=True)
 
     class Meta:
         abstract = True
