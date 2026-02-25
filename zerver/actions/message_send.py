@@ -1873,7 +1873,16 @@ def check_message(
     """
     stream = None
 
-    message_content = normalize_body(message_content_raw)
+    # Media messages are allowed to have empty content — the server generates
+    # a Markdown fallback from the attachment path. Skip the empty-body check
+    # when a media attachment is provided.
+    is_media_message = bool(media_type or primary_attachment_path_id)
+    if is_media_message and not message_content_raw.strip():
+        message_content = message_content_raw.rstrip().lstrip("\n")
+        if "\x00" in message_content:
+            raise JsonableError(_("Message must not contain null bytes"))
+    else:
+        message_content = normalize_body(message_content_raw)
 
     if realm is None:
         realm = sender.realm
