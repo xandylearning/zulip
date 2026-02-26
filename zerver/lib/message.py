@@ -284,7 +284,7 @@ def messages_for_ids(
     message_edit_history_visibility_policy: int,
     user_profile: UserProfile | None,
     realm: Realm,
-    rich_media_message_types: bool = True,
+    rich_media_message_types: bool = False,
 ) -> list[dict[str, Any]]:
     id_fetcher = lambda row: row["id"]
 

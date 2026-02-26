@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Annotated
+from typing import Annotated, Any
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
@@ -33,7 +33,7 @@ from zerver.lib.response import json_success
 from zerver.lib.sqlalchemy_utils import get_sqlalchemy_connection
 from zerver.lib.topic import MATCH_TOPIC
 from zerver.lib.topic_sqlalchemy import topic_column_sa
-from zerver.lib.typed_endpoint import ApiParamConfig, typed_endpoint
+from zerver.lib.typed_endpoint import ApiParamConfig, DOCUMENTATION_PENDING, typed_endpoint
 from zerver.models import UserMessage, UserProfile
 
 MAX_MESSAGES_PER_FETCH = 5000
@@ -112,6 +112,10 @@ def get_messages_backend(
     allow_empty_topic_name: Json[bool] = False,
     anchor_val: Annotated[str | None, ApiParamConfig("anchor")] = None,
     apply_markdown: Json[bool] = True,
+    client_capabilities: Annotated[
+        Json[dict[str, Any]] | None,
+        ApiParamConfig("client_capabilities", documentation_status=DOCUMENTATION_PENDING),
+    ] = None,
     client_gravatar: Json[bool] = True,
     client_requested_message_ids: Annotated[
         Json[list[NonNegativeInt] | None], ApiParamConfig("message_ids")
@@ -298,6 +302,7 @@ def get_messages_backend(
                     rendered_content, escaped_topic_name, content_matches, topic_matches
                 )
 
+        rich_media = bool((client_capabilities or {}).get("rich_media_message_types", False))
         message_list = messages_for_ids(
             message_ids=result_message_ids,
             user_message_flags=user_message_flags,
@@ -308,6 +313,7 @@ def get_messages_backend(
             message_edit_history_visibility_policy=realm.message_edit_history_visibility_policy,
             user_profile=user_profile,
             realm=realm,
+            rich_media_message_types=rich_media,
         )
 
     if client_requested_message_ids is not None:

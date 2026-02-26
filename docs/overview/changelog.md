@@ -28,6 +28,7 @@ _Unreleased_
   error for API clients). Added server settings to control the default media
   retention window and to optionally recompress uploaded images to WebP with a
   bounded maximum dimension and quality to reduce storage usage.
+- Fixed `POST /messages` to accept empty `content` when sending rich media messages that include `media_type` and `primary_attachment_path_id`, generating a Markdown fallback link from the attachment so older clients continue to display the message correctly.
 
 ## Zulip Server 11.x series
 
