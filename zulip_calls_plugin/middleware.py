@@ -3,11 +3,8 @@ Middleware to integrate the Zulip Calls Plugin with compose functionality.
 This provides a cleaner integration without modifying core Zulip templates.
 """
 
-from django.http import JsonResponse, HttpResponse
-from django.urls import reverse
-from django.utils.safestring import mark_safe
+from django.http import JsonResponse
 import json
-import re
 
 
 class ZulipCallsMiddleware:
@@ -29,14 +26,6 @@ class ZulipCallsMiddleware:
                 return self._handle_embedded_call_creation(request)
 
         response = self.get_response(request)
-
-        # Inject our JavaScript into HTML responses for the main app
-        if (hasattr(request, 'user') and request.user.is_authenticated and
-            isinstance(response, HttpResponse) and
-            response.get('Content-Type', '').startswith('text/html') and
-            request.path == '/'):
-            response = self._inject_calls_javascript(request, response)
-
         return response
 
     def _handle_embedded_call_creation(self, request):
@@ -104,54 +93,3 @@ class ZulipCallsMiddleware:
                 'msg': f'Failed to create call: {str(e)}',
                 'code': 'EMBEDDED_CALL_ERROR'
             }, status=500)
-
-    def _inject_calls_javascript(self, request, response):
-        """Inject calls plugin JavaScript into HTML responses"""
-        try:
-            content = response.content.decode('utf-8')
-
-            # Only inject if it's the main app page and not already injected
-            if ('</body>' in content and
-                'zulip-calls-plugin-injected' not in content and
-                ('class="app"' in content or 'id="app-loading"' in content)):
-
-                # Create the JavaScript injection
-                js_injection = f'''
-<!-- Zulip Calls Plugin Integration -->
-<script id="zulip-calls-plugin-injected">
-(function() {{
-    if (typeof $ === 'undefined') {{
-        console.warn('Zulip Calls Plugin: jQuery not available, retrying...');
-        setTimeout(arguments.callee, 100);
-        return;
-    }}
-
-    // Load the calls plugin script
-    const script = document.createElement('script');
-    script.src = '{request.build_absolute_uri("/static/js/embedded_calls.js")}';
-    script.onload = function() {{
-        console.log('Zulip Calls Plugin: Loaded successfully');
-        if (window.embeddedCalls && window.embeddedCalls.overrideCallButtons) {{
-            setTimeout(function() {{
-                window.embeddedCalls.overrideCallButtons();
-            }}, 1000);
-        }}
-    }};
-    script.onerror = function() {{
-        console.warn('Zulip Calls Plugin: Failed to load script');
-    }};
-    document.head.appendChild(script);
-}})();
-</script>
-'''
-
-                # Inject before closing body tag
-                content = content.replace('</body>', js_injection + '\n</body>')
-                response.content = content.encode('utf-8')
-                response['Content-Length'] = len(response.content)
-
-        except Exception as e:
-            # Don't break the response if injection fails
-            print(f'Zulip Calls Plugin: Failed to inject JavaScript: {e}')
-
-        return response

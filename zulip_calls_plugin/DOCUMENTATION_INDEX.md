@@ -1,140 +1,39 @@
 # Zulip Calls Plugin Documentation Index
 
-## 📚 Complete Documentation Suite
+## 📚 Documentation Suite
 
-This plugin now includes comprehensive documentation for complete integration with frontend Flutter apps and WebSocket support.
+### 🎯 **Main documentation**
+- **[README.md](./README.md)** — Overview, installation, configuration, API summary, testing
+- **[CHANGELOG.md](./CHANGELOG.md)** — Version history and notable changes
 
-## 📄 Documentation Files
+### 📱 **Flutter / mobile (canonical)**
+- **[docs/FLUTTER_WHATSAPP_CALLING_GUIDE.md](./docs/FLUTTER_WHATSAPP_CALLING_GUIDE.md)** — **Preferred** guide for mobile calling
+  - Correct API paths and payloads (post queue-removal)
+  - Event `op` names: `initiated`, `incoming_call`, `ringing`, `accepted`, `declined`, `ended`, `cancelled`, `missed`
+  - Push notification structure and CallKit/ConnectionService
+  - Call state machine, UX patterns, edge cases
+  - Dart examples: CallService, CallStateNotifier, screens
 
-### 🎯 **Main Documentation**
-- **[README.md](./README.md)** - Main plugin overview, installation, and basic usage
-  - ✅ Updated with WebSocket features
-  - ✅ Complete API endpoint list with WebSocket events
-  - ✅ Enhanced testing examples
+### 🔒 **Jitsi security and recording**
+- **[docs/JITSI_SECURITY_AND_RECORDING.md](./docs/JITSI_SECURITY_AND_RECORDING.md)** — JWT auth and GCP recording
+  - Prosody JWT configuration
+  - Plugin settings (`JITSI_JWT_ENABLED`, `CALL_RECORDING_ENABLED`, etc.)
+  - GCP bucket and Jibri setup
+  - Hardening checklist
 
-### 📱 **Flutter Integration**
-- **[FLUTTER_INTEGRATION_GUIDE.md](./FLUTTER_INTEGRATION_GUIDE.md)** - **NEW**: Complete Flutter integration guide
-  - Authentication setup with Zulip API
-  - WebSocket service implementation
-  - Call state management with Provider
-  - UI components (incoming call screen, Jitsi call screen)
-  - Permission handling
-  - Complete working examples
-  - Push notification integration
+### 🔧 **API and implementation**
+- **[API_REFERENCE.md](./API_REFERENCE.md)** — Detailed API reference (see README and Flutter guide for current behavior)
+- **[docs/FLUTTER_CALL_EVENTS_INTEGRATION.md](./docs/FLUTTER_CALL_EVENTS_INTEGRATION.md)** — Alternate Flutter/events reference (superseded by FLUTTER_WHATSAPP_CALLING_GUIDE for API correctness)
 
-### 🔧 **API Reference**
-- **[API_REFERENCE.md](./API_REFERENCE.md)** - **NEW**: Comprehensive API documentation
-  - All endpoint specifications
-  - Request/response formats
-  - WebSocket event documentation
-  - Error handling guide
-  - Complete cURL examples
-  - Testing instructions
+## 🚀 Quick start
 
-### 🏗️ **Implementation Details**
-- **[ENHANCED_IMPLEMENTATION.md](./ENHANCED_IMPLEMENTATION.md)** - Enhanced backend implementation
-  - ✅ Updated with WebSocket integration details
-  - Technical implementation overview
-  - Database schema
-  - Security features
+- **Backend / DevOps**: [README.md](./README.md) → [docs/JITSI_SECURITY_AND_RECORDING.md](./docs/JITSI_SECURITY_AND_RECORDING.md) for JWT/recording.
+- **Flutter / mobile**: [docs/FLUTTER_WHATSAPP_CALLING_GUIDE.md](./docs/FLUTTER_WHATSAPP_CALLING_GUIDE.md).
+- **Development**: [DEVELOPMENT.md](./DEVELOPMENT.md) — run locally, feature flags, plugin layout.
+- **Testing**: [TESTING_GUIDE.md](./TESTING_GUIDE.md) and README testing section.
 
-### 📊 **Integration Summary**
-- **[WEBSOCKET_INTEGRATION_SUMMARY.md](./WEBSOCKET_INTEGRATION_SUMMARY.md)** - **NEW**: Summary of WebSocket changes
-  - Complete changes made
-  - Sequence diagram compliance
-  - Technical implementation details
+## 📋 Core behavior
 
-## 🚀 Quick Start Guides
-
-### For Backend Developers
-1. Start with **[README.md](./README.md)** for plugin overview
-2. Review **[API_REFERENCE.md](./API_REFERENCE.md)** for endpoint details
-3. Check **[ENHANCED_IMPLEMENTATION.md](./ENHANCED_IMPLEMENTATION.md)** for technical details
-
-### For Flutter Developers
-1. Follow **[FLUTTER_INTEGRATION_GUIDE.md](./FLUTTER_INTEGRATION_GUIDE.md)** step-by-step
-2. Reference **[API_REFERENCE.md](./API_REFERENCE.md)** for API specifications
-3. Use **[WEBSOCKET_INTEGRATION_SUMMARY.md](./WEBSOCKET_INTEGRATION_SUMMARY.md)** for WebSocket details
-
-### For Project Managers
-1. Read **[README.md](./README.md)** for feature overview
-2. Review **[WEBSOCKET_INTEGRATION_SUMMARY.md](./WEBSOCKET_INTEGRATION_SUMMARY.md)** for implementation status
-
-## ✅ Implementation Status
-
-### **Backend (100% Complete)**
-- ✅ All 5 sequence diagram endpoints implemented
-- ✅ Real-time WebSocket events integrated
-- ✅ Push notification support
-- ✅ Call state management
-- ✅ Error handling and validation
-- ✅ Database models and migrations
-
-### **Frontend Flutter Guide (100% Complete)**
-- ✅ Authentication setup
-- ✅ WebSocket service implementation
-- ✅ API service with all endpoints
-- ✅ State management (Provider pattern)
-- ✅ UI components (incoming call, Jitsi screens)
-- ✅ Permission handling
-- ✅ Complete working examples
-- ✅ Error handling patterns
-
-### **Documentation (100% Complete)**
-- ✅ Comprehensive API reference
-- ✅ Step-by-step Flutter integration guide
-- ✅ Updated main documentation
-- ✅ Technical implementation details
-- ✅ Testing and troubleshooting guides
-
-## 📋 Features Covered
-
-### **Core Call Flow**
-1. **Call Initiation** - `POST /api/v1/calls/initiate`
-2. **Call Acknowledgment** - `POST /api/v1/calls/acknowledge`
-3. **Call Response** - `POST /api/v1/calls/respond`
-4. **Status Updates** - `POST /api/v1/calls/status`
-5. **Call Termination** - `POST /api/v1/calls/end`
-
-### **WebSocket Events**
-- `participant_ringing` - When call is acknowledged
-- `call_accepted` - When call is accepted
-- `call_rejected` - When call is rejected
-- `call_ended` - When call is terminated
-- `call_status_update` - During active call status changes
-
-### **Flutter Integration**
-- Complete authentication flow
-- WebSocket connection management
-- Real-time event handling
-- Call state management
-- UI components with proper state handling
-- Jitsi Meet integration
-- Permission management
-- Error handling and recovery
-
-## 🎯 Next Steps
-
-### For Implementation
-1. **Backend**: Plugin is ready for production use
-2. **Flutter**: Follow the integration guide step-by-step
-3. **Testing**: Use the provided cURL examples and test flows
-4. **Deployment**: Follow installation instructions in README.md
-
-### For Testing
-1. **API Testing**: Use examples in API_REFERENCE.md
-2. **WebSocket Testing**: Test real-time events with provided tools
-3. **Flutter Testing**: Implement test components from the guide
-4. **End-to-End**: Test complete call flow with two devices
-
-## 📞 Support
-
-For implementation questions:
-- **Backend Issues**: Check README.md troubleshooting
-- **API Questions**: Reference API_REFERENCE.md
-- **Flutter Integration**: Follow FLUTTER_INTEGRATION_GUIDE.md
-- **WebSocket Issues**: Check WEBSOCKET_INTEGRATION_SUMMARY.md
-
----
-
-**🎉 Complete implementation ready for production use with comprehensive Flutter support and real-time WebSocket integration!**
+- **1:1 calls**: Create with `POST /api/v1/calls/create`; respond with `POST /api/v1/calls/<id>/respond`; end with `POST /api/v1/calls/<id>/end` (either party ends for both). No call queue; busy returns 409.
+- **Events** (Zulip event queue): `initiated`, `incoming_call`, `ringing`, `accepted`, `declined`, `ended`, `cancelled`, `missed`. Payloads include `avatar_url`.
+- **Optional**: Jitsi JWT and GCP recording are feature-flagged; see plugin config and JITSI_SECURITY_AND_RECORDING.md.

@@ -1,6 +1,6 @@
 # 🧪 Zulip Calls Plugin - Testing Guide
 
-This guide will help you test the embedded call functionality in your development environment.
+This guide helps you test embedded and API call functionality in a development environment. For recent behavior changes, see [CHANGELOG.md](./CHANGELOG.md).
 
 ## 🚀 Quick Start Testing
 
@@ -42,11 +42,13 @@ fetch('/calls/script')
 
 ### Test 1: Basic Call Creation
 
+The API expects `user_id` (recipient's Zulip user ID). In the web UI, the compose context supplies this when you start a DM and click call.
+
 ```bash
-# Test the embedded call API directly
+# Replace OTHELLO_USER_ID with the recipient's user ID (e.g. from /api/v1/users)
 curl -X POST "http://localhost:9991/api/v1/calls/create-embedded" \
   -u "hamlet@zulip.com:your-api-key" \
-  -d "recipient_email=othello@zulip.com" \
+  -d "user_id=OTHELLO_USER_ID" \
   -d "is_video_call=true"
 ```
 
@@ -58,13 +60,11 @@ curl -X POST "http://localhost:9991/api/v1/calls/create-embedded" \
   "embedded_url": "/calls/embed/uuid-here",
   "call_type": "video",
   "room_name": "zulip-call-abc123",
-  "recipient": {
-    "user_id": 123,
-    "full_name": "Othello",
-    "email": "othello@zulip.com"
-  }
+  "recipient": { "user_id": 123, "full_name": "Othello", "email": "othello@zulip.com" }
 }
 ```
+
+To test the standard create endpoint (e.g. for mobile): `POST /api/v1/calls/create` with `user_id` and `is_video_call`. If the recipient is in another call, you get **409 Conflict** (no queue).
 
 ### Test 2: Embedded Call Interface
 
@@ -168,21 +168,21 @@ SELECT * FROM zulip_calls_plugin_callevent ORDER BY timestamp DESC LIMIT 10;
 ✅ **Message Integration**: Call link inserted in compose box
 ✅ **Multi-user**: Other users can join the same call
 
-## 🚀 Next Steps
+## 🛠️ Development notes
+
+- **Feature flags**: `JITSI_JWT_ENABLED` and `CALL_RECORDING_ENABLED` default to `False`. Leave them off in dev unless you have Jitsi/Jibri configured. See [docs/JITSI_SECURITY_AND_RECORDING.md](./docs/JITSI_SECURITY_AND_RECORDING.md).
+- **1:1 behavior**: Either party ending the call ends it for both. Use `POST /api/v1/calls/<call_id>/end`.
+- **Changelog**: [CHANGELOG.md](./CHANGELOG.md). Doc index: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
+## 🚀 Next steps
 
 Once basic testing works:
 
-1. **Test with real Jitsi server** (not meet.jit.si)
-2. **Configure push notifications** for mobile alerts
-3. **Test call history** functionality
-4. **Test on multiple devices/browsers**
-5. **Performance testing** with multiple concurrent calls
+1. **Test with your Jitsi server** (see plugin config `JITSI_SERVER_URL`).
+2. **Configure push notifications** for mobile (FCM).
+3. **Test call history**: `GET /api/v1/calls/history`.
+4. **Test on multiple devices/browsers**.
 
 ---
 
-**Happy Testing! 🎉📞**
-
-If you encounter issues, check:
-- Server logs: `tail -f var/log/zulip.log`
-- Browser console for JavaScript errors
-- Network tab in dev tools for API call failures
+**If you hit issues:** check server logs (`tail -f var/log/zulip.log`), browser console, and the Network tab for failed API calls.

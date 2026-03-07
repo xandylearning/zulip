@@ -10,9 +10,7 @@ from .calls import (
     create_embedded_call,
     acknowledge_call,
     heartbeat,
-    leave_call,
     cleanup_stale_calls,
-    cleanup_expired_queue_entries,
     # Group call functions
     create_group_call,
     invite_to_group_call,
@@ -34,9 +32,7 @@ __all__ = [
     "create_embedded_call",
     "acknowledge_call",
     "heartbeat",
-    "leave_call",
     "cleanup_stale_calls",
-    "cleanup_expired_queue_entries",
     # Group call functions
     "create_group_call",
     "invite_to_group_call",

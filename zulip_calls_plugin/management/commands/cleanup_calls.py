@@ -21,7 +21,7 @@ from typing_extensions import override
 
 from zerver.lib.management import ZulipBaseCommand, abort_unless_locked
 from zerver.lib.queue import queue_json_publish
-from zulip_calls_plugin.models import Call, CallQueue
+from zulip_calls_plugin.models import Call
 
 logger = logging.getLogger(__name__)
 
@@ -107,11 +107,4 @@ For old call cleanup, use --cleanup-old-calls flag.
             active_calls = Call.objects.filter(
                 state__in=['calling', 'ringing', 'accepted']
             ).count()
-
-            pending_queue = CallQueue.objects.filter(
-                status='pending',
-                expires_at__gt=current_time
-            ).count()
-
             self.stdout.write(f"Current active calls: {active_calls}")
-            self.stdout.write(f"Pending queue entries: {pending_queue}")

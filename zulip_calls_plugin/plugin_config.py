@@ -40,19 +40,33 @@ class CallsPluginConfig:
         """Get default Jitsi integration settings"""
         return {
             # Jitsi Integration Settings
-            'JITSI_SERVER_URL': "https://dev.meet.xandylearning.in",  # Custom Jitsi server
+            'JITSI_SERVER_URL': "https://dev.meet.xandylearning.in",
             'JITSI_MEETING_PREFIX': "zulip-call-",
             'JITSI_API_ENABLED': True,
 
+            # Jitsi JWT Authentication (requires prosody jwt module on the Jitsi server)
+            'JITSI_JWT_ENABLED': False,
+            'JITSI_JWT_APP_ID': "zulip-calls",
+            'JITSI_JWT_SECRET': "",
+            'JITSI_JWT_ALGORITHM': "HS256",
+            'JITSI_JWT_ISSUER': "zulip",
+            'JITSI_JWT_AUDIENCE': "jitsi",
+
             # Call Settings
-            'CALL_NOTIFICATION_TIMEOUT': 120,  # 2 minutes in seconds
-            'CALL_RING_TIMEOUT': 30,  # 30 seconds before showing "ringing"
-            'CALL_MAX_DURATION': 3600,  # 1 hour max call duration
-            'CALL_CLEANUP_INTERVAL': 300,  # 5 minutes - cleanup old calls
+            'CALL_NOTIFICATION_TIMEOUT': 120,
+            'CALL_RING_TIMEOUT': 30,
+            'CALL_MAX_DURATION': 3600,
+            'CALL_CLEANUP_INTERVAL': 300,
 
             # Push Notification Settings for Calls
             'CALL_PUSH_NOTIFICATION_ENABLED': True,
-            'CALL_PUSH_NOTIFICATION_SOUND': "call_ring.wav",  # Custom ringtone
+            'CALL_PUSH_NOTIFICATION_SOUND': "call_ring.wav",
+
+            # Call Recording (requires Jibri on the Jitsi server)
+            'CALL_RECORDING_ENABLED': False,
+            'CALL_RECORDING_GCP_BUCKET': "",
+            'CALL_RECORDING_GCP_KEY_FILE': "/etc/zulip/gcp_recording_key.json",
+            'CALL_RECORDING_FORMAT': "mp4",
 
             # Feature Flags
             'ENABLE_VIDEO_CALLS': True,

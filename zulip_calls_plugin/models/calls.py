@@ -140,56 +140,6 @@ class CallEvent(models.Model):
         return f"{self.event_type} by {self.user.full_name} for call {self.call.call_id}"
 
 
-class CallQueue(models.Model):
-    """Model for managing call queue when users are busy"""
-
-    QUEUE_STATES = [
-        ("pending", "Pending"),
-        ("expired", "Expired"),
-        ("converted", "Converted to Call"),
-        ("cancelled", "Cancelled"),
-    ]
-
-    queue_id = models.UUIDField(primary_key=True, default=uuid.uuid4, db_index=True)
-    caller = models.ForeignKey(
-        UserProfile, on_delete=models.CASCADE, related_name="queued_calls_sent"
-    )
-    busy_user = models.ForeignKey(
-        UserProfile, on_delete=models.CASCADE, related_name="queued_calls_received"
-    )
-    call_type = models.CharField(max_length=10, choices=Call.CALL_TYPES)
-    status = models.CharField(max_length=20, choices=QUEUE_STATES, default="pending")
-    
-    # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
-    notified_at = models.DateTimeField(null=True, blank=True)
-    expires_at = models.DateTimeField(db_index=True)
-    converted_to_call_id = models.UUIDField(null=True, blank=True)
-    
-    # Metadata
-    realm = models.ForeignKey(Realm, on_delete=models.CASCADE)
-
-    class Meta:
-        app_label = "zulip_calls_plugin"
-        ordering = ["created_at"]
-        indexes = [
-            models.Index(fields=["busy_user", "status"], name="queue_user_status_idx"),
-            models.Index(fields=["status", "expires_at"], name="queue_expiry_idx"),
-        ]
-
-    @override
-    def __str__(self) -> str:
-        return f"Queue {self.queue_id}: {self.caller.full_name} -> {self.busy_user.full_name}"
-
-    def is_expired(self) -> bool:
-        """Check if queue entry has expired"""
-        return timezone.now() > self.expires_at
-
-    def is_active(self) -> bool:
-        """Check if queue entry is still active"""
-        return self.status == "pending" and not self.is_expired()
-
-
 class GroupCall(models.Model):
     """Model for managing group video/voice calls"""
 

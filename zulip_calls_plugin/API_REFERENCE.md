@@ -1,22 +1,17 @@
 # Zulip Calls Plugin API Reference
 
 ## Overview
-Complete API reference for the Zulip Calls Plugin with WebSocket integration. This document covers all endpoints, request/response formats, WebSocket events, and error handling.
 
-## New Features in v2.0
+This document describes the plugin's API. For the **current, canonical** list of endpoints and behavior (post v1.1 overhaul), see:
 
-### Enhanced Call Management
-- **Missed Call Notifications**: Automatic push notifications for missed calls
-- **Cursor-Based Pagination**: Efficient pagination for call history with filtering
-- **Call Queue System**: Automatic queueing when calling busy users
-- **Moderator Privileges**: Call initiators can end calls for everyone
-- **Network Resilience**: Extended heartbeat timeouts (60s) for slow networks
+- **[README.md](./README.md)** — API table and quick examples
+- **[docs/FLUTTER_WHATSAPP_CALLING_GUIDE.md](./docs/FLUTTER_WHATSAPP_CALLING_GUIDE.md)** — Full request/response shapes, event `op` names, and mobile usage
 
-### API Improvements
-- **Queue Management**: View and cancel queued calls
-- **Leave vs End**: Participants can leave without ending call for others
-- **Race Condition Prevention**: 5-second cooldown between calls
-- **Enhanced Filtering**: Filter call history by type and status
+### Current behavior (v1.1)
+
+- **1:1 calls**: Create via `POST /api/v1/calls/create` (body: `user_id`, `is_video_call`). Recipient busy → **409 Conflict** (no queue). Respond via `POST /api/v1/calls/<call_id>/respond`. End via `POST /api/v1/calls/<call_id>/end` (either party; ends for both). No moderator for 1:1.
+- **Events**: `initiated`, `incoming_call`, `ringing`, `accepted`, `declined`, `ended`, `cancelled`, `missed`. Include `avatar_url` in sender/receiver.
+- **Removed**: Call queue, `leave` for 1:1, `/api/v1/calls/initiate` (use `create`).
 
 ## Table of Contents
 1. [Authentication](#authentication)
@@ -43,89 +38,42 @@ Use Zulip's session authentication for web requests.
 
 ## Call Initiation
 
-### POST /api/v1/calls/initiate
-
-**Description**: Initiate a quick call without database tracking.
-
-**Parameters**:
-```json
-{
-  "user_id": "integer (required)",
-  "is_video_call": "boolean (optional, default: true)"
-}
-```
-
-**Response**:
-```json
-{
-  "result": "success",
-  "call_url": "https://meet.jit.si/zulip-call-abc123",
-  "room_id": "abc123",
-  "message": "Call initiated successfully"
-}
-```
-
-**WebSocket Event**: Sends `participant_ringing` to recipient
-
-**Example**:
-```bash
-curl -X POST "https://your-zulip.com/api/v1/calls/initiate" \
-  -u "caller@example.com:api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "recipient_email": "recipient@example.com",
-    "is_video_call": true
-  }'
-```
-
----
-
 ### POST /api/v1/calls/create
 
-**Description**: Create a call with full database tracking. If recipient is busy, call is automatically queued.
+**Description**: Create a 1:1 call with full database tracking. If the recipient is in another call, the server returns **409 Conflict** (no queue).
 
-**Parameters**:
-```json
-{
-  "user_id": "integer (required)",
-  "is_video_call": "boolean (optional, default: true)"
-}
-```
+**Parameters** (form or JSON):
+- `user_id` (required): Recipient's Zulip user ID
+- `is_video_call` (optional): `true` or `false`; default `true`
 
-**Response (Call Created)**:
+**Response (201)**:
 ```json
 {
   "result": "success",
   "call_id": "uuid-string",
-  "call_url": "https://meet.jit.si/zulip-call-abc123",
-  "participant_url": "https://meet.jit.si/zulip-call-abc123?participant=true",
+  "call_url": "https://meet.example.com/zulip-call-abc123",
   "call_type": "video",
-  "room_name": "zulip-call-abc123",
-  "recipient": {
-    "user_id": 456,
-    "full_name": "Jane Smith",
-    "email": "recipient@example.com"
-  }
+  "receiver_online": true
 }
 ```
 
-**Response (Call Queued - HTTP 202)**:
+**Response (409 — recipient busy)**:
 ```json
 {
-  "result": "queued",
-  "queue_id": "queue-uuid",
-  "message": "Jane Smith is currently in another call. You'll be notified when they're available.",
-  "expires_at": "2024-01-01T12:10:00Z",
-  "position": "next"
+  "result": "error",
+  "message": "Jane Smith is currently in another call"
 }
 ```
 
-**WebSocket Event**: Sends `participant_ringing` to recipient (if not queued)
+**Events**: `initiated` to caller, `incoming_call` to receiver (with `avatar_url` in payloads).
 
-**Notes**:
-- Call initiator becomes the moderator
-- Queue automatically processes when recipient becomes available
-- Queue expires after 5 minutes
+**Example**:
+```bash
+curl -X POST "https://your-zulip.com/api/v1/calls/create" \
+  -u "caller@example.com:api-key" \
+  -d "user_id=456" \
+  -d "is_video_call=true"
+```
 
 ---
 
@@ -133,42 +81,26 @@ curl -X POST "https://your-zulip.com/api/v1/calls/initiate" \
 
 ### POST /api/v1/calls/acknowledge
 
-**Description**: Acknowledge receipt of call notification (sets status to 'ringing').
+**Description**: Receiver acknowledges the incoming call (transition to ringing). No `status` body required; send `call_id` only.
 
-**Parameters**:
-```json
-{
-  "call_id": "string (required)",
-  "status": "string (required, must be 'ringing')"
-}
-```
+**Parameters**: `call_id` (required)
 
 **Response**:
 ```json
 {
   "result": "success",
-  "call_status": "ringing",
-  "message": "Call acknowledged successfully"
+  "call_status": "ringing"
 }
 ```
 
-**WebSocket Event**: Sends `participant_ringing` to caller with recipient details
+**Event**: Sends `ringing` to caller.
 
 **Example**:
 ```bash
 curl -X POST "https://your-zulip.com/api/v1/calls/acknowledge" \
   -u "recipient@example.com:api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "call_id": "abc123-def456-ghi789",
-    "status": "ringing"
-  }'
+  -d "call_id=CALL_ID"
 ```
-
-**Notes**:
-- Only the call recipient can acknowledge
-- Call must be in 'calling' state
-- Creates an 'acknowledged' event in call history
 
 ---
 
@@ -194,7 +126,7 @@ curl -X POST "https://your-zulip.com/api/v1/calls/acknowledge" \
 }
 ```
 
-**Usage**: Client should send heartbeat every 5 seconds while in an active call.
+**Usage**: Client should send heartbeat periodically (e.g. every 30 seconds) while in an active call. If the call has already ended, response includes `call_state: "ended"`.
 
 **Example**:
 ```bash
@@ -211,57 +143,45 @@ curl -X POST "https://your-zulip.com/api/v1/calls/heartbeat" \
 - Only call participants can send heartbeat
 - Heartbeat is used for network failure detection (15-second timeout)
 - Background state is tracked but doesn't affect call flow
-- Missing heartbeat for 15 seconds will end the call
+- Server cleanup may mark call as ended/network_failure after prolonged missing heartbeats
 
 ---
 
 ## Call Response
 
-### POST /api/v1/calls/respond
+### POST /api/v1/calls/<call_id>/respond
 
-**Description**: Accept or reject an incoming call.
+**Description**: Accept or decline an incoming call.
 
-**Parameters**:
-```json
-{
-  "call_id": "string (required)",
-  "response": "string (required, 'accept' or 'reject')"
-}
-```
+**Parameters**: `response` (required): `accept` or `decline`
 
 **Response (Accept)**:
 ```json
 {
   "result": "success",
-  "status": "ok",
-  "call_status": "accepted",
-  "jitsi_url": "https://meet.jit.si/zulip-call-abc123"
+  "action": "accept",
+  "call_url": "https://meet.example.com/zulip-call-abc123?jwt=...",
+  "message": "Call accepted successfully"
 }
 ```
 
-**Response (Reject)**:
+**Response (Decline)**:
 ```json
 {
   "result": "success",
-  "status": "ok",
-  "call_status": "rejected"
+  "action": "decline",
+  "call_url": null,
+  "message": "Call declined successfully"
 }
 ```
 
-**WebSocket Events**:
-- Accept: Sends `accepted` to both participants
-- Reject: Sends `declined` to caller
+**Events**: Accept → `accepted` to both; decline → `declined` to both and push to caller.
 
 **Example**:
 ```bash
-# Accept call
-curl -X POST "https://your-zulip.com/api/v1/calls/respond" \
+curl -X POST "https://your-zulip.com/api/v1/calls/CALL_ID/respond" \
   -u "recipient@example.com:api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "call_id": "abc123-def456-ghi789",
-    "response": "accept"
-  }'
+  -d "response=accept"
 
 # Reject call
 curl -X POST "https://your-zulip.com/api/v1/calls/respond" \
@@ -345,52 +265,27 @@ curl -X POST "https://your-zulip.com/api/v1/calls/status" \
 
 ## Call Termination
 
-### POST /api/v1/calls/end
+### POST /api/v1/calls/<call_id>/end
 
-**Description**: End an active call.
+**Description**: End the call. For 1:1 calls, either participant may call this; the call ends for both (WhatsApp-style). Idempotent: if the call is already ended, returns success.
 
-**Parameters**:
-```json
-{
-  "call_id": "string (required)",
-  "reason": "string (optional, default: 'user_hangup')"
-}
-```
+**Parameters**: None (call_id in path).
 
 **Response**:
 ```json
 {
   "result": "success",
-  "status": "ok",
-  "message": "Call ended successfully",
-  "call_id": "abc123-def456-ghi789"
+  "message": "Call ended successfully"
 }
 ```
 
-**WebSocket Event**: Sends `ended` to both participants
+**Event**: Sends `ended` to both participants.
 
 **Example**:
 ```bash
-curl -X POST "https://your-zulip.com/api/v1/calls/end" \
-  -u "caller@example.com:api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "call_id": "abc123-def456-ghi789",
-    "reason": "user_hangup"
-  }'
+curl -X POST "https://your-zulip.com/api/v1/calls/CALL_ID/end" \
+  -u "user@example.com:api-key"
 ```
-
----
-
-### POST /api/v1/calls/{call_id}/end
-
-**Description**: Alternative endpoint using path parameter.
-
-**Path Parameter**: `call_id` - The call ID
-
-**Parameters**: None required
-
-**Response**: Same as above
 
 ---
 

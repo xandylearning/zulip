@@ -151,10 +151,81 @@ Zulip User Created:
 
 ## API Endpoints
 
-### JWT Login Endpoint
+The LMS integration exposes two JWT endpoints (see `lms_integration/urls.py`). Both are mounted under the LMS API prefix:
+
+- **`/api/v1/lms/auth/jwt`** — get a Zulip API key (for mobile apps, bots, API clients)
+- **`/api/v1/lms/auth/jwt/login`** — create a web session (for browser-based login)
+
+The same paths are also available under **`/json/lms/`** (e.g. `/json/lms/auth/jwt`, `/json/lms/auth/jwt/login`). Realm is inferred from the request (e.g. subdomain). No prior Zulip authentication is required; these endpoints use plain `path()` and do not go through `rest_dispatch` auth.
+
+---
+
+### 1. JWT Auth API — Get API key
+
+**Use case:** Mobile apps, API clients, or bots that need a Zulip API key to call the Zulip API. The client exchanges an LMS JWT for a Zulip API key and then uses that key for subsequent requests.
 
 ```
-POST /accounts/login/jwt/
+POST /api/v1/lms/auth/jwt
+POST /json/lms/auth/jwt
+```
+
+**Request Body:**
+```json
+{
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "include_profile": false
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `token` | string | Yes | LMS/TestPress JWT token |
+| `include_profile` | boolean | No | If `true`, response includes `role`. Default `false`. |
+
+**Success Response (200):**
+```json
+{
+    "result": "success",
+    "msg": "",
+    "api_key": "your-zulip-api-key",
+    "email": "user@school.edu",
+    "user_id": 123,
+    "full_name": "User Name"
+}
+```
+
+Optionally with `include_profile: true`:
+```json
+{
+    "result": "success",
+    "msg": "",
+    "api_key": "your-zulip-api-key",
+    "email": "user@school.edu",
+    "user_id": 123,
+    "full_name": "User Name",
+    "role": 400
+}
+```
+
+**Error Response (400):**
+```json
+{
+    "result": "error",
+    "msg": "JWT authentication failed"
+}
+```
+
+Other errors (e.g. missing token, malformed JSON) return appropriate `msg` values.
+
+---
+
+### 2. JWT Web Login — Create session (browser)
+
+**Use case:** Web app login. The client sends the LMS JWT; the server creates a Django session (sets session cookie) and returns success plus a redirect URL. The browser then redirects to Zulip with an active session.
+
+```
+POST /api/v1/lms/auth/jwt/login
+POST /json/lms/auth/jwt/login
 ```
 
 **Request Body:**
@@ -164,24 +235,38 @@ POST /accounts/login/jwt/
 }
 ```
 
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `token` | string | Yes | LMS/TestPress JWT token |
+
 **Success Response (200):**
 ```json
 {
     "result": "success",
+    "msg": "",
+    "message": "Login successful",
     "user_id": 123,
     "email": "user@school.edu",
     "full_name": "User Name",
-    "is_placeholder_email": false
+    "redirect_url": "/"
 }
 ```
+
+The response includes a `Set-Cookie` header for the session. The client should redirect the user to `redirect_url` (typically `/`) to load the Zulip web app.
 
 **Error Response (400):**
 ```json
 {
     "result": "error",
-    "msg": "Invalid JWT token"
+    "msg": "JWT authentication failed"
 }
 ```
+
+---
+
+### Legacy / generic JWT login reference
+
+Some setups may use a single generic JWT login endpoint (e.g. `POST /accounts/login/jwt/`) that returns user info and/or sets a session. The LMS integration uses the two endpoints above instead: use **`auth/jwt`** for API key and **`auth/jwt/login`** for web login.
 
 ### Token Validation
 
@@ -209,79 +294,92 @@ The system validates tokens using an optimized two-step process:
 
 ## Frontend Integration Examples
 
-### JavaScript/React
+### Web app — session login (`auth/jwt/login`)
+
+Use **`POST /api/v1/lms/auth/jwt/login`** (or `/json/lms/auth/jwt/login`) when the user logs in from a browser. The server sets a session cookie; then redirect to `redirect_url`.
 
 ```javascript
-class TestPressAuth {
-    static async loginWithJWT(token) {
-        try {
-            const response = await fetch('/accounts/login/jwt/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCSRFToken(),
-                },
-                body: JSON.stringify({ token })
-            });
+const ZULIP_BASE = 'https://your-zulip.example.com';
 
-            if (response.ok) {
-                const data = await response.json();
-                console.log('Login successful:', data);
-                // Redirect to Zulip main interface
-                window.location.href = '/';
-            } else {
-                const error = await response.json();
-                console.error('Login failed:', error.msg);
-            }
-        } catch (error) {
-            console.error('Network error:', error);
-        }
+async function loginWithJWT(token) {
+    const response = await fetch(`${ZULIP_BASE}/api/v1/lms/auth/jwt/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',  // send and store cookies
+        body: JSON.stringify({ token }),
+    });
+
+    const data = await response.json();
+    if (data.result !== 'success') {
+        throw new Error(data.msg || 'JWT authentication failed');
     }
+    // Session cookie is set; redirect to Zulip
+    window.location.href = data.redirect_url || '/';
 }
 
 // Usage
-TestPressAuth.loginWithJWT(userJWTToken);
+loginWithJWT(userJWTToken);
 ```
 
-### Mobile App (React Native)
+### Mobile / API client — get API key (`auth/jwt`)
+
+Use **`POST /api/v1/lms/auth/jwt`** when you need a Zulip API key (e.g. mobile app or bot). Store the returned `api_key` and use it for Zulip API requests.
 
 ```javascript
-export const authenticateWithTestPress = async (jwtToken) => {
-    try {
-        const response = await fetch(`${ZULIP_BASE_URL}/accounts/login/jwt/`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                token: jwtToken
-            }),
-        });
+const ZULIP_BASE = 'https://your-zulip.example.com';
 
-        const data = await response.json();
+async function getZulipApiKey(jwtToken) {
+    const response = await fetch(`${ZULIP_BASE}/api/v1/lms/auth/jwt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            token: jwtToken,
+            include_profile: true,  // optional: get role in response
+        }),
+    });
 
-        if (data.result === 'success') {
-            // Store user session
-            await AsyncStorage.setItem('zulip_user_id', data.user_id.toString());
-            await AsyncStorage.setItem('zulip_email', data.email);
-            return data;
-        } else {
-            throw new Error(data.msg);
-        }
-    } catch (error) {
-        console.error('Authentication failed:', error);
-        throw error;
+    const data = await response.json();
+    if (data.result !== 'success') {
+        throw new Error(data.msg || 'JWT authentication failed');
     }
+    return {
+        apiKey: data.api_key,
+        email: data.email,
+        userId: data.user_id,
+        fullName: data.full_name,
+        role: data.role,
+    };
+}
+
+// Usage: store apiKey and use for Zulip API calls
+const { apiKey, email, userId } = await getZulipApiKey(lmsJwtToken);
+// e.g. pass apiKey to Zulip SDK or use in Authorization header
+```
+
+### React Native example (API key)
+
+```javascript
+export const authenticateWithLMS = async (jwtToken) => {
+    const response = await fetch(`${ZULIP_BASE_URL}/api/v1/lms/auth/jwt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: jwtToken }),
+    });
+
+    const data = await response.json();
+    if (data.result !== 'success') {
+        throw new Error(data.msg || 'JWT authentication failed');
+    }
+    await AsyncStorage.setItem('zulip_api_key', data.api_key);
+    await AsyncStorage.setItem('zulip_user_id', String(data.user_id));
+    await AsyncStorage.setItem('zulip_email', data.email);
+    return data;
 };
 ```
 
-### URL-based Authentication
+### URL-based authentication
 
-For web applications, you can also pass the JWT token as a URL parameter:
-
-```
-https://your-zulip.com/accounts/login/jwt/?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-```
+The LMS integration endpoints expect a **POST** body with `token`. Passing the JWT as a URL query parameter is not supported for `/api/v1/lms/auth/jwt` or `/api/v1/lms/auth/jwt/login`. Implement a small redirector that reads `?token=...` and POSTs it to `auth/jwt/login` if you need link-based login.
 
 ## Security Considerations
 
@@ -340,13 +438,21 @@ LOGGING = {
 
 ### Testing Authentication
 
-#### Test JWT Token Validation
+#### Test JWT token (API key)
 
 ```bash
-# Test with curl
-curl -X POST https://your-zulip.com/accounts/login/jwt/ \
+curl -X POST https://your-zulip.com/api/v1/lms/auth/jwt \
   -H "Content-Type: application/json" \
   -d '{"token":"your-test-token"}'
+```
+
+#### Test JWT web login
+
+```bash
+curl -X POST https://your-zulip.com/api/v1/lms/auth/jwt/login \
+  -H "Content-Type: application/json" \
+  -d '{"token":"your-test-token"}' \
+  -c cookies.txt -v
 ```
 
 #### Test in Django Shell

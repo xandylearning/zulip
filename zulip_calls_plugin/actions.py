@@ -74,10 +74,12 @@ def do_send_call_event(
         "sender": {
             "user_id": call.sender.id,
             "full_name": call.sender.full_name,
+            "avatar_url": f"/avatar/{call.sender.id}",
         },
         "receiver": {
             "user_id": call.receiver.id,
             "full_name": call.receiver.full_name,
+            "avatar_url": f"/avatar/{call.receiver.id}",
         },
         "state": call.state,
         "jitsi_url": call.jitsi_room_url,
@@ -242,29 +244,19 @@ def do_send_missed_call_event(
     """
     Send missed call events when call times out without answer.
 
-    This sends:
-    1. "missed" event to caller (so they know call wasn't answered)
-    2. Does NOT send event to receiver (they already got incoming_call event earlier)
-
-    The caller of this function should also send a missed call push notification
-    to the receiver separately.
+    Sends "missed" event to BOTH caller and receiver so each side can update
+    its call history UI and show appropriate missed-call notifications.
 
     Args:
         realm: The realm the call belongs to
         call: The Call instance that was missed
         timeout_seconds: How long the call rang before timing out (default 90)
-
-    Example:
-        do_send_missed_call_event(realm, call)
-        # Also send push notification:
-        send_missed_call_notification(call.receiver, call)
     """
-    # Notify caller that call was missed
     do_send_call_event(
         realm,
         call,
         "missed",
-        [call.sender.id],
+        [call.sender.id, call.receiver.id],
         extra_data={
             "reason": "no_answer",
             "timeout_seconds": timeout_seconds,
@@ -272,7 +264,8 @@ def do_send_missed_call_event(
     )
 
     logger.info(
-        f"Call {call.call_id} missed event sent to caller {call.sender.id} "
+        f"Call {call.call_id} missed event sent to both participants "
+        f"(sender={call.sender.id}, receiver={call.receiver.id}) "
         f"after {timeout_seconds}s timeout"
     )
 
@@ -311,6 +304,7 @@ def do_send_group_call_event(
         {
             "user_id": p.user.id,
             "full_name": p.user.full_name,
+            "avatar_url": f"/avatar/{p.user.id}",
             "state": p.state,
             "is_host": p.is_host,
         }
@@ -325,6 +319,7 @@ def do_send_group_call_event(
         "host": {
             "user_id": group_call.host.id,
             "full_name": group_call.host.full_name,
+            "avatar_url": f"/avatar/{group_call.host.id}",
         },
         "participants": participants,
         "jitsi_url": group_call.jitsi_room_url,

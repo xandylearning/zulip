@@ -10,7 +10,6 @@ from ..views import (
     get_call_history,
     acknowledge_call,
     heartbeat,
-    leave_call,
     # Group call endpoints
     create_group_call,
     invite_to_group_call,
@@ -22,18 +21,15 @@ from ..views import (
     get_group_call_participants,
 )
 
-# Essential API endpoints for the call module (Flutter / mobile)
 urlpatterns = [
-    # Core 1-to-1 call management
+    # 1-to-1 call management
     path("api/v1/calls/create", create_call, name="create_call"),
     path("api/v1/calls/create-embedded", create_embedded_call, name="create_embedded_call"),
     path("api/v1/calls/<str:call_id>/respond", respond_to_call, name="respond_to_call"),
     path("api/v1/calls/<str:call_id>/end", end_call, name="end_call"),
-    path("api/v1/calls/<str:call_id>/leave", leave_call, name="leave_call"),
     path("api/v1/calls/<str:call_id>/cancel", cancel_call, name="cancel_call"),
     path("api/v1/calls/<str:call_id>/status", get_call_status, name="get_call_status"),
     path("api/v1/calls/history", get_call_history, name="get_call_history"),
-    # Flutter-specific
     path("api/v1/calls/acknowledge", acknowledge_call, name="acknowledge_call"),
     path("api/v1/calls/heartbeat", heartbeat, name="heartbeat"),
     # Group call endpoints

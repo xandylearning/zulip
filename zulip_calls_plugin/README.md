@@ -71,97 +71,94 @@ realm.save()
 
 Ensure your Zulip server has FCM configured for mobile push notifications. The plugin uses Zulip's existing push notification infrastructure.
 
+### Optional: Jitsi JWT and call recording
+
+- **Jitsi JWT**: Set `JITSI_JWT_ENABLED = True` and configure `JITSI_JWT_SECRET` (and related settings) in production when your Jitsi server has Prosody JWT enabled. Default: `False` for development.
+- **Call recording**: Set `CALL_RECORDING_ENABLED = True` and configure GCP bucket and Jibri when recording is required. Default: `False`.
+
+See **[docs/JITSI_SECURITY_AND_RECORDING.md](./docs/JITSI_SECURITY_AND_RECORDING.md)** for setup.
+
 ## 📞 API Endpoints
 
-| Endpoint | Method | Description | WebSocket Events |
-|----------|--------|-------------|------------------|
-| `/api/v1/calls/initiate` | POST | Quick call creation and notification | `participant_ringing` |
-| `/api/v1/calls/acknowledge` | POST | **NEW**: Acknowledge call receipt | `participant_ringing` |
-| `/api/v1/calls/respond` | POST | Accept/decline call invitation | `accepted`, `declined` |
-| `/api/v1/calls/status` | POST | **NEW**: Update call status during call | `call_status_update` |
-| `/api/v1/calls/end` | POST | End ongoing call | `ended` |
-| `/api/v1/calls/{id}/cancel` | POST | Cancel an outgoing call while calling/ringing | `cancelled` |
-| `/api/v1/calls/create` | POST | Full call creation with tracking | `participant_ringing` |
-| `/api/v1/calls/create-embedded` | POST | Create embedded call for web UI | `participant_ringing` |
-| `/api/v1/calls/{id}/status` | GET | Get current call status | - |
-| `/api/v1/calls/history` | GET | Get user's call history | - |
-| `/calls/embed/{id}` | GET | **Embedded call interface** | - |
-| `/calls/script` | GET | **JavaScript for embedded calls** | - |
+### 1:1 calls
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/calls/create` | POST | Create call (body: `user_id`, `is_video_call`). Returns 409 if recipient is busy. |
+| `/api/v1/calls/create-embedded` | POST | Create embedded call for web (session auth). |
+| `/api/v1/calls/<call_id>/respond` | POST | Accept or decline (body: `response=accept` or `response=decline`). |
+| `/api/v1/calls/<call_id>/end` | POST | End call (either party; ends for both in 1:1). Idempotent. |
+| `/api/v1/calls/<call_id>/cancel` | POST | Caller cancels before answer. |
+| `/api/v1/calls/<call_id>/status` | GET | Get current call state. |
+| `/api/v1/calls/history` | GET | Get user's call history. |
+| `/api/v1/calls/acknowledge` | POST | Receiver acknowledges (ringing). Body: `call_id`. |
+| `/api/v1/calls/heartbeat` | POST | Keep-alive during active call. Body: `call_id`. |
+
+### Group calls
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/calls/group/create` | POST | Create group call. |
+| `/api/v1/calls/group/<call_id>/invite` | POST | Invite users. |
+| `/api/v1/calls/group/<call_id>/join` | POST | Join call. |
+| `/api/v1/calls/group/<call_id>/leave` | POST | Leave (does not end for others). |
+| `/api/v1/calls/group/<call_id>/decline` | POST | Decline invitation. |
+| `/api/v1/calls/group/<call_id>/end` | POST | End for all (host only). |
+| `/api/v1/calls/group/<call_id>/status` | GET | Get call and participant info. |
+| `/api/v1/calls/group/<call_id>/participants` | GET | List participants. |
+
+### Web
+
+| Path | Description |
+|------|-------------|
+| `/calls/embed/<call_id>` | Embedded Jitsi call interface (session auth). |
+| `/calls/script` | JavaScript for embedded calls. |
 
 ## 🧪 Testing
 
-### Test Embedded Call Creation (NEW!)
+### Test Embedded Call Creation
 
 ```bash
 curl -X POST "http://localhost:9991/api/v1/calls/create-embedded" \
   -u "caller@example.com:api-key" \
-  -d "recipient_email=recipient@example.com" \
+  -d "user_id=RECIPIENT_USER_ID" \
   -d "is_video_call=true"
 ```
 
-**Response includes `embedded_url` for the call interface!**
+Response includes `embedded_url` for the call interface. The web UI resolves the recipient from the compose context and passes `user_id`.
 
 ### Test Web Interface
 
 1. **Navigate to the Zulip web interface**
 2. **Start a new direct message**
 3. **Click the video or audio call button**
-4. **Call window opens embedded in your domain! 🎉**
+4. **Call window opens embedded in your domain**
 
-### Test Complete Call Flow (NEW WebSocket Integration!)
-
-```bash
-# 1. Initiate call (sends WebSocket event: participant_ringing)
-curl -X POST "http://localhost:9991/api/v1/calls/initiate" \
-  -u "caller@example.com:api-key" \
-  -d "recipient_email=recipient@example.com" \
-  -d "is_video_call=true"
-
-# 2. Acknowledge call receipt (sends WebSocket event: participant_ringing)
-curl -X POST "http://localhost:9991/api/v1/calls/acknowledge" \
-  -u "recipient@example.com:api-key" \
-  -d "call_id=CALL_ID" \
-  -d "status=ringing"
-
-# 3. Accept call (sends WebSocket event: call_accepted)
-curl -X POST "http://localhost:9991/api/v1/calls/respond" \
-  -u "recipient@example.com:api-key" \
-  -d "call_id=CALL_ID" \
-  -d "response=accept"
-
-# 4. Update call status during call (sends WebSocket event: call_status_update)
-curl -X POST "http://localhost:9991/api/v1/calls/status" \
-  -u "caller@example.com:api-key" \
-  -d "call_id=CALL_ID" \
-  -d "status=connected"
-
-# 5. End call (sends WebSocket event: call_ended)
-curl -X POST "http://localhost:9991/api/v1/calls/end" \
-  -u "caller@example.com:api-key" \
-  -d "call_id=CALL_ID" \
-  -d "reason=user_hangup"
-
-# Get call history
-curl -X GET "http://localhost:9991/api/v1/calls/history?limit=10" \
-  -u "user@example.com:api-key"
-```
-
-### Test Standard API
+### Test Complete Call Flow
 
 ```bash
-# Test standard call creation with database tracking
+# 1. Create call (recipient busy → 409)
 curl -X POST "http://localhost:9991/api/v1/calls/create" \
   -u "caller@example.com:api-key" \
-  -d "recipient_email=recipient@example.com" \
+  -d "user_id=RECIPIENT_USER_ID" \
   -d "is_video_call=true"
 
-# Test call response using path parameter
+# 2. Receiver acknowledges (ringing)
+curl -X POST "http://localhost:9991/api/v1/calls/acknowledge" \
+  -u "recipient@example.com:api-key" \
+  -d "call_id=CALL_ID"
+
+# 3. Accept or decline
 curl -X POST "http://localhost:9991/api/v1/calls/CALL_ID/respond" \
   -u "recipient@example.com:api-key" \
   -d "response=accept"
 
-# Test call status check
-curl -X GET "http://localhost:9991/api/v1/calls/CALL_ID/status" \
+# 4. End call (either participant)
+curl -X POST "http://localhost:9991/api/v1/calls/CALL_ID/end" \
+  -u "user@example.com:api-key"
+
+# Call history
+curl -X GET "http://localhost:9991/api/v1/calls/history?limit=10" \
   -u "user@example.com:api-key"
 ```
 
@@ -190,54 +187,21 @@ The plugin JavaScript automatically:
 - Handles call state updates and notifications
 - Integrates with Zulip's compose system
 
-## 📱 Flutter App Integration
+## 📱 Flutter / Mobile Integration
 
-This plugin is designed to work with the Zulip Flutter mobile app. The Flutter app should:
+For a WhatsApp-like calling experience (full-screen incoming, Jitsi SDK, CallKit/ConnectionService, edge cases), use the canonical guide:
 
-1. **WebSocket Connection**: Connect to Zulip's WebSocket system for real-time events
-2. **Call Creation**: POST to `/api/v1/calls/initiate` when user taps call button
-3. **Push Handling**: Listen for call invitation push notifications
-4. **Call Acknowledgment**: POST to `/api/v1/calls/acknowledge` when receiving call
-5. **Call Response**: POST to `/api/v1/calls/respond` for accept/decline
-6. **Status Updates**: POST to `/api/v1/calls/status` during active calls
-7. **Call Termination**: POST to `/api/v1/calls/end` when ending call
-8. **Jitsi Integration**: Open Jitsi Meet with the provided `call_url`
+📖 **[docs/FLUTTER_WHATSAPP_CALLING_GUIDE.md](./docs/FLUTTER_WHATSAPP_CALLING_GUIDE.md)** — API reference, event `op` names, push payloads, state machine, UX patterns, and Dart examples.
 
-### Complete Integration Guide
+Summary for mobile clients:
 
-📖 **See [FLUTTER_INTEGRATION_GUIDE.md](./FLUTTER_INTEGRATION_GUIDE.md)** for comprehensive Flutter implementation with WebSocket support, state management, and UI components.
+- **Create call**: `POST /api/v1/calls/create` (body: `user_id`, `is_video_call`). Busy → 409.
+- **Respond**: `POST /api/v1/calls/<call_id>/respond` with `response=accept` or `response=decline`.
+- **End**: `POST /api/v1/calls/<call_id>/end` (either party; 1:1 ends for both).
+- **Acknowledge**: `POST /api/v1/calls/acknowledge` (body: `call_id`) when phone starts ringing.
+- **Heartbeat**: `POST /api/v1/calls/heartbeat` (body: `call_id`) every ~30s during active call.
 
-### WebSocket Event Format
-
-```json
-{
-  "type": "call_event",
-  "event_type": "participant_ringing|accepted|declined|ended|cancelled|missed|timeout|call_status_update",
-  "call_id": "uuid-string",
-  "call_type": "video",
-  "sender_id": 123,
-  "sender_name": "John Doe",
-  "receiver_id": 456,
-  "receiver_name": "Jane Smith",
-  "jitsi_url": "https://meet.jit.si/zulip-call-abc123",
-  "state": "calling|ringing|accepted|missed|timeout|cancelled|ended",
-  "timestamp": "2024-01-01T12:00:00Z"
-}
-```
-
-### Expected Push Notification Format
-
-```json
-{
-  "type": "call_invitation",
-  "call_id": "uuid-string",
-  "call_url": "https://meet.jit.si/zulip-call-abc123",
-  "call_type": "video",
-  "caller_name": "John Doe",
-  "caller_id": 123,
-  "room_name": "zulip-call-abc123"
-}
-```
+Real-time events (Zulip event queue, `type: "call"`): `initiated`, `incoming_call`, `ringing`, `accepted`, `declined`, `ended`, `cancelled`, `missed`. Payloads include `sender`, `receiver`, and `avatar_url`.
 
 ## 📊 Database Schema
 
@@ -303,6 +267,8 @@ python manage.py migrate zulip_calls_plugin zero
 
 ## 🏗️ Development
 
+See **[DEVELOPMENT.md](./DEVELOPMENT.md)** for run instructions, feature flags, plugin layout, and doc index.
+
 ### Plugin Structure
 
 ```
@@ -333,6 +299,10 @@ zulip_calls_plugin/
 2. **Views**: Add new API endpoints to `views/calls.py`
 3. **URLs**: Register new URLs in `urls/calls.py`
 4. **Migrations**: Run `python manage.py makemigrations zulip_calls_plugin`
+
+## 📋 Changelog
+
+See **[CHANGELOG.md](./CHANGELOG.md)** for version history and notable changes.
 
 ## 📄 License
 

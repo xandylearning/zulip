@@ -10,7 +10,7 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from functools import wraps
 from django.utils import timezone
-from django.db import transaction
+from django.db import transaction, OperationalError
 from django.db import models
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
@@ -36,7 +36,7 @@ from zerver.models import UserProfile
 from zerver.models.users import get_user_by_delivery_email
 
 # Import plugin models
-from ..models import Call, CallEvent, CallQueue
+from ..models import Call, CallEvent
 
 # Import action functions for event dispatch
 from ..actions import (
@@ -52,14 +52,78 @@ from ..actions import (
 logger = logging.getLogger(__name__)
 
 
+def _generate_jitsi_jwt(room_name: str, user_profile: UserProfile) -> str | None:
+    """Generate a signed JWT for Jitsi room access. Returns None if JWT is disabled."""
+    import time
+
+    jwt_enabled = getattr(settings, 'JITSI_JWT_ENABLED', False)
+    jwt_secret = getattr(settings, 'JITSI_JWT_SECRET', '')
+    if not jwt_enabled or not jwt_secret:
+        return None
+
+    try:
+        import jwt as pyjwt
+    except ImportError:
+        logger.warning("PyJWT not installed; Jitsi JWT disabled")
+        return None
+
+    now = int(time.time())
+    max_duration = getattr(settings, 'CALL_MAX_DURATION', 3600)
+    payload = {
+        "iss": getattr(settings, 'JITSI_JWT_ISSUER', 'zulip'),
+        "aud": getattr(settings, 'JITSI_JWT_AUDIENCE', 'jitsi'),
+        "sub": getattr(settings, 'JITSI_SERVER_URL', '').replace('https://', '').replace('http://', ''),
+        "room": room_name,
+        "iat": now,
+        "nbf": now,
+        "exp": now + max_duration + 300,
+        "context": {
+            "user": {
+                "id": str(user_profile.id),
+                "name": user_profile.full_name,
+                "email": user_profile.delivery_email,
+                "avatar": f"/avatar/{user_profile.id}",
+            },
+        },
+    }
+
+    algorithm = getattr(settings, 'JITSI_JWT_ALGORITHM', 'HS256')
+    return pyjwt.encode(payload, jwt_secret, algorithm=algorithm)
+
+
 def generate_jitsi_url(call_id: str) -> tuple[str, str]:
     """Generate Jitsi meeting URL and room ID"""
-    from django.conf import settings
-
     room_id = f"{getattr(settings, 'JITSI_MEETING_PREFIX', 'zulip-call-')}{call_id}"
     jitsi_url = f"{getattr(settings, 'JITSI_SERVER_URL', 'https://dev.meet.xandylearning.in')}/{room_id}"
-
     return jitsi_url, room_id
+
+
+def _build_participant_jitsi_url(base_room_url: str, user_profile: UserProfile, room_name: str | None = None) -> str:
+    """Build full Jitsi participant URL with display name, config, and optional JWT."""
+    params = (
+        f"?userInfo.displayName={user_profile.full_name}"
+        f"&config.startWithAudioMuted=false"
+        f"&config.startWithVideoMuted=false"
+        f"&config.enableWelcomePage=false"
+        f"&config.enableClosePage=false"
+        f"&config.prejoinPageEnabled=false"
+        f"&config.prejoinConfig.enabled=false"
+        f"&config.prejoinConfig.hideDisplayName=true"
+        f"&config.prejoinConfig.hidePrejoinDisplayName=true"
+        f"&config.requireDisplayName=false"
+        f"&config.disableModeratorIndicator=true"
+        f"&config.startScreenSharing=false"
+        f"&config.enableInsecureRoomNameWarning=false"
+        f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
+        f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
+    )
+
+    if room_name:
+        token = _generate_jitsi_jwt(room_name, user_profile)
+        if token:
+            params += f"&jwt={token}"
+
+    return f"{base_room_url}{params}#config.prejoinPageEnabled=false"
 
 
 def extract_request_data(request: HttpRequest, required_fields: list = None) -> dict:
@@ -378,19 +442,23 @@ def send_call_response_notification(user_profile: UserProfile, call: Call, respo
     from zerver.lib.remote_server import PushNotificationBouncerRetryLaterError
     
     payload_data_to_encrypt = {
-        'event': 'call_response',  # Use 'event' for FCM notification detection
-        'type': 'call_response',   # Keep 'type' for backward compatibility
+        'event': 'call_response',
+        'type': 'call_response',
         'call_id': str(call.call_id),
         'response': response,
+        'receiver_id': call.receiver.id,
         'receiver_name': call.receiver.full_name,
-        'sender_full_name': call.receiver.full_name,  # Add for FCM notification
+        'receiver_avatar_url': f"/avatar/{call.receiver.id}",
+        'sender_id': call.sender.id,
+        'sender_full_name': call.sender.full_name,
+        'sender_avatar_url': f"/avatar/{call.sender.id}",
         'call_type': call.call_type,
         'realm_uri': user_profile.realm.url,
         'realm_name': user_profile.realm.name,
         'realm_url': user_profile.realm.url,
-        'server': user_profile.realm.host,  # Add server info for FCM
-        'user_id': str(user_profile.id),    # Add user ID for FCM
-        'time': str(int(timezone.now().timestamp())),  # Add timestamp for FCM
+        'server': user_profile.realm.host,
+        'user_id': str(user_profile.id),
+        'time': str(int(timezone.now().timestamp())),
     }
 
     try:
@@ -614,150 +682,6 @@ def check_and_cleanup_user_calls(user_profile: UserProfile) -> bool:
     return False
 
 
-def process_call_queue(user_profile: UserProfile) -> int:
-    """Process pending queued calls for a user who just became available"""
-    from datetime import timedelta
-    
-    try:
-        # Check if user is still in an active call
-        active_call = Call.objects.filter(
-            models.Q(sender=user_profile) | models.Q(receiver=user_profile),
-            state__in=['calling', 'ringing', 'accepted']
-        ).exists()
-        
-        if active_call:
-            logger.info(f"User {user_profile.id} still in active call, not processing queue")
-            return 0
-        
-        # Get oldest pending queue entry for this user
-        queue_entry = CallQueue.objects.filter(
-            busy_user=user_profile,
-            status='pending',
-            expires_at__gt=timezone.now()
-        ).order_by('created_at').first()
-        
-        if not queue_entry:
-            return 0
-        
-        # Check if caller is still available (not in another call)
-        caller_in_call = Call.objects.filter(
-            models.Q(sender=queue_entry.caller) | models.Q(receiver=queue_entry.caller),
-            state__in=['calling', 'ringing', 'accepted']
-        ).exists()
-        
-        if caller_in_call:
-            # Caller is busy, mark queue as expired
-            queue_entry.status = 'expired'
-            queue_entry.save()
-            logger.info(f"Queue entry {queue_entry.queue_id} expired - caller now busy")
-            return 0
-        
-        # Create the actual call
-        with transaction.atomic():
-            call = Call.objects.create(
-                call_type=queue_entry.call_type,
-                sender=queue_entry.caller,
-                receiver=user_profile,
-                moderator=queue_entry.caller,
-                jitsi_room_name=f"zulip-call-{uuid.uuid4().hex[:12]}",
-                realm=user_profile.realm
-            )
-            
-            # Generate Jitsi URLs
-            jitsi_server = getattr(settings, 'JITSI_SERVER_URL', 'https://dev.meet.xandylearning.in')
-            base_room_url = f"{jitsi_server}/{call.jitsi_room_name}"
-            call.jitsi_room_url = base_room_url
-            call.last_heartbeat_sender = timezone.now()
-            call.save()
-            
-            # Mark queue entry as converted
-            queue_entry.status = 'converted'
-            queue_entry.converted_to_call_id = call.call_id
-            queue_entry.save()
-            
-            # Create call event
-            CallEvent.objects.create(
-                call=call,
-                event_type="initiated",
-                user=queue_entry.caller,
-                metadata={"from_queue": True, "queue_id": str(queue_entry.queue_id)}
-            )
-            
-            # Prepare push notification data
-            available_notification = {
-                "call_id": str(call.call_id),
-                "jitsi_url": call.jitsi_room_url,
-                "call_type": call.call_type,
-                "sender_name": user_profile.full_name,
-                "sender_id": str(user_profile.id),
-                "room_name": call.jitsi_room_name,
-            }
-
-            call_notification = {
-                "call_id": str(call.call_id),
-                "jitsi_url": call.jitsi_room_url,
-                "call_type": call.call_type,
-                "sender_name": queue_entry.caller.full_name,
-                "sender_id": str(queue_entry.caller.id),
-                "room_name": call.jitsi_room_name,
-            }
-
-            # Send push notifications after transaction commits to avoid nested atomic block errors
-            transaction.on_commit(lambda: send_call_push_notification(queue_entry.caller, available_notification))
-            transaction.on_commit(lambda: send_call_push_notification(user_profile, call_notification))
-            
-            logger.info(f"Processed queue entry {queue_entry.queue_id}, created call {call.call_id}")
-            return 1
-    
-    except Exception as e:
-        logger.error(f"Failed to process call queue for user {user_profile.id}: {e}")
-        return 0
-
-
-def cleanup_expired_queue_entries() -> int:
-    """Clean up expired queue entries and notify callers"""
-    now = timezone.now()
-    count = 0
-    
-    # Find expired queue entries
-    expired_entries = CallQueue.objects.filter(
-        status='pending',
-        expires_at__lte=now
-    )
-    
-    for entry in expired_entries:
-        entry.status = 'expired'
-        entry.save()
-        
-        # Send notification to caller that user is still busy
-        try:
-            payload_data = {
-                'event': 'call_queue_expired',
-                'type': 'call_queue_expired',
-                'queue_id': str(entry.queue_id),
-                'busy_user_name': entry.busy_user.full_name,
-                'busy_user_id': entry.busy_user.id,
-                'call_type': entry.call_type,
-            }
-            
-            from zerver.models import PushDevice, PushDeviceToken
-            from zerver.lib.push_notifications import send_push_notifications
-            
-            if PushDevice.objects.filter(user=entry.caller, bouncer_device_id__isnull=False).exists():
-                send_push_notifications(entry.caller, payload_data)
-                logger.info(f"Sent queue expired notification to user {entry.caller.id}")
-        except Exception as e:
-            logger.error(f"Failed to send queue expired notification: {e}")
-        
-        count += 1
-    
-    if count > 0:
-        logger.info(f"Cleaned up {count} expired queue entries")
-    
-    return count
-
-
-
 
 def _create_call_impl(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
     """Shared implementation for creating a call. Caller is responsible for auth."""
@@ -826,34 +750,22 @@ def _create_call_impl(request: HttpRequest, user_profile: UserProfile) -> JsonRe
             ).first()
 
             if receiver_in_call:
-                # Queue the call instead of rejecting it
-                queue_expiry = timezone.now() + timedelta(minutes=5)
-                queue_entry = CallQueue.objects.create(
-                    caller=user_profile,
-                    busy_user=recipient,
-                    call_type="video" if is_video_call else "audio",
-                    expires_at=queue_expiry,
-                    realm=user_profile.realm
-                )
-                
-                logger.info(f"Queued call {queue_entry.queue_id} - recipient {recipient.id} is busy")
-                
                 return JsonResponse({
-                    "result": "queued",
-                    "queue_id": str(queue_entry.queue_id),
-                    "message": f"{recipient.full_name} is currently in another call. You'll be notified when they're available.",
-                    "expires_at": queue_expiry.isoformat(),
-                    "position": "next"
-                }, status=202)
+                    "result": "error",
+                    "message": f"{recipient.full_name} is currently in another call",
+                }, status=409)
 
             # Re-check in-transaction before creating the call to avoid race conditions
-            recheck_active = Call.objects.select_for_update().filter(
-                (
-                    models.Q(sender=user_profile) | models.Q(receiver=user_profile) |
-                    models.Q(sender=recipient) | models.Q(receiver=recipient)
-                ),
-                state__in=["calling", "ringing", "accepted"]
-            ).exists()
+            try:
+                recheck_active = Call.objects.select_for_update(nowait=True).filter(
+                    (
+                        models.Q(sender=user_profile) | models.Q(receiver=user_profile) |
+                        models.Q(sender=recipient) | models.Q(receiver=recipient)
+                    ),
+                    state__in=["calling", "ringing", "accepted"]
+                ).exists()
+            except OperationalError:
+                return JsonResponse({"result": "error", "message": "Service busy"}, status=503)
 
             if recheck_active:
                 return JsonResponse({
@@ -861,62 +773,23 @@ def _create_call_impl(request: HttpRequest, user_profile: UserProfile) -> JsonRe
                     "message": "A related active call already exists",
                 }, status=409)
 
-            # Create call record
+            # Create call record (no moderator for 1:1 calls - either party can end)
             call = Call.objects.create(
                 call_type="video" if is_video_call else "audio",
                 sender=user_profile,
                 receiver=recipient,
-                moderator=user_profile,  # Sender is always the moderator
+                moderator=None,
                 jitsi_room_name=f"zulip-call-{uuid.uuid4().hex[:12]}",
                 realm=user_profile.realm
             )
 
-            # Generate Jitsi URLs - separate URLs for moderator and participant
+            # Generate Jitsi URLs for both participants (equal peers, no moderator)
             jitsi_server = getattr(settings, 'JITSI_SERVER_URL', 'https://dev.meet.xandylearning.in')
             base_room_url = f"{jitsi_server}/{call.jitsi_room_name}"
 
-            # Moderator URL (for initiator) with special parameters
-            moderator_params = (
-                f"?userInfo.displayName={user_profile.full_name}"
-                f"&config.startWithAudioMuted=false"
-                f"&config.startWithVideoMuted=false"
-                f"&config.enableWelcomePage=false"
-                f"&config.enableClosePage=false"
-                f"&config.prejoinPageEnabled=false"
-            f"&config.prejoinConfig.enabled=false"
-            f"&config.prejoinConfig.hideDisplayName=true"
-            f"&config.prejoinConfig.hidePrejoinDisplayName=true"
-                f"&config.requireDisplayName=false"
-                f"&config.disableModeratorIndicator=true"
-                f"&config.startScreenSharing=false"
-                f"&config.enableInsecureRoomNameWarning=false"
-                f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
-                f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
-            )
-
-            # Participant URL (for recipient) without moderator privileges
-            participant_params = (
-                f"?userInfo.displayName={recipient.full_name}"
-                f"&config.startWithAudioMuted=true"
-                f"&config.startWithVideoMuted=true"
-                f"&config.enableWelcomePage=false"
-                f"&config.enableClosePage=false"
-                f"&config.prejoinPageEnabled=false"
-            f"&config.prejoinConfig.enabled=false"
-            f"&config.prejoinConfig.hideDisplayName=true"
-            f"&config.prejoinConfig.hidePrejoinDisplayName=true"
-                f"&config.requireDisplayName=false"
-                f"&config.disableModeratorIndicator=true"
-                f"&config.startScreenSharing=false"
-                f"&config.enableInsecureRoomNameWarning=false"
-                f"&interfaceConfig.SHOW_JITSI_WATERMARK=false"
-                f"&interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false"
-            )
-
-            # Store the base URL and create specific URLs for each participant
-            call.jitsi_room_url = base_room_url  # Base URL without parameters
-            moderator_url = f"{base_room_url}{moderator_params}#config.prejoinPageEnabled=false"
-            participant_url = f"{base_room_url}{participant_params}#config.prejoinPageEnabled=false"
+            call.jitsi_room_url = base_room_url
+            sender_url = _build_participant_jitsi_url(base_room_url, user_profile, call.jitsi_room_name)
+            receiver_url = _build_participant_jitsi_url(base_room_url, recipient, call.jitsi_room_name)
 
             call.save()
 
@@ -942,10 +815,14 @@ def _create_call_impl(request: HttpRequest, user_profile: UserProfile) -> JsonRe
             push_data = {
                 "type": "call_invitation",
                 "call_id": str(call.call_id),
-                "jitsi_url": participant_url,  # Participant URL for the recipient
+                "jitsi_url": receiver_url,
                 "call_type": call.call_type,
                 "sender_name": user_profile.full_name,
                 "sender_id": str(user_profile.id),
+                "sender_avatar_url": f"/avatar/{user_profile.id}",
+                "receiver_id": str(recipient.id),
+                "receiver_name": recipient.full_name,
+                "receiver_avatar_url": f"/avatar/{recipient.id}",
                 "room_name": call.jitsi_room_name,
             }
 
@@ -953,10 +830,13 @@ def _create_call_impl(request: HttpRequest, user_profile: UserProfile) -> JsonRe
                 "call_id": str(call.call_id),
                 "sender_id": str(user_profile.id),
                 "sender_name": user_profile.full_name,
-                "sender_full_name": user_profile.full_name,  # Add for consistency
+                "sender_full_name": user_profile.full_name,
+                "sender_avatar_url": f"/avatar/{user_profile.id}",
+                "receiver_id": str(recipient.id),
+                "receiver_name": recipient.full_name,
+                "receiver_avatar_url": f"/avatar/{recipient.id}",
                 "call_type": call.call_type,
-                "jitsi_url": participant_url,
-                "sender_avatar_url": f"/avatar/{user_profile.id}",  # Include avatar URL
+                "jitsi_url": receiver_url,
             }
 
             # Send push notifications after transaction commits to avoid nested atomic block errors
@@ -967,11 +847,10 @@ def _create_call_impl(request: HttpRequest, user_profile: UserProfile) -> JsonRe
             return JsonResponse({
                 "result": "success",
                 "call_id": str(call.call_id),
-                "call_url": moderator_url,  # Moderator URL for the initiator
-                "participant_url": participant_url,  # Available if needed
+                "call_url": sender_url,
                 "call_type": call.call_type,
                 "room_name": call.jitsi_room_name,
-                "receiver_online": initiate_status["receiver_online"],  # Add offline status
+                "receiver_online": initiate_status["receiver_online"],
                 "recipient": {
                     "user_id": recipient.id,
                     "full_name": recipient.full_name,
@@ -1003,7 +882,7 @@ def respond_to_call(request: HttpRequest, user_profile: UserProfile, call_id: st
 
         with transaction.atomic():
             try:
-                call = Call.objects.select_for_update().get(
+                call = Call.objects.select_for_update(nowait=True).get(
                     call_id=call_id,
                     realm=user_profile.realm
                 )
@@ -1012,6 +891,8 @@ def respond_to_call(request: HttpRequest, user_profile: UserProfile, call_id: st
                     "result": "error",
                     "message": "Call not found"
                 }, status=404)
+            except OperationalError:
+                return JsonResponse({"result": "error", "message": "Service busy"}, status=503)
 
             # Check authorization
             if call.receiver.id != user_profile.id:
@@ -1020,7 +901,16 @@ def respond_to_call(request: HttpRequest, user_profile: UserProfile, call_id: st
                     "message": "Not authorized to respond to this call"
                 }, status=403)
 
-            # Check call state
+            # If call is already in a terminal state, return gracefully
+            terminal_states = {"ended", "cancelled", "missed", "rejected", "timeout", "network_failure"}
+            if call.state in terminal_states:
+                return JsonResponse({
+                    "result": "success",
+                    "action": "noop",
+                    "call_url": None,
+                    "message": "Call already ended"
+                })
+
             if call.state not in ["calling", "ringing"]:
                 return JsonResponse({
                     "result": "error",
@@ -1058,18 +948,16 @@ def respond_to_call(request: HttpRequest, user_profile: UserProfile, call_id: st
                 do_send_call_accepted_event(user_profile.realm, call)
             else:
                 do_send_call_declined_event(user_profile.realm, call)
-            
-            # If call was declined, process queue for the receiver
-            if response == "decline":
-                try:
-                    process_call_queue(call.receiver)
-                except Exception as e:
-                    logger.error(f"Failed to process queue after call decline: {e}")
+                # Push "decline" notification to sender so their phone shows
+                # "Call declined" even when backgrounded
+                transaction.on_commit(
+                    lambda: send_call_response_notification(call.sender, call, "decline")
+                )
 
             return JsonResponse({
                 "result": "success",
                 "action": response,
-                "call_url": call.jitsi_room_url if response == "accept" else None,
+                "call_url": _build_participant_jitsi_url(call.jitsi_room_url, user_profile, call.jitsi_room_name) if response == "accept" else None,
                 "message": f"Call {response}ed successfully"
             })
 
@@ -1084,11 +972,11 @@ def respond_to_call(request: HttpRequest, user_profile: UserProfile, call_id: st
 @require_http_methods(["POST"])
 @authenticated_rest_api_view(webhook_client_name="Zulip")
 def end_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
-    """End an ongoing call"""
+    """End a 1:1 call. Either party hanging up ends the call for both (WhatsApp-style)."""
     try:
         with transaction.atomic():
             try:
-                call = Call.objects.select_for_update().get(
+                call = Call.objects.select_for_update(nowait=True).get(
                     call_id=call_id,
                     realm=user_profile.realm
                 )
@@ -1097,6 +985,8 @@ def end_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> J
                     "result": "error",
                     "message": "Call not found"
                 }, status=404)
+            except OperationalError:
+                return JsonResponse({"result": "error", "message": "Service busy"}, status=503)
 
             # Check authorization
             if (call.sender.id != user_profile.id and
@@ -1106,71 +996,31 @@ def end_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> J
                     "message": "Not authorized to end this call"
                 }, status=403)
 
-            # Check if user is moderator - moderators end call for everyone
-            is_moderator = call.moderator and call.moderator.id == user_profile.id
-            
-            if is_moderator:
-                # Moderator ends call for everyone
-                call.state = "ended"
-                call.ended_at = timezone.now()
-                call.save()
-
-                # Create event
-                CallEvent.objects.create(
-                    call=call,
-                    event_type="ended",
-                    user=user_profile,
-                    metadata={"ended_by_moderator": True}
-                )
-
-                # Use action function to send ended event to both participants
-                do_send_call_ended_event(user_profile.realm, call, reason="ended_by_moderator")
-
-                # Process queue for both participants
-                try:
-                    process_call_queue(call.sender)
-                    process_call_queue(call.receiver)
-                except Exception as e:
-                    logger.error(f"Failed to process queue after call end: {e}")
-
+            # Idempotent: if call already in a terminal state, return success
+            terminal_states = {"ended", "cancelled", "missed", "rejected", "timeout", "network_failure"}
+            if call.state in terminal_states:
                 return JsonResponse({
                     "result": "success",
-                    "message": "Call ended successfully"
+                    "message": "Call already ended"
                 })
-            else:
-                # Participant leaves call but doesn't end it for everyone
-                # Create participant_left event
-                CallEvent.objects.create(
-                    call=call,
-                    event_type="participant_left",
-                    user=user_profile
-                )
 
-                # Notify other participant using direct event (not a standard action function)
-                # This is a special case where we send to only one user
-                other_user = call.sender if user_profile.id == call.receiver.id else call.receiver
-                from ..actions import do_send_call_event
-                do_send_call_event(
-                    user_profile.realm,
-                    call,
-                    "participant_left",
-                    [other_user.id],
-                    extra_data={
-                        'left_user_id': user_profile.id,
-                        'left_user_name': user_profile.full_name
-                    }
-                )
-                
-                # Process queue for the user who left
-                try:
-                    process_call_queue(user_profile)
-                except Exception as e:
-                    logger.error(f"Failed to process queue after participant left: {e}")
+            # 1:1 call: either party ending = call over for both
+            call.state = "ended"
+            call.ended_at = timezone.now()
+            call.save()
 
-                return JsonResponse({
-                    "result": "success",
-                    "message": "You have left the call"
-                })
+            CallEvent.objects.create(
+                call=call,
+                event_type="ended",
+                user=user_profile,
+            )
+
+            do_send_call_ended_event(user_profile.realm, call, reason="hangup")
+
+            return JsonResponse({
+                "result": "success",
+                "message": "Call ended successfully"
+            })
 
     except Exception as e:
         logger.error(f"Failed to end call: {e}")
@@ -1187,7 +1037,7 @@ def cancel_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -
     try:
         with transaction.atomic():
             try:
-                call = Call.objects.select_for_update().get(
+                call = Call.objects.select_for_update(nowait=True).get(
                     call_id=call_id,
                     realm=user_profile.realm
                 )
@@ -1196,6 +1046,8 @@ def cancel_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -
                     "result": "error",
                     "message": "Call not found"
                 }, status=404)
+            except OperationalError:
+                return JsonResponse({"result": "error", "message": "Service busy"}, status=503)
 
             # Only sender can cancel while calling/ringing
             if call.sender.id != user_profile.id:
@@ -1203,6 +1055,14 @@ def cancel_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -
                     "result": "error",
                     "message": "Not authorized to cancel this call"
                 }, status=403)
+
+            # Idempotent: already in terminal state
+            terminal_states = {"ended", "cancelled", "missed", "rejected", "timeout", "network_failure"}
+            if call.state in terminal_states:
+                return JsonResponse({
+                    "result": "success",
+                    "message": "Call already ended"
+                })
 
             if call.state not in ["calling", "ringing"]:
                 return JsonResponse({
@@ -1292,7 +1152,6 @@ def get_call_status(request: HttpRequest, user_profile: UserProfile, call_id: st
                 "jitsi_url": call.jitsi_room_url,
                 "timestamp": int(call.created_at.timestamp()),  # Unix timestamp
                 "duration": int(call.duration.total_seconds()) if call.duration else None,
-                "is_moderator": call.moderator and call.moderator.id == user_profile.id,
                 # Keep additional fields for backward compatibility
                 "state": call.state,
                 "call_url": call.jitsi_room_url,
@@ -1568,14 +1427,19 @@ def acknowledge_call(request: HttpRequest, user_profile: UserProfile) -> JsonRes
                 "message": "Call not found or you're not the receiver"
             }, status=404)
 
-        # Check if call can be acknowledged - accept both 'calling' and 'ringing' states
-        # This fixes the race condition where the call might already be in 'ringing' state
+        # If call is already in a terminal state, inform client gracefully
+        terminal_states = {'ended', 'cancelled', 'missed', 'rejected', 'timeout', 'network_failure'}
+        if call.state in terminal_states:
+            return JsonResponse({
+                'result': 'success',
+                'call_status': call.state,
+                'message': 'Call already ended'
+            })
+
         if call.state not in ['calling', 'ringing']:
-            error_msg = f"Call cannot be acknowledged. Must be in 'calling' or 'ringing' state. Current status: {call.state}"
-            logger.error(f"Acknowledge call error: {error_msg}")
             return JsonResponse({
                 "result": "error",
-                "message": error_msg
+                "message": f"Call cannot be acknowledged in state: {call.state}"
             }, status=400)
 
         # Update call state to ringing
@@ -1622,6 +1486,11 @@ def heartbeat(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
             raise JsonableError("call_id is required")
         
         call = Call.objects.get(call_id=call_id)
+
+        # If call is already in a terminal state, inform the client gracefully
+        terminal_states = {"ended", "cancelled", "missed", "rejected", "timeout", "network_failure"}
+        if call.state in terminal_states:
+            return JsonResponse({"result": "success", "call_state": call.state})
         
         # Check if user is participant
         if call.sender.id == user_profile.id:
@@ -1631,7 +1500,6 @@ def heartbeat(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
         else:
             raise JsonableError("Not a participant in this call")
         
-        # Update background state if provided
         is_backgrounded = request.POST.get("is_backgrounded", "false").lower() == "true"
         call.is_backgrounded = is_backgrounded
         
@@ -1644,105 +1512,6 @@ def heartbeat(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
         logger.error(f"Heartbeat error: {e}")
         raise
 
-
-@require_http_methods(["GET"])
-@authenticated_rest_api_view(webhook_client_name="Zulip")
-def get_call_queue(request: HttpRequest, user_profile: UserProfile) -> JsonResponse:
-    """Get queued calls for the current user"""
-    try:
-        # Get pending queue entries where user is the busy_user
-        queue_entries = CallQueue.objects.filter(
-            busy_user=user_profile,
-            status='pending',
-            expires_at__gt=timezone.now()
-        ).order_by('created_at')
-        
-        queue_list = []
-        for entry in queue_entries:
-            queue_list.append({
-                "queue_id": str(entry.queue_id),
-                "caller": {
-                    "user_id": entry.caller.id,
-                    "full_name": entry.caller.full_name,
-                    "email": entry.caller.delivery_email,
-                },
-                "call_type": entry.call_type,
-                "created_at": entry.created_at.isoformat(),
-                "expires_at": entry.expires_at.isoformat(),
-            })
-        
-        return JsonResponse({
-            "result": "success",
-            "queue": queue_list,
-            "count": len(queue_list)
-        })
-    
-    except Exception as e:
-        logger.error(f"Failed to get call queue: {e}")
-        return JsonResponse({
-            "result": "error",
-            "message": f"Failed to get call queue: {str(e)}"
-        }, status=500)
-
-
-@require_http_methods(["POST"])
-@authenticated_rest_api_view(webhook_client_name="Zulip")
-def cancel_queued_call(request: HttpRequest, user_profile: UserProfile, queue_id: str) -> JsonResponse:
-    """Cancel a queued call"""
-    try:
-        with transaction.atomic():
-            try:
-                queue_entry = CallQueue.objects.select_for_update().get(
-                    queue_id=queue_id,
-                    realm=user_profile.realm
-                )
-            except CallQueue.DoesNotExist:
-                return JsonResponse({
-                    "result": "error",
-                    "message": "Queue entry not found"
-                }, status=404)
-            
-            # Only caller can cancel
-            if queue_entry.caller.id != user_profile.id:
-                return JsonResponse({
-                    "result": "error",
-                    "message": "Not authorized to cancel this queued call"
-                }, status=403)
-            
-            # Check if already processed
-            if queue_entry.status != 'pending':
-                return JsonResponse({
-                    "result": "error",
-                    "message": f"Queue entry already {queue_entry.status}"
-                }, status=400)
-            
-            # Mark as cancelled
-            queue_entry.status = 'cancelled'
-            queue_entry.save()
-            
-            logger.info(f"Cancelled queue entry {queue_id} by user {user_profile.id}")
-            
-            return JsonResponse({
-                "result": "success",
-                "message": "Queued call cancelled successfully"
-            })
-    
-    except Exception as e:
-        logger.error(f"Failed to cancel queued call: {e}")
-        return JsonResponse({
-            "result": "error",
-            "message": f"Failed to cancel queued call: {str(e)}"
-        }, status=500)
-
-
-@require_http_methods(["POST"])
-@authenticated_rest_api_view(webhook_client_name="Zulip")
-def leave_call(request: HttpRequest, user_profile: UserProfile, call_id: str) -> JsonResponse:
-    """Leave a call (for non-moderators) - same as end_call but explicit"""
-    # This is now handled in end_call() function - it checks if user is moderator
-    # If moderator: ends call for everyone
-    # If participant: just leaves the call
-    return end_call(request, user_profile, call_id)
 
 
 # ============================================================================

@@ -331,11 +331,10 @@
     }
 
     function showError(message) {
-        // Use Zulip's existing error notification system if available
         if (window.ui_report && window.ui_report.error) {
             ui_report.error(message);
         } else {
-            alert('Error: ' + message);
+            console.error('Call error: ' + message);
         }
     }
 

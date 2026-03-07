@@ -46,9 +46,7 @@ class CallCleanupWorker(QueueProcessingWorker):
         Args:
             event: Event dict containing trigger_time and optional metadata
         """
-        from .views.calls import cleanup_stale_calls, cleanup_expired_queue_entries
-        from .models import GroupCall, GroupCallParticipant
-        from .actions import do_send_missed_call_event
+        from .views.calls import cleanup_stale_calls
         from datetime import timedelta
 
         trigger_time = event.get("trigger_time", timezone.now().isoformat())
@@ -66,14 +64,6 @@ class CallCleanupWorker(QueueProcessingWorker):
             logger.error(f"Error cleaning up stale calls: {e}", exc_info=True)
             stale_call_count = 0
 
-        # Clean up expired queue entries
-        try:
-            expired_queue_count = cleanup_expired_queue_entries()
-            logger.info(f"Cleaned up {expired_queue_count} expired queue entries")
-        except Exception as e:
-            logger.error(f"Error cleaning up queue entries: {e}", exc_info=True)
-            expired_queue_count = 0
-
         # Clean up stale group call participants
         try:
             group_call_cleanup_count = self._cleanup_stale_group_calls()
@@ -86,7 +76,6 @@ class CallCleanupWorker(QueueProcessingWorker):
 
         logger.info(
             f"Call cleanup completed: {stale_call_count} calls, "
-            f"{expired_queue_count} queue entries, "
             f"{group_call_cleanup_count} group participants"
         )
 

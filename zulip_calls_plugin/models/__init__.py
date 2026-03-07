@@ -1,5 +1,5 @@
 """Zulip Calls Plugin Models"""
 
-from .calls import Call, CallEvent, CallQueue, GroupCall, GroupCallParticipant
+from .calls import Call, CallEvent, GroupCall, GroupCallParticipant
 
-__all__ = ["Call", "CallEvent", "CallQueue", "GroupCall", "GroupCallParticipant"]
+__all__ = ["Call", "CallEvent", "GroupCall", "GroupCallParticipant"]
