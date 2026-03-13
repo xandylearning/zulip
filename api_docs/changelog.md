@@ -20,6 +20,13 @@ format used by the Zulip server that they are interacting with.
 
 ## Changes in Zulip 12.0
 
+**Feature level 483**
+
+* [`POST /mobile_push/register`](/api/register-push-device): On a
+  successful E2EE push device registration, the server now
+  automatically removes any legacy push device registration with
+  a matching token for the user.
+
 **Feature level 482**
 
 * [`GET /messages`](/api/get-messages), [`GET
