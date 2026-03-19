@@ -20,6 +20,16 @@ format used by the Zulip server that they are interacting with.
 
 ## Changes in Zulip 12.0
 
+**Feature level 489**
+
+* [`GET /messages`](/api/get-messages),
+  [`GET /messages/matches_narrow`](/api/check-messages-match-narrow),
+  [`POST /messages/flags/narrow`](/api/update-message-flags-for-narrow),
+  [`POST /register`](/api/register-queue): Added a new
+  [search/narrow filter](/api/construct-narrow), `channels:archived`,
+  that returns messages the current user received in channels that have
+  been [archived](/help/archive-a-channel).
+
 **Feature level 488**
 
 * [`GET /server_settings`](/api/get-server-settings): Added `discord` boolean

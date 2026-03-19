@@ -31,13 +31,23 @@ type ChannelTopicEntry = {
 
 type TermPattern = Omit<NarrowTerm, "operand"> & Partial<Pick<NarrowTerm, "operand">>;
 
-const channel_incompatible_patterns: TermPattern[] = [
+const common_incompatible_patterns: TermPattern[] = [
     {operator: "is", operand: "dm"},
     {operator: "channel"},
     {operator: "dm-including"},
     {operator: "dm"},
     {operator: "in"},
+];
+
+const channel_incompatible_patterns: TermPattern[] = [
+    ...common_incompatible_patterns,
     {operator: "channels"},
+];
+
+const channels_public_incompatible_patterns: TermPattern[] = [
+    ...common_incompatible_patterns,
+    {operator: "channels", operand: "public"},
+    {operator: "channels", operand: "web-public"},
 ];
 
 // TODO: Expand this to support all available filters and its description.
@@ -65,6 +75,7 @@ type SearchFilter =
     | NarrowCanonicalOperator
     | "channels:public"
     | "channels:web-public"
+    | "channels:archived"
     | "is:resolved"
     | "-is:resolved"
     | "is:dm"
@@ -82,8 +93,12 @@ type SearchFilter =
 const incompatible_patterns: Record<SearchFilter, TermPattern[]> = {
     channel: channel_incompatible_patterns,
     channels: channel_incompatible_patterns,
-    "channels:public": channel_incompatible_patterns,
-    "channels:web-public": channel_incompatible_patterns,
+    "channels:public": channels_public_incompatible_patterns,
+    "channels:web-public": channels_public_incompatible_patterns,
+    "channels:archived": [
+        ...common_incompatible_patterns,
+        {operator: "channels", operand: "archived"},
+    ],
     topic: [
         {operator: "dm"},
         {operator: "is", operand: "dm"},
@@ -728,6 +743,7 @@ function get_channels_filter_suggestions(
     }
     const public_channels_search_string = "channels:public";
     const web_public_channels_search_string = "channels:web-public";
+    const archived_channels_search_string = "channels:archived";
     const suggestions: Suggestion[] = [];
 
     if (!page_params.is_spectator) {
@@ -740,6 +756,7 @@ function get_channels_filter_suggestions(
         );
     }
 
+    suggestions.push(...filter_suggestions_by_criteria(terms, [archived_channels_search_string]));
     return get_special_filter_suggestions(last, suggestions);
 }
 
