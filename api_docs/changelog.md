@@ -20,6 +20,13 @@ format used by the Zulip server that they are interacting with.
 
 ## Changes in Zulip 12.0
 
+**Feature level 487**
+
+* [`GET /users/{user_id_or_email}/presence`](/api/get-user-presence): The
+  endpoint now returns presence data in the modern format, with
+  `active_timestamp` and `idle_timestamp` fields. Previously, a legacy
+  format for presence data was returned, with `website` and `aggregated` keys.
+
 **Feature level 486**
 
 * [`POST /register`](/api/register-queue): Added new `klipy_api_key`
