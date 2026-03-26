@@ -20,6 +20,11 @@ format used by the Zulip server that they are interacting with.
 
 ## Changes in Zulip 12.0
 
+**Feature level 486**
+
+* [`POST /register`](/api/register-queue): Added new `klipy_api_key`
+  field, which is required to fetch GIFs using the KLIPY API.
+
 **Feature level 485**
 
 * [`POST /register`](/api/register-queue): Renamed the `validator` field
