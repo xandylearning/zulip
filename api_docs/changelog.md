@@ -20,6 +20,15 @@ format used by the Zulip server that they are interacting with.
 
 ## Changes in Zulip 12.0
 
+**Feature level 482**
+
+* [`GET /messages`](/api/get-messages), [`GET
+  /messages/{message_id}`](/api/get-message), [`GET
+  /events`](/api/get-events): The `recipient_id` in 1:1 direct
+  messages changed to a new value; it still has the semantics of "the
+  1:1 conversation with a specific user," but the raw value changed
+  due to internal changes.
+
 **Feature level 481**
 
 * [`POST /register`](/api/register-queue): Added `idle_queue_timeout`
