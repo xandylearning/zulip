@@ -768,15 +768,12 @@ def check_can_access_user(
         recipient__type__in=[Recipient.STREAM, Recipient.DIRECT_MESSAGE_GROUP],
     ).values_list("recipient_id", flat=True)
 
-    if Subscription.objects.filter(
+    return Subscription.objects.filter(
         recipient_id__in=subscribed_recipient_ids,
         user_profile=target_user,
         active=True,
         is_user_active=True,
-    ).exists():
-        return True
-
-    return False
+    ).exists()
 
 
 def get_inaccessible_user_ids(

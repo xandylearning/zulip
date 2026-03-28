@@ -59,13 +59,6 @@ def check_update_first_message_id(
 def do_delete_messages(
     realm: Realm, messages: Iterable[Message], *, acting_user: UserProfile | None
 ) -> None:
-    """1:1 Direct messages must be grouped to a single conversation by
-    the caller, since this logic does not know how to handle multiple
-    senders sharing a single Recipient object.
-
-    When the Recipient.PERSONAL is no longer a case to consider, this
-    restriction can be deleted.
-    """
     message_ids = [message.id for message in messages]
     move_messages_to_archive(
         message_ids,

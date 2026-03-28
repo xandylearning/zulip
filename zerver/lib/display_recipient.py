@@ -138,28 +138,21 @@ def bulk_fetch_user_display_recipients(
     Returns dict mapping recipient_id to corresponding display_recipient
     """
 
-    from zerver.models import Recipient
     from zerver.models.recipients import bulk_get_direct_message_group_user_ids
 
     if len(recipient_tuples) == 0:
         return {}
 
     get_recipient_id = lambda tup: tup[0]
-    get_type = lambda tup: tup[1]
 
-    direct_message_group_tuples = [
-        tup for tup in recipient_tuples if get_type(tup) == Recipient.DIRECT_MESSAGE_GROUP
-    ]
-
-    direct_message_group_recipient_ids = [
-        get_recipient_id(tup) for tup in direct_message_group_tuples
-    ]
+    direct_message_group_recipient_ids = [get_recipient_id(tup) for tup in recipient_tuples]
     user_ids_in_direct_message_groups = bulk_get_direct_message_group_user_ids(
         direct_message_group_recipient_ids
     )
 
     # Find all user ids whose UserProfiles we will need to fetch:
-    user_ids_to_fetch = set()
+    user_ids_to_fetch: set[int] = set()
+
     for recipient_id in direct_message_group_recipient_ids:
         direct_message_group_user_ids = user_ids_in_direct_message_groups[recipient_id]
         user_ids_to_fetch |= direct_message_group_user_ids
@@ -168,6 +161,7 @@ def bulk_fetch_user_display_recipients(
     user_display_recipients = bulk_fetch_single_user_display_recipients(list(user_ids_to_fetch))
 
     result = {}
+
     for recipient_id in direct_message_group_recipient_ids:
         user_ids = sorted(user_ids_in_direct_message_groups[recipient_id])
         display_recipients = [user_display_recipients[user_id] for user_id in user_ids]

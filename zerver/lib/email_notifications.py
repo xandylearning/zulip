@@ -409,19 +409,15 @@ def prepare_synthetic_root_message_id(
     recipient_type: int,
     recipient_id: int,
     *,
-    dm_sender_id: int | None = None,
     topic_name: str | None = None,
 ) -> str:
     """
     To help email clients thread messages from the same conversation together,
     we treat all messages as replies to a synthetic root message. This root
-    message's `Message-ID` header is derived from the recipient_id (and sender_id or topic),
-    ensuring consistency across all emails in the thread.
+    message's `Message-ID` header is derived from the recipient_id (and topic
+    for channel messages), ensuring consistency across all emails in the thread.
     """
-    if recipient_type == Recipient.PERSONAL:
-        assert dm_sender_id is not None
-        id_left = f"{recipient_id}.{dm_sender_id}"
-    elif recipient_type == Recipient.DIRECT_MESSAGE_GROUP:
+    if recipient_type == Recipient.DIRECT_MESSAGE_GROUP:
         id_left = f"{recipient_id}"
     else:
         assert topic_name is not None
