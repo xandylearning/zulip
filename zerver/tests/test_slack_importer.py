@@ -41,7 +41,6 @@ from zerver.data_import.slack import (
     AddedChannelsT,
     AddedDMsT,
     AddedMPIMsT,
-    DMMembersT,
     MessageConversionResult,
     SlackBotEmail,
     SlackBotNotFoundError,
@@ -232,7 +231,6 @@ class SlackImporter(ZulipTestCase):
                 zerver_realmemoji=[],
                 subscriber_map={},
                 added_channels=added_channels,
-                dm_members={},
                 domain_name="domain",
                 long_term_idle=set(),
                 convert_slack_threads=convert_slack_threads,
@@ -1031,7 +1029,6 @@ class SlackImporter(ZulipTestCase):
                 added_channels,
                 added_mpims,
                 added_dms,
-                dm_members,
                 slack_recipient_name_to_zulip_recipient_id,
             ) = channels_to_zerver_stream(
                 self.fixture_file_name("", "slack_fixtures"),
@@ -1072,7 +1069,6 @@ class SlackImporter(ZulipTestCase):
 
         self.assertDictEqual(added_mpims, test_added_mpims)
         self.assertDictEqual(added_dms, test_added_dms)
-        self.assertDictEqual(dm_members, {})
 
         # We can't do an assertDictEqual since during the construction of personal
         # recipients, slack_user_id_to_zulip_user_id are iterated in different order in Python 3.5 and 3.6.
@@ -1123,7 +1119,7 @@ class SlackImporter(ZulipTestCase):
     )
     @mock.patch(
         "zerver.data_import.slack.channels_to_zerver_stream",
-        return_value=[{"zerver_stream": []}, {}, {}, {}, {}, {}],
+        return_value=[{"zerver_stream": []}, {}, {}, {}, {}],
     )
     def test_slack_workspace_to_realm(
         self, mock_channels_to_zerver_stream: mock.Mock, mock_users_to_zerver_userprofile: mock.Mock
@@ -1137,7 +1133,6 @@ class SlackImporter(ZulipTestCase):
             added_channels,
             added_mpims,
             added_dms,
-            _dm_members,
             avatar_list,
             _em,
         ) = slack_workspace_to_realm(
@@ -1372,7 +1367,6 @@ class SlackImporter(ZulipTestCase):
             [],
             subscriber_map,
             added_channels,
-            {},
             "domain",
             set(),
             convert_slack_threads=False,
@@ -1862,8 +1856,6 @@ class SlackImporter(ZulipTestCase):
             "random": 2,
             "general": 1,
         }
-        dm_members: DMMembersT = {}
-
         zerver_usermessage: list[dict[str, Any]] = []
         subscriber_map: dict[int, set[int]] = {}
         added_channels: dict[str, tuple[str, int]] = {"random": ("c5", 1), "general": ("c6", 2)}
@@ -1877,7 +1869,6 @@ class SlackImporter(ZulipTestCase):
             [],
             subscriber_map,
             added_channels,
-            dm_members,
             "domain",
             set(),
             convert_slack_threads=True,
@@ -1973,7 +1964,6 @@ To Do
             added_channels: AddedChannelsT,
             added_mpims: AddedMPIMsT,
             added_dms: AddedDMsT,
-            dm_members: DMMembersT,
         ) -> Iterator[ZerverFieldsT]:
             import copy
 
@@ -2014,7 +2004,6 @@ To Do
                 {},
                 {},
                 added_channels,
-                {},
                 {},
                 {},
                 realm,
