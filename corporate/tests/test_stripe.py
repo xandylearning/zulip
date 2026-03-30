@@ -2233,7 +2233,7 @@ class StripeTest(StripeTestCase):
         # Change the seat count in upgrade flow: after do_upgrade, during process_initial_upgrade
         with (
             patch(
-                "corporate.lib.stripe.BillingSession.stale_seat_count_check",
+                "corporate.lib.stripe.BillingSession.stale_license_count_check",
                 return_value=self.seat_count,
             ),
             patch("corporate.lib.stripe.get_latest_seat_count", return_value=new_seat_count),
@@ -2285,7 +2285,7 @@ class StripeTest(StripeTestCase):
         # Change the seat count in upgrade flow: after do_upgrade, during process_initial_upgrade
         with (
             patch(
-                "corporate.lib.stripe.BillingSession.stale_seat_count_check",
+                "corporate.lib.stripe.BillingSession.stale_license_count_check",
                 return_value=self.seat_count,
             ),
             patch("corporate.lib.stripe.get_latest_seat_count", return_value=new_seat_count),
