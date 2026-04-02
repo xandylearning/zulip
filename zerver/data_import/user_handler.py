@@ -15,18 +15,10 @@ class UserHandler:
 
     def __init__(self) -> None:
         self.id_to_user_map: dict[int, dict[str, Any]] = {}
-        self.exported_user_id_to_zulip_recipient_id: dict[str, int] = {}
 
     def add_user(self, user: dict[str, Any]) -> None:
         user_id = user["id"]
         self.id_to_user_map[user_id] = user
-
-    def add_exported_user_id_to_zulip_recipient_id(
-        self, exported_user_id: str, zulip_recipient_id: int
-    ) -> None:
-        # TODO: Currently only Mattermost importer uses this. Maybe refactor this into
-        # self.add_user() once other importers are using this method too.
-        self.exported_user_id_to_zulip_recipient_id[exported_user_id] = zulip_recipient_id
 
     def get_user(self, user_id: int) -> dict[str, Any]:
         user = self.id_to_user_map[user_id]
