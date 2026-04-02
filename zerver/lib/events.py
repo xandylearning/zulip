@@ -797,7 +797,7 @@ def fetch_initial_state_data(
                     {
                         "key": c.name,
                         "label": c.label,
-                        "validator": c.validator.__name__,
+                        "input_type": c.input_type,
                     }
                     for c in integration.url_options
                 ]

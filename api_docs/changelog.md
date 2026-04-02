@@ -20,6 +20,12 @@ format used by the Zulip server that they are interacting with.
 
 ## Changes in Zulip 12.0
 
+**Feature level 485**
+
+* [`POST /register`](/api/register-queue): Renamed the `validator` field
+  to `input_type` in the `url_options` array of the
+  `realm_incoming_webhook_bots` object array.
+
 **Feature level 484**
 
 * [`GET /events`](/api/get-events): Removed the deprecated `user` object

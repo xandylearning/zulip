@@ -31,7 +31,6 @@ from zerver.lib.exceptions import (
 from zerver.lib.request import RequestNotes
 from zerver.lib.send_email import FromAddress
 from zerver.lib.typed_endpoint import ApiParamConfig, typed_endpoint
-from zerver.lib.validator import check_bool, check_string
 from zerver.models import Realm, UserProfile
 from zerver.models.custom_profile_fields import CustomProfileField, CustomProfileFieldValue
 
@@ -73,7 +72,7 @@ class WebhookConfigOption:
 class WebhookUrlOption:
     name: str
     label: str
-    validator: Callable[[str, str], str | bool | None]
+    input_type: str
 
     @classmethod
     def build_preset_config(cls, config: PresetUrlOption) -> "WebhookUrlOption":
@@ -89,19 +88,19 @@ class WebhookUrlOption:
                 return cls(
                     name=config.value,
                     label="",
-                    validator=check_string,
+                    input_type="text",
                 )
             case PresetUrlOption.IGNORE_PRIVATE_REPOSITORIES:
                 return cls(
                     name=config.value,
                     label="Exclude notifications from private repositories",
-                    validator=check_bool,
+                    input_type="checkbox",
                 )
             case PresetUrlOption.CHANNEL_MAPPING:
                 return cls(
                     name=config.value,
                     label="",
-                    validator=check_string,
+                    input_type="text",
                 )
 
         raise AssertionError(_("Unknown 'PresetUrlOption': {config}").format(config=config))

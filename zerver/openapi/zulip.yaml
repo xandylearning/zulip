@@ -27111,12 +27111,11 @@ components:
         integration. In the web app, these are used when
         [generating a URL for an integration](/help/generate-integration-url).
 
-        This is an unstable API expected to be used only by the Zulip web
-        app. Please discuss in chat.zulip.org before using it.
+        **Changes**: Before Zulip 12.0 (feature level 485), `input_type`
+        was named `validator`.
 
-        **Changes**: New in Zulip 11.0 (feature level 403). Previously,
-        these optional URL parameter options were included in the
-        `config_options` object.
+        New in Zulip 11.0 (feature level 403). Previously, these optional
+        URL parameter options were included in the `config_options` object.
       items:
         type: object
         additionalProperties: false
@@ -27124,17 +27123,15 @@ components:
           key:
             type: string
             description: |
-              The parameter variable to encode the users input for this
-              option in the integrations webhook URL.
+              The name of the URL parameter.
           label:
             type: string
             description: |
-              A human-readable label of the url option.
-          validator:
+              The label used for the input field in the UI.
+          input_type:
             type: string
             description: |
-              The name of the validator function for the configuration
-              option.
+              The type of input field this URL parameter maps to in the UI.
     CustomProfileField:
       type: object
       additionalProperties: false

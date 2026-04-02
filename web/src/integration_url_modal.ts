@@ -22,7 +22,7 @@ import * as util from "./util.ts";
 type UrlOption = {
     key: string;
     label: string;
-    validator: string;
+    input_type: string;
 };
 
 type TopicUIParams = {
@@ -35,7 +35,7 @@ type TopicUIParams = {
 const url_option_schema = z.object({
     key: z.string(),
     label: z.string(),
-    validator: z.string(),
+    input_type: z.string(),
 });
 
 const url_options_schema = z.array(url_option_schema);
@@ -174,7 +174,7 @@ export function show_generate_integration_url_modal(api_key: string): void {
                     continue;
                 }
 
-                const {key, label, validator} = option;
+                const {key, label, input_type} = option;
                 let $config_element: JQuery;
 
                 if (key === PresetUrlOption.BRANCHES) {
@@ -184,14 +184,14 @@ export function show_generate_integration_url_modal(api_key: string): void {
                     $config_element.find("#integration-url-all-branches").on("change", () => {
                         show_branch_filtering_ui();
                     });
-                } else if (validator === "check_bool") {
+                } else if (input_type === "checkbox") {
                     $config_element = $(
                         render_generate_integration_url_config_checkbox_modal({key, label}),
                     );
                     $config_element.find(`#integration-url-${key}-checkbox`).on("change", () => {
                         update_url();
                     });
-                } else if (validator === "check_string") {
+                } else if (input_type === "text") {
                     $config_element = $(
                         render_generate_integration_url_config_text_modal({key, label}),
                     );
@@ -314,7 +314,7 @@ export function show_generate_integration_url_modal(api_key: string): void {
 
             if (url_options) {
                 for (const option of url_options) {
-                    const {key, validator} = option;
+                    const {key, input_type} = option;
 
                     if (key === PresetUrlOption.CHANNEL_MAPPING) {
                         const stream_input = stream_input_dropdown_widget.value();
@@ -344,12 +344,12 @@ export function show_generate_integration_url_modal(api_key: string): void {
                         if (branch_names) {
                             params.set(key, branch_names);
                         }
-                    } else if (validator === "check_bool") {
+                    } else if (input_type === "checkbox") {
                         const is_checked = $(`#integration-url-${key}-checkbox`).is(":checked");
                         if (is_checked) {
                             params.set(option.key, "true");
                         }
-                    } else if (validator === "check_string") {
+                    } else if (input_type === "text") {
                         const value = $(`#integration-url-${key}-text`).val()?.toString();
                         if (value) {
                             params.set(key, value);

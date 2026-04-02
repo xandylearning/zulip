@@ -542,7 +542,7 @@ export const realm_schema = z.object({
                     z.object({
                         key: z.string(),
                         label: z.string(),
-                        validator: z.string(),
+                        input_type: z.string(),
                     }),
                 ),
             ),
