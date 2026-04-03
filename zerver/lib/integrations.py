@@ -700,6 +700,11 @@ INCOMING_WEBHOOK_INTEGRATIONS: list[IncomingWebhookIntegration] = [
                 label="Exclude notifications from private projects",
                 input_type="checkbox",
             ),
+            WebhookUrlOption(
+                name="use_merge_request_title",
+                label="Include merge request titles in topics",
+                input_type="checkbox_enabled",
+            ),
         ],
     ),
     IncomingWebhookIntegration(
