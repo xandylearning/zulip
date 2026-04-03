@@ -113,6 +113,8 @@ offer when generating the integration URL:
   The web app UI currently supports the following input types:
   - `checkbox`: A checkbox input for presence-only values (true or absent),
     disabled by default.
+  - `checkbox_enabled`: A checkbox input for boolean parameters, enabled by
+    default.
   - `text`: A text input for string values.
 
 To add support for other input types, you can update

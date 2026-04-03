@@ -184,13 +184,17 @@ export function show_generate_integration_url_modal(api_key: string): void {
                     $config_element.find("#integration-url-all-branches").on("change", () => {
                         show_branch_filtering_ui();
                     });
-                } else if (input_type === "checkbox") {
+                } else if (input_type === "checkbox" || input_type === "checkbox_enabled") {
                     $config_element = $(
                         render_generate_integration_url_config_checkbox_modal({key, label}),
                     );
-                    $config_element.find(`#integration-url-${key}-checkbox`).on("change", () => {
+                    const $input = $config_element.find(`#integration-url-${key}-checkbox`);
+                    $input.on("change", () => {
                         update_url();
                     });
+                    if (input_type === "checkbox_enabled") {
+                        $input.prop("checked", true);
+                    }
                 } else if (input_type === "text") {
                     $config_element = $(
                         render_generate_integration_url_config_text_modal({key, label}),
@@ -202,6 +206,7 @@ export function show_generate_integration_url_modal(api_key: string): void {
                     continue;
                 }
                 $config_container.append($config_element);
+                update_url();
             }
         }
 
@@ -344,10 +349,12 @@ export function show_generate_integration_url_modal(api_key: string): void {
                         if (branch_names) {
                             params.set(key, branch_names);
                         }
-                    } else if (input_type === "checkbox") {
+                    } else if (input_type === "checkbox" || input_type === "checkbox_enabled") {
                         const is_checked = $(`#integration-url-${key}-checkbox`).is(":checked");
                         if (is_checked) {
                             params.set(option.key, "true");
+                        } else if (input_type === "checkbox_enabled") {
+                            params.set(option.key, "false");
                         }
                     } else if (input_type === "text") {
                         const value = $(`#integration-url-${key}-text`).val()?.toString();
