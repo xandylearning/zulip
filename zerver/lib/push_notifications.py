@@ -38,6 +38,7 @@ from zerver.actions.realm_settings import (
     do_set_realm_property,
 )
 from zerver.lib.avatar import absolute_avatar_url, get_avatar_for_inaccessible_user
+from zerver.lib.media_type_detection import media_type_to_string
 from zerver.lib.display_recipient import get_display_recipient
 from zerver.lib.emoji_utils import hex_codepoint_to_emoji
 from zerver.lib.exceptions import ErrorCode, JsonableError, MissingRemoteRealmError
@@ -61,6 +62,7 @@ from zerver.lib.users import check_can_access_user
 from zerver.models import (
     AbstractPushDeviceToken,
     ArchivedMessage,
+    Attachment,
     Message,
     PushDevice,
     PushDeviceToken,
@@ -1563,6 +1565,30 @@ def get_message_payload_gcm(
             user_id=str(user_profile.id),
             realm_url=user_profile.realm.url,
         )
+    # Add rich media fields if present
+    media_type_str = media_type_to_string(message.type)
+    if media_type_str is not None:
+        data["media_type"] = media_type_str
+
+    if message.caption:
+        data["caption"] = message.caption
+
+    if message.media_metadata:
+        data["media_metadata"] = orjson.dumps(message.media_metadata).decode()
+
+    if message.primary_attachment_id:
+        try:
+            attachment = Attachment.objects.get(id=message.primary_attachment_id)
+            data["primary_attachment"] = orjson.dumps({
+                "id": attachment.id,
+                "name": attachment.file_name,
+                "path_id": attachment.path_id,
+                "size": attachment.size,
+                "content_type": attachment.content_type,
+            }).decode()
+        except Attachment.DoesNotExist:
+            pass
+
     gcm_options = {"priority": "high"}
     return data, gcm_options
 
