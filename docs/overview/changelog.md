@@ -138,7 +138,7 @@ _Released 2026-03-12_
   point in the video in the lightbox.
 - Emoji settings UI now warns when overriding a unicode emoji with a
   custom emoji.
-- Added new webhook integrations for Notion, Redmine, and dbt Cloud.
+- Added new webhook integrations for Redmine and dbt Cloud.
   Rewrote the Intercom webhook integration with full support for
   ticket, conversation, contact, and company events.
 - Added GitLab webhook support for emoji reaction events, design
