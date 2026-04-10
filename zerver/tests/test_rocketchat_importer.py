@@ -4,7 +4,6 @@ from typing import Any
 from unittest import mock
 
 import orjson
-from django.test import override_settings
 
 from zerver.data_import.import_util import (
     SubscriberHandler,
@@ -195,7 +194,6 @@ class RocketChatImporter(ZulipTestCase):
         expected_error_message = f"['Invalid email format, please fix the following email(s) and try again: {bad_email1}, {bad_email2}']"
         self.assertEqual(error_message, expected_error_message)
 
-    @override_settings(PREFER_DIRECT_MESSAGE_GROUP=False)
     def test_categorize_channels_and_map_with_id(self) -> None:
         fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
         rocketchat_data = rocketchat_data_to_dict(fixture_dir_name)
@@ -223,8 +221,8 @@ class RocketChatImporter(ZulipTestCase):
         self.assert_length(room_id_to_room_map, 6)
         self.assert_length(team_id_to_team_map, 1)
         self.assert_length(dsc_id_to_dsc_map, 5)
-        self.assert_length(direct_id_to_direct_map, 2)
-        self.assert_length(direct_message_group_id_to_direct_message_group_map, 1)
+        self.assert_length(direct_id_to_direct_map, 0)
+        self.assert_length(direct_message_group_id_to_direct_message_group_map, 2)
         self.assert_length(livechat_id_to_livechat_map, 2)
 
         room_id = rocketchat_data["room"][0]["_id"]
@@ -240,8 +238,11 @@ class RocketChatImporter(ZulipTestCase):
         self.assertEqual(dsc_id_to_dsc_map[dsc_id], rocketchat_data["room"][7])
 
         direct_id = rocketchat_data["room"][4]["_id"]
-        self.assertIn(direct_id, direct_id_to_direct_map)
-        self.assertEqual(direct_id_to_direct_map[direct_id], rocketchat_data["room"][4])
+        self.assertIn(direct_id, direct_message_group_id_to_direct_message_group_map)
+        self.assertEqual(
+            direct_message_group_id_to_direct_message_group_map[direct_id],
+            rocketchat_data["room"][4],
+        )
 
         direct_message_group_id = rocketchat_data["room"][12]["_id"]
         self.assertIn(direct_message_group_id, direct_message_group_id_to_direct_message_group_map)
@@ -442,65 +443,6 @@ class RocketChatImporter(ZulipTestCase):
         self.assert_length(subscriber_handler.get_users(stream_id=zerver_stream[6]["id"]), 0)
         self.assertFalse(zerver_stream[6]["deactivated"])
 
-    @override_settings(PREFER_DIRECT_MESSAGE_GROUP=False)
-    def test_convert_direct_message_group_data(self) -> None:
-        fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
-        rocketchat_data = rocketchat_data_to_dict(fixture_dir_name)
-
-        realm_id = 3
-        domain_name = "zulip.com"
-
-        user_handler = UserHandler()
-        subscriber_handler = SubscriberHandler[str]()
-        user_id_mapper = IdMapper[str]()
-        direct_message_group_id_mapper = IdMapper[str]()
-
-        user_id_to_user_map = map_user_id_to_user(rocketchat_data["user"])
-
-        process_users(
-            user_id_to_user_map=user_id_to_user_map,
-            realm_id=realm_id,
-            domain_name=domain_name,
-            user_handler=user_handler,
-            user_id_mapper=user_id_mapper,
-        )
-
-        room_id_to_room_map: dict[str, dict[str, Any]] = {}
-        team_id_to_team_map: dict[str, dict[str, Any]] = {}
-        dsc_id_to_dsc_map: dict[str, dict[str, Any]] = {}
-        direct_id_to_direct_map: dict[str, dict[str, Any]] = {}
-        direct_message_group_id_to_direct_message_group_map: dict[str, dict[str, Any]] = {}
-        livechat_id_to_livechat_map: dict[str, dict[str, Any]] = {}
-
-        with self.assertLogs(level="INFO"):
-            categorize_channels_and_map_with_id(
-                channel_data=rocketchat_data["room"],
-                room_id_to_room_map=room_id_to_room_map,
-                team_id_to_team_map=team_id_to_team_map,
-                dsc_id_to_dsc_map=dsc_id_to_dsc_map,
-                direct_id_to_direct_map=direct_id_to_direct_map,
-                direct_message_group_id_to_direct_message_group_map=direct_message_group_id_to_direct_message_group_map,
-                livechat_id_to_livechat_map=livechat_id_to_livechat_map,
-            )
-
-        zerver_direct_message_group = convert_direct_message_group_data(
-            direct_message_group_id_to_direct_message_group_map=direct_message_group_id_to_direct_message_group_map,
-            direct_message_group_id_mapper=direct_message_group_id_mapper,
-            user_id_mapper=user_id_mapper,
-            subscriber_handler=subscriber_handler,
-        )
-
-        self.assert_length(zerver_direct_message_group, 1)
-
-        rc_direct_message_group_id = rocketchat_data["room"][12]["_id"]
-        self.assertTrue(direct_message_group_id_mapper.has(rc_direct_message_group_id))
-
-        direct_message_group_id = direct_message_group_id_mapper.get(rc_direct_message_group_id)
-        self.assertEqual(
-            subscriber_handler.get_users(direct_message_group_id=direct_message_group_id), {3, 4, 5}
-        )
-
-    @override_settings(PREFER_DIRECT_MESSAGE_GROUP=True)
     def test_convert_direct_message_group_data_without_personal_recipient(self) -> None:
         fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
         rocketchat_data = rocketchat_data_to_dict(fixture_dir_name)
@@ -632,7 +574,6 @@ class RocketChatImporter(ZulipTestCase):
         # Verify the filename was sanitized to remove path separators.
         self.assertEqual(zerver_realmemoji[0]["file_name"], "......etcmalicious.png")
 
-    @override_settings(PREFER_DIRECT_MESSAGE_GROUP=False)
     def test_map_receiver_id_to_recipient_id(self) -> None:
         fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
         rocketchat_data = rocketchat_data_to_dict(fixture_dir_name)
@@ -709,11 +650,11 @@ class RocketChatImporter(ZulipTestCase):
             direct_message_group_id_to_recipient_id=direct_message_group_id_to_recipient_id,
         )
 
-        # 6 for streams and 6 for users.
-        self.assert_length(zerver_recipient, 13)
+        # 6 for streams, 6 for users, and 2 for DM groups (1 group + 1 1:1 DM).
+        self.assert_length(zerver_recipient, 14)
         self.assert_length(stream_id_to_recipient_id, 6)
         self.assert_length(user_id_to_recipient_id, 6)
-        self.assert_length(direct_message_group_id_to_recipient_id, 1)
+        self.assert_length(direct_message_group_id_to_recipient_id, 2)
 
         # First user recipients are built, followed by stream recipients in `build_recipients`.
         self.assertEqual(
@@ -1031,8 +972,7 @@ class RocketChatImporter(ZulipTestCase):
             dump_file_id += 1
         return {"zerver_message": all_messages, "zerver_usermessage": all_usermessages}
 
-    @override_settings(PREFER_DIRECT_MESSAGE_GROUP=False)
-    def test_do_convert_data_using_personal_recipient(self) -> None:
+    def test_do_convert_data(self) -> None:
         rocketchat_data_dir = self.fixture_file_name("", "rocketchat_fixtures")
         output_dir = self.make_import_output_dir("rocketchat")
 
@@ -1052,6 +992,8 @@ class RocketChatImporter(ZulipTestCase):
             [
                 "INFO:root:Starting to process custom emoji",
                 "INFO:root:Done processing emoji",
+                "INFO:root:Direct message group channel found. UIDs: ['LdBZ7kPxtKESyHPEe', 'M2sXGqoQRJQwQoXY2']",
+                "INFO:root:Direct message group channel found. UIDs: ['LdBZ7kPxtKESyHPEe', 'NTzobKvioAAdsAJHv']",
                 "INFO:root:Direct message group channel found. UIDs: ['LdBZ7kPxtKESyHPEe', 'M2sXGqoQRJQwQoXY2', 'os6N2Xg2JkNMCSW9Z']",
                 "INFO:root:skipping direct messages discussion mention: Discussion with Hermione",
                 "INFO:root:Exporting migration status",
@@ -1120,16 +1062,12 @@ class RocketChatImporter(ZulipTestCase):
         self.assert_length(realm["zerver_defaultstream"], 0)
 
         exported_recipient_ids = self.get_set(realm["zerver_recipient"], "id")
-        self.assert_length(exported_recipient_ids, 13)
+        self.assert_length(exported_recipient_ids, 14)
         exported_recipient_types = self.get_set(realm["zerver_recipient"], "type")
-        self.assertEqual(exported_recipient_types, {1, 2, 3})
-
-        exported_subscription_userprofile = self.get_set(
-            realm["zerver_subscription"], "user_profile"
+        self.assertEqual(
+            exported_recipient_types,
+            {Recipient.PERSONAL, Recipient.STREAM, Recipient.DIRECT_MESSAGE_GROUP},
         )
-        self.assert_length(exported_subscription_userprofile, 6)
-        exported_subscription_recipients = self.get_set(realm["zerver_subscription"], "recipient")
-        self.assert_length(exported_subscription_recipients, 13)
 
         messages = self.read_message_files(output_dir)
 
@@ -1194,33 +1132,9 @@ class RocketChatImporter(ZulipTestCase):
             recipient__type=Recipient.DIRECT_MESSAGE_GROUP
         ).order_by("date_sent")
         direct_message_group_recipients = group_direct_messages.values_list("recipient", flat=True)
-        self.assert_length(group_direct_messages, 5)
-        self.assert_length(set(direct_message_group_recipients), 2)
-        self.assertEqual(group_direct_messages[0].sender.email, "hermionegranger@email.com")
-        self.assertEqual(group_direct_messages[0].content, "Hey people!")
-
-        self.assertEqual(group_direct_messages[0].topic_name(), Message.DM_TOPIC)
-        self.assertEqual(group_direct_messages[2].sender.email, "harrypotter@email.com")
-        self.assertRegex(
-            group_direct_messages[2].content,
-            "This year's curriculum is out.\n\n\\[Hogwarts Curriculum.pdf\\]\\(.*\\)",
-        )
-        self.assertTrue(group_direct_messages[2].has_attachment)
-        self.assertFalse(group_direct_messages[2].has_image)
-        self.assertTrue(group_direct_messages[2].has_link)
-
-        personal_messages = imported_messages.filter(recipient__type=Recipient.PERSONAL).order_by(
-            "date_sent"
-        )
-        personal_recipients = personal_messages.values_list("recipient", flat=True)
-        self.assert_length(personal_messages, 9)
-        self.assert_length(set(personal_recipients), 5)
-        self.assertEqual(personal_messages[0].sender.email, "harrypotter@email.com")
-        self.assertEqual(
-            personal_messages[0].content,
-            "Hey @**Hermione Granger** :grin:, how's everything going?",
-        )
-        self.assertEqual(personal_messages[0].topic_name(), Message.DM_TOPIC)
+        self.assert_length(group_direct_messages, 14)
+        self.assert_length(set(direct_message_group_recipients), 8)
+        self.assertEqual(group_direct_messages[0].sender.email, "harrypotter@email.com")
 
         self.verify_emoji_code_foreign_keys()
 

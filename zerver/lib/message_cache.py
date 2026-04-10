@@ -245,13 +245,6 @@ class MessageDict:
         else:
             obj["content_type"] = "text/x-markdown"
 
-        if is_incoming_1_to_1 and "sender_recipient_id" in obj:
-            # For an incoming 1:1 DM, the recipient’s own recipient_id is
-            # useless to the recipient themselves. Substitute the sender’s
-            # recipient_id, so the recipient can use recipient_id as documented
-            # to uniquely represent the set of 2 users in this conversation.
-            obj["recipient_id"] = obj["sender_recipient_id"]
-
         for item in obj.get("edit_history", []):
             if "prev_rendered_content_version" in item:
                 del item["prev_rendered_content_version"]

@@ -1015,7 +1015,6 @@ def extract_unread_data_from_um_rows(
         message_id = row["message_id"]
         msg_type = row["recipient__type"]
         recipient_id = row["recipient_id"]
-        sender_id = row["sender_id"]
 
         if msg_type == Recipient.STREAM:
             stream_id = row["recipient__type_id"]
@@ -1026,16 +1025,6 @@ def extract_unread_data_from_um_rows(
             )
             if not is_row_muted(stream_id, recipient_id, topic_name):
                 unmuted_stream_msgs.add(message_id)
-
-        elif msg_type == Recipient.PERSONAL:
-            if sender_id == user_profile.id:
-                other_user_id = row["recipient__type_id"]
-            else:
-                other_user_id = sender_id
-
-            pm_dict[message_id] = dict(
-                other_user_id=other_user_id,
-            )
 
         elif msg_type == Recipient.DIRECT_MESSAGE_GROUP:
             user_ids_string = get_direct_message_group_users(recipient_id)
@@ -1817,9 +1806,6 @@ def is_1_to_1_message(message: Message) -> bool:
         direct_message_group = DirectMessageGroup.objects.get(id=message.recipient.type_id)
         return direct_message_group.group_size <= 2
 
-    if message.recipient.type == Recipient.PERSONAL:
-        return True
-
     return False
 
 
@@ -1828,9 +1814,6 @@ def is_message_to_self(message: Message) -> bool:
     if message.recipient.type == Recipient.DIRECT_MESSAGE_GROUP:
         direct_message_group = DirectMessageGroup.objects.get(id=message.recipient.type_id)
         return direct_message_group.group_size == 1
-
-    if message.recipient.type == Recipient.PERSONAL:
-        return message.recipient == message.sender.recipient
 
     return False
 

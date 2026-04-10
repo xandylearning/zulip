@@ -147,7 +147,6 @@ def bulk_fetch_user_display_recipients(
     get_recipient_id = lambda tup: tup[0]
     get_type = lambda tup: tup[1]
 
-    personal_tuples = [tup for tup in recipient_tuples if get_type(tup) == Recipient.PERSONAL]
     direct_message_group_tuples = [
         tup for tup in recipient_tuples if get_type(tup) == Recipient.DIRECT_MESSAGE_GROUP
     ]
@@ -160,10 +159,7 @@ def bulk_fetch_user_display_recipients(
     )
 
     # Find all user ids whose UserProfiles we will need to fetch:
-    user_ids_to_fetch = {
-        user_id for ignore_recipient_id, ignore_recipient_type, user_id in personal_tuples
-    }
-
+    user_ids_to_fetch = set()
     for recipient_id in direct_message_group_recipient_ids:
         direct_message_group_user_ids = user_ids_in_direct_message_groups[recipient_id]
         user_ids_to_fetch |= direct_message_group_user_ids
@@ -172,11 +168,6 @@ def bulk_fetch_user_display_recipients(
     user_display_recipients = bulk_fetch_single_user_display_recipients(list(user_ids_to_fetch))
 
     result = {}
-
-    for recipient_id, ignore_recipient_type, user_id in personal_tuples:
-        display_recipients = [user_display_recipients[user_id]]
-        result[recipient_id] = display_recipients
-
     for recipient_id in direct_message_group_recipient_ids:
         user_ids = sorted(user_ids_in_direct_message_groups[recipient_id])
         display_recipients = [user_display_recipients[user_id] for user_id in user_ids]
@@ -242,13 +233,10 @@ def get_recipient_ids(
         to = [recipient.type_id]
     else:
         recipient_type_str = "private"
-        if recipient.type == Recipient.PERSONAL:
-            to = [recipient.type_id]
-        else:
-            to = []
-            recipients = get_display_recipient(recipient)
-            for r in recipients:
-                assert not isinstance(r, str)  # It will only be a string for streams
-                if r["id"] != user_profile_id or len(recipients) == 1:
-                    to.append(r["id"])
+        to = []
+        recipients = get_display_recipient(recipient)
+        for r in recipients:
+            assert not isinstance(r, str)  # It will only be a string for streams
+            if r["id"] != user_profile_id or len(recipients) == 1:
+                to.append(r["id"])
     return to, recipient_type_str

@@ -1514,47 +1514,6 @@ class TestGetAPNsPayload(PushNotificationTestCase):
         }
         self.assertDictEqual(payload, expected)
 
-    @override_settings(PREFER_DIRECT_MESSAGE_GROUP=True)
-    def test_get_message_payload_apns_personal_message_using_direct_message_group(self) -> None:
-        user_profile = self.example_user("othello")
-
-        direct_message_group = get_or_create_direct_message_group(
-            id_list=[self.sender.id, user_profile.id],
-        )
-
-        message_id = self.send_personal_message(
-            self.sender,
-            user_profile,
-            "Content of personal message",
-        )
-        message = Message.objects.get(id=message_id)
-        self.assertEqual(message.recipient, direct_message_group.recipient)
-        payload = self._get_message_payload_apns(
-            user_profile, message, NotificationTriggers.DIRECT_MESSAGE
-        )
-        expected = {
-            "alert": {
-                "title": "King Hamlet",
-                "subtitle": "",
-                "body": message.content,
-            },
-            "badge": 0,
-            "sound": "default",
-            "custom": {
-                "zulip": {
-                    "message_ids": [message.id],
-                    "recipient_type": "private",
-                    "sender_email": self.sender.email,
-                    "sender_id": self.sender.id,
-                    "realm_name": self.sender.realm.name,
-                    "realm_uri": self.sender.realm.url,
-                    "realm_url": self.sender.realm.url,
-                    "user_id": user_profile.id,
-                },
-            },
-        }
-        self.assertDictEqual(payload, expected)
-
     @mock.patch("zerver.lib.push_notifications.send_push_notifications_legacy")
     @mock.patch("zerver.lib.push_notifications.push_notifications_configured", return_value=True)
     def test_get_message_payload_apns_group_direct_message(
@@ -1962,19 +1921,12 @@ class TestGetGCMPayload(PushNotificationTestCase):
             },
         )
 
-    @override_settings(PREFER_DIRECT_MESSAGE_GROUP=False)
     def test_get_message_payload_personal_message_to_self(self) -> None:
         hamlet = self.example_user("hamlet")
 
         # Create a message to self using PERSONAL recipient type
-        message = self.get_message(
-            Recipient.PERSONAL,
-            type_id=hamlet.id,
-            realm_id=hamlet.realm_id,
-        )
-        self.assertEqual(message.sender_id, hamlet.id)
-        self.assertEqual(message.recipient.type, Recipient.PERSONAL)
-
+        message_id = self.send_personal_message(hamlet, hamlet)
+        message = Message.objects.get(id=message_id)
         payload = get_message_payload(hamlet, message, for_legacy_clients=False)
 
         self.assertEqual(payload["recipient_type"], "direct")

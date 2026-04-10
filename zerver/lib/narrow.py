@@ -1009,12 +1009,6 @@ def update_narrow_terms_containing_with_operator(
         ]
         return channel_conversation_terms + filtered_terms
 
-    elif message.recipient.type == Recipient.PERSONAL:
-        dm_conversation_terms = [
-            NarrowParameter(operator="dm", operand=[message.recipient.type_id])
-        ]
-        return dm_conversation_terms + filtered_terms
-
     elif message.recipient.type == Recipient.DIRECT_MESSAGE_GROUP:
         huddle_user_ids = list(get_direct_message_group_user_ids(message.recipient))
         dm_conversation_terms = [NarrowParameter(operator="dm", operand=huddle_user_ids)]

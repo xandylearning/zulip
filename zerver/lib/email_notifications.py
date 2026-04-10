@@ -41,7 +41,6 @@ from zerver.lib.topic import get_topic_display_name, get_topic_resolution_and_ba
 from zerver.lib.url_encoding import (
     direct_message_group_narrow_url,
     message_link_url,
-    personal_narrow_url,
     stream_narrow_url,
     topic_narrow_url,
 )
@@ -460,9 +459,7 @@ def do_send_missedmessage_events_reply_in_zulip(
     recipients = set()
     for missed_message in missed_messages:
         message = missed_message["message"]
-        if message.recipient.type == Recipient.PERSONAL:
-            recipients.add((message.recipient_id, message.sender_id))
-        elif message.recipient.type == Recipient.DIRECT_MESSAGE_GROUP:
+        if message.recipient.type == Recipient.DIRECT_MESSAGE_GROUP:
             recipients.add((message.recipient_id, ""))
         else:
             recipients.add((message.recipient_id, message.topic_name().lower()))
@@ -566,16 +563,6 @@ def do_send_missedmessage_events_reply_in_zulip(
             context.update(group_pm=True, direct_message_group_display_name=group_display_name)
         synthetic_root_message_id = prepare_synthetic_root_message_id(
             Recipient.DIRECT_MESSAGE_GROUP, message.recipient_id
-        )
-    elif message.recipient.type == Recipient.PERSONAL:
-        narrow_url = personal_narrow_url(
-            realm=user_profile.realm,
-            sender_id=message.sender.id,
-            sender_full_name=message.sender.full_name,
-        )
-        context.update(narrow_url=narrow_url, private_message=True)
-        synthetic_root_message_id = prepare_synthetic_root_message_id(
-            Recipient.PERSONAL, message.recipient_id, dm_sender_id=message.sender.id
         )
     elif (
         context["mention"]
@@ -720,11 +707,7 @@ def handle_missedmessage_emails(
     # For direct messages it's recipient id and sender.
     messages_by_bucket: dict[tuple[int, int | str], list[Message]] = defaultdict(list)
     for msg in messages:
-        if msg.recipient.type == Recipient.PERSONAL:
-            # For direct messages group using (recipient, sender).
-            messages_by_bucket[(msg.recipient_id, msg.sender_id)].append(msg)
-        else:
-            messages_by_bucket[(msg.recipient_id, msg.topic_name().lower())].append(msg)
+        messages_by_bucket[(msg.recipient_id, msg.topic_name().lower())].append(msg)
 
     message_count_by_bucket = {
         bucket_tup: len(msgs) for bucket_tup, msgs in messages_by_bucket.items()

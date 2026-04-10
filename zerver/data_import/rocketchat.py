@@ -865,23 +865,11 @@ def process_messages(
                 # Message is in a 1:1 or group direct message.
                 rc_channel_id = message["rid"]
                 message_dict["is_channel_message"] = False
-                if rc_channel_id in direct_message_group_id_to_direct_message_group_map:
-                    direct_message_group_id = direct_message_group_id_mapper.get(rc_channel_id)
-                    message_dict["recipient_id"] = direct_message_group_id_to_recipient_id[
-                        direct_message_group_id
-                    ]
-                else:
-                    rc_member_ids = direct_id_to_direct_map[rc_channel_id]["uids"]
-
-                    if len(rc_member_ids) == 1:  # nocoverage
-                        # direct messages to yourself only have one user.
-                        rc_member_ids.append(rc_member_ids[0])
-                    if rc_sender_id == rc_member_ids[0]:
-                        zulip_member_id = user_id_mapper.get(rc_member_ids[1])
-                        message_dict["recipient_id"] = user_id_to_recipient_id[zulip_member_id]
-                    else:
-                        zulip_member_id = user_id_mapper.get(rc_member_ids[0])
-                        message_dict["recipient_id"] = user_id_to_recipient_id[zulip_member_id]
+                assert rc_channel_id in direct_message_group_id_to_direct_message_group_map
+                direct_message_group_id = direct_message_group_id_mapper.get(rc_channel_id)
+                message_dict["recipient_id"] = direct_message_group_id_to_recipient_id[
+                    direct_message_group_id
+                ]
             elif message["rid"] in dsc_id_to_dsc_map:
                 # Message is in a discussion
                 message_dict["is_channel_message"] = True
@@ -973,49 +961,44 @@ def categorize_channels_and_map_with_id(
         if channel.get("prid"):
             dsc_id_to_dsc_map[channel["_id"]] = channel
         elif channel["t"] == "d":
-            if len(channel["uids"]) > 2 or settings.PREFER_DIRECT_MESSAGE_GROUP:
-                direct_message_group_members = frozenset(channel["uids"])
-                logging.info("Direct message group channel found. UIDs: %r", channel["uids"])
+            direct_message_group_members = frozenset(channel["uids"])
+            logging.info("Direct message group channel found. UIDs: %r", channel["uids"])
 
-                if channel["msgs"] == 0:  # nocoverage
-                    # Rocket.Chat exports in the wild sometimes
-                    # contain duplicates of real direct message
-                    # groups, with no messages in the duplicate.
-                    # We ignore these minor database corruptions
-                    # in the Rocket.Chat export. Doing so is safe,
-                    # because a direct message group with no message
-                    # history has no value in Zulip's data model.
-                    logging.debug("Skipping direct message group with 0 messages: %s", channel)
-                elif (
-                    direct_message_group_members in direct_message_group_hashed_channels
-                ):  # nocoverage
-                    logging.info(
-                        "Mapping direct message group %r to existing channel: %s",
-                        direct_message_group_members,
-                        direct_message_group_hashed_channels[direct_message_group_members],
-                    )
-                    direct_message_group_id_to_direct_message_group_map[channel["_id"]] = (
-                        direct_message_group_hashed_channels[direct_message_group_members]
-                    )
+            if channel["msgs"] == 0:  # nocoverage
+                # Rocket.Chat exports in the wild sometimes
+                # contain duplicates of real direct message
+                # groups, with no messages in the duplicate.
+                # We ignore these minor database corruptions
+                # in the Rocket.Chat export. Doing so is safe,
+                # because a direct message group with no message
+                # history has no value in Zulip's data model.
+                logging.debug("Skipping direct message group with 0 messages: %s", channel)
+            elif direct_message_group_members in direct_message_group_hashed_channels:  # nocoverage
+                logging.info(
+                    "Mapping direct message group %r to existing channel: %s",
+                    direct_message_group_members,
+                    direct_message_group_hashed_channels[direct_message_group_members],
+                )
+                direct_message_group_id_to_direct_message_group_map[channel["_id"]] = (
+                    direct_message_group_hashed_channels[direct_message_group_members]
+                )
 
-                    # Ideally, we'd merge the duplicate direct message
-                    # groups. Doing so correctly requires special
-                    # handling in convert_direct_message_group_data()
-                    # and on the message import side as well, since
-                    # those appear to be mapped via rocketchat channel
-                    # IDs and not all of that information is resolved
-                    # via the direct_message_group_id_to_direct_message_group_map.
-                    #
-                    # For now, just throw an exception here rather
-                    # than during the import process.
-                    raise NotImplementedError(
-                        "Mapping multiple direct message groups with messages to one is not fully implemented yet"
-                    )
-                else:
-                    direct_message_group_id_to_direct_message_group_map[channel["_id"]] = channel
-                    direct_message_group_hashed_channels[direct_message_group_members] = channel
+                # Ideally, we'd merge the duplicate direct message
+                # groups. Doing so correctly requires special
+                # handling in convert_direct_message_group_data()
+                # and on the message import side as well, since
+                # those appear to be mapped via rocketchat channel
+                # IDs and not all of that information is resolved
+                # via the direct_message_group_id_to_direct_message_group_map.
+                #
+                # For now, just throw an exception here rather
+                # than during the import process.
+                raise NotImplementedError(
+                    "Mapping multiple direct message groups with messages to one is not fully implemented yet"
+                )
             else:
-                direct_id_to_direct_map[channel["_id"]] = channel
+                direct_message_group_id_to_direct_message_group_map[channel["_id"]] = channel
+                direct_message_group_hashed_channels[direct_message_group_members] = channel
         elif channel["t"] == "l":
             livechat_id_to_livechat_map[channel["_id"]] = channel
         else:

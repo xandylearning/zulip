@@ -36,9 +36,6 @@ class UserHandler:
         users = list(self.id_to_user_map.values())
         return users
 
-    def get_zulip_recipient_id(self, exported_user_id: str) -> int | None:
-        return self.exported_user_id_to_zulip_recipient_id.get(exported_user_id)
-
     def validate_user_emails(self) -> None:
         all_users = self.get_all_users()
         validate_user_emails_for_import([user["delivery_email"] for user in all_users])

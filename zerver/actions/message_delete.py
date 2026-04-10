@@ -1,4 +1,3 @@
-from collections import defaultdict
 from collections.abc import Iterable
 from typing import TypedDict
 
@@ -134,21 +133,3 @@ def delete_deactivated_user_messages(
         .select_related("recipient")
     )
     do_delete_messages(user_profile.realm, messages, acting_user=acting_user)
-
-    # 1:1 DMs need to be handled separately as we need to group them by conversation
-    if delete_direct_messages:
-        direct_messages = list(
-            Message.objects.filter(
-                sender=user_profile,
-                realm_id=user_profile.realm_id,
-                recipient__type=Recipient.PERSONAL,
-            ).select_related("recipient")
-        )
-
-        personal_messages_by_recipient_dict: defaultdict[int, list[Message]] = defaultdict(list)
-        for message in direct_messages:
-            recipient_user_id = message.recipient.type_id
-            personal_messages_by_recipient_dict[recipient_user_id].append(message)
-
-        for conversation_messages in personal_messages_by_recipient_dict.values():
-            do_delete_messages(user_profile.realm, conversation_messages, acting_user=acting_user)
