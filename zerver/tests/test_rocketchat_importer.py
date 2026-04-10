@@ -861,6 +861,17 @@ class RocketChatImporter(ZulipTestCase):
         self.assertEqual(upload_id_to_upload_data_map[upload_id]["name"], upload_name)
         self.assert_length(upload_id_to_upload_data_map[upload_id]["chunk"], 1)
 
+        # Verify multi-chunk files have chunks in correct order.
+        # The fixture's PDF (4BoikTP2ZZkE5RsGh) has chunks stored as
+        # n=0, n=2, n=1 in the BSON file; they must be reassembled as
+        # n=0, n=1, n=2.
+        pdf_upload_id = "4BoikTP2ZZkE5RsGh"
+        pdf_chunks = upload_id_to_upload_data_map[pdf_upload_id]["chunk"]
+        self.assert_length(pdf_chunks, 3)
+        self.assertEqual(len(pdf_chunks[0]), 261120)
+        self.assertEqual(len(pdf_chunks[1]), 261120)
+        self.assertEqual(len(pdf_chunks[2]), 47300)
+
     def test_build_reactions(self) -> None:
         fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
         rocketchat_data = rocketchat_data_to_dict(fixture_dir_name)

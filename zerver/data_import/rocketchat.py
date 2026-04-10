@@ -291,7 +291,7 @@ def build_custom_emoji(
     for emoji_file in custom_emoji_data["file"]:
         if isinstance(emoji_file["_id"], bson.objectid.ObjectId):  # nocoverage
             object_id_to_filename[str(emoji_file["_id"])] = emoji_file["filename"]
-    for emoji_chunk in custom_emoji_data["chunk"]:
+    for emoji_chunk in sorted(custom_emoji_data["chunk"], key=lambda c: c["n"]):
         file_id = str(emoji_chunk["files_id"])
         emoji_file_data[object_id_to_filename.get(file_id, file_id)].append(emoji_chunk["data"])
 
@@ -831,7 +831,7 @@ def map_upload_id_to_upload_data(
     for upload in upload_data["upload"]:
         upload_id_to_upload_data_map[upload["_id"]] = {**upload, "chunk": []}
 
-    for chunk in upload_data["chunk"]:
+    for chunk in sorted(upload_data["chunk"], key=lambda c: c["n"]):
         if chunk["files_id"] not in upload_id_to_upload_data_map:  # nocoverage
             logging.info("Skipping chunk %s without metadata", chunk["files_id"])
             # It's unclear why this apparent data corruption in the
