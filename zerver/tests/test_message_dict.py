@@ -404,6 +404,34 @@ class MessageHydrationTest(ZulipTestCase):
         )
         self.assertEqual(obj["type"], "private")
 
+        # Test that the results are always sorted by email
+        display_recipient = [
+            dict(
+                email="xander@example.com",
+                full_name="Xander Smith",
+                id=999,
+                is_mirror_dummy=False,
+            ),
+        ]
+        MessageDict.hydrate_recipient_info(obj, display_recipient)
+        self.assertEqual(
+            obj["display_recipient"],
+            [
+                dict(
+                    email=cordelia.email,
+                    full_name=cordelia.full_name,
+                    id=cordelia.id,
+                    is_mirror_dummy=False,
+                ),
+                dict(
+                    email="xander@example.com",
+                    full_name="Xander Smith",
+                    id=999,
+                    is_mirror_dummy=False,
+                ),
+            ],
+        )
+
     def test_messages_for_ids(self) -> None:
         hamlet = self.example_user("hamlet")
         cordelia = self.example_user("cordelia")

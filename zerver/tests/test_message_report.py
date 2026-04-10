@@ -506,6 +506,11 @@ class ReportMessageTest(ZulipTestCase):
             submitted_report=reports.last(),
         )
 
+        # User can't report DM they're not a part of.
+        ZOE = self.example_user("ZOE")
+        result = self.report_message(ZOE, reported_dm_id, report_type, description)
+        self.assert_json_error(result, msg="Invalid message(s)")
+
     def test_gdm_report(self) -> None:
         # Send a group DM to be reported
         reported_gdm_id = self.send_group_direct_message(

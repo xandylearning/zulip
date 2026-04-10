@@ -1980,6 +1980,18 @@ class TestGetGCMPayload(PushNotificationTestCase):
         self.assertEqual(payload["recipient_type"], "direct")
         self.assertEqual(payload["recipient_user_ids"], [hamlet.id])
 
+    @override_settings(PREFER_DIRECT_MESSAGE_GROUP=True)
+    def test_get_message_payload_personal_message_to_self_using_direct_message_group(self) -> None:
+        hamlet = self.example_user("hamlet")
+
+        message_id = self.send_personal_message(hamlet, hamlet)
+        message = Message.objects.get(id=message_id)
+
+        payload = get_message_payload(hamlet, message, for_legacy_clients=False)
+
+        self.assertEqual(payload["recipient_type"], "direct")
+        self.assertEqual(payload["recipient_user_ids"], [hamlet.id])
+
     def test_get_message_payload_gcm_stream_message_from_inaccessible_user(self) -> None:
         self.set_up_db_for_testing_user_access()
 
