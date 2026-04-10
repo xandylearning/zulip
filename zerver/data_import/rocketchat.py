@@ -1,11 +1,13 @@
 import logging
 import os
+import struct
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import IO, Any
 
 import bson
+from bson.errors import InvalidBSON
 from bsonstream import KeyValueBSONInput
 from django.conf import settings
 from django.forms.models import model_to_dict
@@ -42,6 +44,116 @@ from zerver.models import Reaction, RealmEmoji, Recipient, UserProfile
 bson_codec_options = bson.DEFAULT_CODEC_OPTIONS.with_options(tz_aware=True)
 
 MESSAGE_BATCH_SIZE = 1000
+
+# We parse GridFS chunk document headers directly rather than using
+# bson.decode or KeyValueBSONInput, because chunk documents contain
+# large binary data payloads (up to 16 MB each).  Using bson.decode
+# would require reading the entire document into memory; using
+# KeyValueBSONInput with fast_string_prematch still reads every byte
+# (it just skips the BSON decode).  By parsing only the small header
+# portion, the index pass reads ~200 bytes per chunk regardless of
+# payload size.
+#
+# GridFS chunk documents have the schema {_id: ObjectId, files_id,
+# n: int32, data: BinData}.  Per the GridFS spec, _id, files_id, and
+# n appear before the large data field and together occupy ~60 bytes
+# for typical Rocket.Chat document IDs.  We read 200 bytes to allow
+# for IDs up to ~140 characters; if the fields aren't found within
+# that window, the import aborts with a clear error rather than
+# silently producing corrupt output.
+_CHUNK_HEADER_READ_SIZE = 200
+
+
+def _parse_chunk_header(raw: bytes) -> tuple[str, int]:
+    """Extract files_id and n from the beginning of a raw BSON chunk
+    document header, without reading the large binary data payload.
+
+    Walks BSON fields sequentially, handling only the types expected in
+    GridFS chunk headers: ObjectId (0x07), UTF-8 string (0x02), and
+    int32 (0x10).  Raises InvalidBSON on any unexpected structure —
+    this is a data import from an untrusted source, so we reject
+    anything outside the expected GridFS schema rather than trying to
+    handle it.
+    """
+    pos = 4  # skip document size prefix
+    files_id = None
+    n_val = None
+
+    while pos < len(raw) - 1:
+        type_byte = raw[pos]
+        if type_byte == 0x00:  # nocoverage  # end of document
+            break
+        pos += 1
+        null_pos = raw.find(0, pos)
+        if null_pos == -1 or null_pos - pos > 100:  # nocoverage
+            raise InvalidBSON(f"Invalid or overlong field name at offset {pos}")
+        key = raw[pos:null_pos].decode("ascii")
+        pos = null_pos + 1
+
+        if type_byte == 0x07:  # ObjectId — fixed 12 bytes
+            if pos + 12 > len(raw):  # nocoverage
+                break
+            pos += 12
+        elif type_byte == 0x02:  # UTF-8 string
+            if pos + 4 > len(raw):  # nocoverage
+                break
+            (str_len,) = struct.unpack("<i", raw[pos : pos + 4])
+            if str_len < 1 or pos + 4 + str_len > len(raw):  # nocoverage
+                break
+            if key == "files_id":
+                files_id = raw[pos + 4 : pos + 4 + str_len - 1].decode("ascii")
+            pos += 4 + str_len
+        elif type_byte == 0x10:  # int32
+            if pos + 4 > len(raw):  # nocoverage
+                break
+            if key == "n":
+                (n_val,) = struct.unpack("<i", raw[pos : pos + 4])
+            pos += 4
+        else:  # nocoverage
+            # Binary data or unrecognized type — stop scanning.
+            break
+
+        if files_id is not None and n_val is not None:
+            break
+
+    if files_id is None or n_val is None:  # nocoverage
+        raise InvalidBSON(
+            "Could not extract files_id and n from chunk header; "
+            f"parsed {pos} of {len(raw)} header bytes"
+        )
+
+    return files_id, n_val
+
+
+def _build_chunk_index(chunks_fh: IO[bytes]) -> dict[str, list[tuple[int, int]]]:
+    """Build an index from files_id to sorted [(n, file_offset)] by scanning
+    chunk document headers without reading the large binary data payloads.
+
+    Each BSON document starts with a 4-byte little-endian size.  We read
+    only the first few hundred bytes of each document to extract files_id
+    and n, then seek past the remainder.
+    """
+    chunk_index: dict[str, list[tuple[int, int]]] = {}
+
+    while True:
+        doc_offset = chunks_fh.tell()
+        size_bits = chunks_fh.read(4)
+        if len(size_bits) < 4:
+            break
+        (doc_size,) = struct.unpack("<i", size_bits)
+        if doc_size < 5:  # nocoverage — minimum BSON document is 5 bytes
+            raise InvalidBSON(f"Invalid BSON document size {doc_size} at offset {doc_offset}")
+        header_bytes = min(doc_size, _CHUNK_HEADER_READ_SIZE)
+        header = size_bits + chunks_fh.read(header_bytes - 4)
+        chunks_fh.seek(doc_offset + doc_size)
+
+        files_id, n = _parse_chunk_header(header)
+        chunk_index.setdefault(files_id, []).append((n, doc_offset))
+
+    for entries in chunk_index.values():
+        entries.sort()
+
+    return chunk_index
 
 
 def make_realm(
@@ -1142,35 +1254,29 @@ def do_convert_data(rocketchat_data_dir: str, output_dir: str) -> None:
             os.path.join(rocketchat_data_dir, "rocketchat_uploads.chunks.bson"), "rb"
         ) as chunks_fh,
     ):
+        # Build indexes in a single pass over each file.  Upload
+        # metadata is small (no binary blobs), so we store it fully.
+        # For chunks, we store only (n, file_offset) per chunk —
+        # reading just the first few hundred bytes of each document
+        # header and seeking past the large binary data payloads.
+        upload_index: dict[str, dict[str, Any]] = {}
+        for doc in KeyValueBSONInput(fh=uploads_fh):
+            upload_index[doc["_id"]] = doc
+
+        chunk_index = _build_chunk_index(chunks_fh)
 
         def attachment_lookup(file_id: str) -> None | tuple[dict[str, Any], Iterator[bytes]]:
-            uploads_fh.seek(0)
-            uploads = [
-                doc
-                for doc in KeyValueBSONInput(fh=uploads_fh, fast_string_prematch=file_id.encode())
-                if doc.get("_id") == file_id
-            ]
-            if len(uploads) == 0:  # nocoverage
+            if file_id not in upload_index:  # nocoverage
                 return None
-            if len(uploads) > 1:  # nocoverage
-                logging.info(
-                    "Found %d metadata entries for upload %s, using first", len(uploads), file_id
-                )
 
             def iterate_chunks() -> Iterator[bytes]:
-                chunks_fh.seek(0)
-                matching = [
-                    chunk
-                    for chunk in KeyValueBSONInput(
-                        fh=chunks_fh, fast_string_prematch=file_id.encode()
-                    )
-                    if chunk.get("files_id") == file_id
-                ]
-                matching.sort(key=lambda c: c.get("n", 0))
-                for chunk in matching:
-                    yield chunk.get("data", b"")
+                for _n, offset in chunk_index.get(file_id, []):
+                    chunks_fh.seek(offset)
+                    doc = KeyValueBSONInput(fh=chunks_fh).read()
+                    if doc is not None:
+                        yield doc.get("data", b"")
 
-            return uploads[0], iterate_chunks()
+            return upload_index[file_id], iterate_chunks()
 
         process_messages(
             realm_id=realm_id,

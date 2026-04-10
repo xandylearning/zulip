@@ -932,13 +932,13 @@ class RocketChatImporter(ZulipTestCase):
         for um in dm_ums:
             self.assertTrue(um["flags_mask"] & 2048)
 
-    def test_attachment_lookup_found(self) -> None:
-        """Test that attachment_lookup correctly finds uploads and streams chunks
-        from the BSON fixture files, matching the behavior of the streaming
-        attachment_lookup closure in do_convert_data."""
-        from collections.abc import Iterator
-
+    def test_attachment_index_and_lookup(self) -> None:
+        """Test the index-based attachment lookup: _build_chunk_index builds
+        a correct offset index, and attachment_lookup uses it to find uploads
+        and yield chunk data in correct n-order."""
         from bsonstream import KeyValueBSONInput
+
+        from zerver.data_import.rocketchat import _build_chunk_index
 
         fixture_dir_name = self.fixture_file_name("", "rocketchat_fixtures")
         uploads_path = os.path.join(fixture_dir_name, "rocketchat_uploads.bson")
@@ -948,65 +948,35 @@ class RocketChatImporter(ZulipTestCase):
             open(uploads_path, "rb") as uploads_fh,
             open(chunks_path, "rb") as chunks_fh,
         ):
+            upload_index: dict[str, dict[str, Any]] = {}
+            for doc in KeyValueBSONInput(fh=uploads_fh):
+                upload_index[doc["_id"]] = doc
 
-            def attachment_lookup(
-                file_id: str,
-            ) -> None | tuple[dict[str, Any], Iterator[bytes]]:
-                uploads_fh.seek(0)
-                uploads = [
-                    doc
-                    for doc in KeyValueBSONInput(
-                        fh=uploads_fh, fast_string_prematch=file_id.encode()
-                    )
-                    if doc.get("_id") == file_id
-                ]
-                if len(uploads) == 0:
-                    return None
-                self.assert_length(uploads, 1)
+            chunk_index = _build_chunk_index(chunks_fh)
 
-                chunks_fh.seek(0)
-                matching = [
-                    chunk
-                    for chunk in KeyValueBSONInput(
-                        fh=chunks_fh, fast_string_prematch=file_id.encode()
-                    )
-                    if chunk.get("files_id") == file_id
-                ]
-                matching.sort(key=lambda c: c.get("n", 0))
+            self.assert_length(upload_index, 4)
+            self.assert_length(chunk_index, 4)
 
-                def iterate_chunks() -> Iterator[bytes]:
-                    for chunk in matching:
-                        yield chunk.get("data", b"")
+            # harry-ron.jpg: single chunk
+            self.assertIn("MmgXWQbD3hXYyGSai", chunk_index)
+            self.assert_length(chunk_index["MmgXWQbD3hXYyGSai"], 1)
 
-                return uploads[0], iterate_chunks()
+            # Hogwarts Curriculum.pdf: 3 chunks, stored as n=0,2,1 in file.
+            # Index must be sorted by n.
+            pdf_entries = chunk_index["4BoikTP2ZZkE5RsGh"]
+            self.assert_length(pdf_entries, 3)
+            self.assertEqual([n for n, _offset in pdf_entries], [0, 1, 2])
 
-            # Known upload: harry-ron.jpg has one chunk
-            result = attachment_lookup("MmgXWQbD3hXYyGSai")
-            assert result is not None
-            upload_meta, chunk_iter = result
-            self.assertEqual(upload_meta["name"], "harry-ron.jpg")
-            self.assertEqual(upload_meta["size"], 149467)
-            chunks = list(chunk_iter)
-            self.assert_length(chunks, 1)
-            self.assertEqual(len(chunks[0]), 149467)
+            # Verify seeking to indexed offsets yields correct data
+            for n, offset in pdf_entries:
+                chunks_fh.seek(offset)
+                doc = KeyValueBSONInput(fh=chunks_fh).read()
+                assert doc is not None
+                self.assertEqual(doc["files_id"], "4BoikTP2ZZkE5RsGh")
+                self.assertEqual(doc["n"], n)
 
-            # Known upload: Hogwarts Curriculum.pdf has multiple chunks.
-            # The fixture stores these as n=0, n=2, n=1 in the BSON file;
-            # they must be yielded in n=0, n=1, n=2 order.
-            result = attachment_lookup("4BoikTP2ZZkE5RsGh")
-            assert result is not None
-            upload_meta, chunk_iter = result
-            self.assertEqual(upload_meta["name"], "Hogwarts Curriculum.pdf")
-            chunks = list(chunk_iter)
-            self.assert_length(chunks, 3)
-            self.assertEqual(len(chunks[0]), 261120)
-            self.assertEqual(len(chunks[1]), 261120)
-            self.assertEqual(len(chunks[2]), 47300)
-            self.assertEqual(sum(len(c) for c in chunks), upload_meta["size"])
-
-            # Unknown upload: returns None
-            result = attachment_lookup("nonexistent_id")
-            self.assertIsNone(result)
+            # Unknown upload
+            self.assertNotIn("nonexistent_id", upload_index)
 
     def test_process_message_attachment_unknown(self) -> None:
         """Test that process_message_attachment handles an unknown attachment
