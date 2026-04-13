@@ -2,8 +2,8 @@ import $ from "jquery";
 import assert from "minimalistic-assert";
 import type * as tippy from "tippy.js";
 
-import render_channel_folder_setting_popover from "../templates/popovers/channel_folder_setting_popover.hbs";
 import render_left_sidebar_folder_popover from "../templates/popovers/left_sidebar/left_sidebar_folder_popover.hbs";
+import render_left_sidebar_menu_popover from "../templates/popovers/left_sidebar_menu_popover.hbs";
 
 import * as channel from "./channel.ts";
 import * as channel_folders_ui from "./channel_folders_ui.ts";
@@ -95,7 +95,7 @@ export function initialize(): void {
             popover_menus.popover_instances.show_folders_sidebar = instance;
             instance.setContent(
                 ui_util.parse_html(
-                    render_channel_folder_setting_popover({
+                    render_left_sidebar_menu_popover({
                         show_channel_folders,
                         channel_folders_id: "left_sidebar_channel_folders",
                         show_collapse_expand_all_options,
@@ -130,7 +130,7 @@ export function initialize(): void {
             popover_menus.popover_instances.show_folders_inbox = instance;
             instance.setContent(
                 ui_util.parse_html(
-                    render_channel_folder_setting_popover({
+                    render_left_sidebar_menu_popover({
                         show_channel_folders,
                         channel_folders_id: "inbox_channel_folders",
                         show_collapse_expand_all_options,
