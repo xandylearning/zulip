@@ -215,6 +215,9 @@ prod = [
 
   # Backport datetime.fromisoformat fixes to Python < 3.11
   "backports-datetime-fromisoformat; python_version < '3.11'",
+
+  # Used to parse User-Agent string for OS & browser names
+  "ua-parser[regex]>=1.0.2",
 ]
 docs = [
   # Needed to build RTD docs

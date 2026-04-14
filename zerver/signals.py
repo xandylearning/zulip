@@ -8,6 +8,7 @@ from django.dispatch import receiver
 from django.utils.timezone import get_current_timezone_name as timezone_get_current_timezone_name
 from django.utils.timezone import now as timezone_now
 from django.utils.translation import gettext as _
+from ua_parser import parse_os, parse_user_agent
 
 from confirmation.models import one_click_unsubscribe_link
 from zerver.lib.queue import queue_json_publish_rollback_unsafe
@@ -20,45 +21,27 @@ JUST_CREATED_THRESHOLD = 60
 
 
 def get_device_browser(user_agent: str) -> str | None:
-    user_agent = user_agent.lower()
-    if "zulip" in user_agent:
+    if "zulip" in user_agent.lower():
         return "Zulip"
-    elif "edge" in user_agent:
-        return "Edge"
-    elif "opera" in user_agent or "opr/" in user_agent:
-        return "Opera"
-    elif ("chrome" in user_agent or "crios" in user_agent) and "chromium" not in user_agent:
-        return "Chrome"
-    elif "firefox" in user_agent and "seamonkey" not in user_agent and "chrome" not in user_agent:
-        return "Firefox"
-    elif "chromium" in user_agent:
-        return "Chromium"
-    elif "safari" in user_agent and "chrome" not in user_agent and "chromium" not in user_agent:
-        return "Safari"
-    elif "msie" in user_agent or "trident" in user_agent:
-        return "Internet Explorer"
-    else:
-        return None
+
+    if browser := parse_user_agent(user_agent):
+        browser_family = browser.family
+        if browser_family == "IE":
+            return "Internet Explorer"
+        elif browser_family != "Other":
+            return browser_family
+
+    return None
 
 
 def get_device_os(user_agent: str) -> str | None:
-    user_agent = user_agent.lower()
-    if "windows" in user_agent:
-        return "Windows"
-    elif "macintosh" in user_agent:
-        return "macOS"
-    elif "linux" in user_agent and "android" not in user_agent:
-        return "Linux"
-    elif "android" in user_agent:
-        return "Android"
-    elif "ios" in user_agent:
-        return "iOS"
-    elif "like mac os x" in user_agent:
-        return "iOS"
-    elif " cros " in user_agent:
-        return "ChromeOS"
-    else:
-        return None
+    if os := parse_os(user_agent):
+        os_family = os.family
+        if os_family == "Mac OS X":
+            return "macOS"
+        elif os_family != "Other":
+            return os_family
+    return None
 
 
 @receiver(user_logged_in, dispatch_uid="only_on_login")
@@ -87,7 +70,7 @@ def email_on_new_login(sender: Any, user: UserProfile, request: Any, **kwargs: A
         if (timezone_now() - user.date_joined).total_seconds() <= JUST_CREATED_THRESHOLD:
             return
 
-        user_agent = request.headers.get("User-Agent", "").lower()
+        user_agent = request.headers.get("User-Agent", "")
 
         context = common_context(user)
         context["user_email"] = user.delivery_email
