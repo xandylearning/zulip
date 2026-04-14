@@ -203,7 +203,16 @@ _Released 2026-03-12_
   synced but don't exist in the Zulip organization. Starting in 12.0,
   such groups will be created automatically when syncing the groups
   for a user who should be a member of that group.
+- The [`GET /api/v1/users/{user_id_or_email}/presence`](https://zulip.com/api/get-user-presence)
+  API endpoint was migrated to the modern presence API format that is
+  incompatible with the previous format. Custom API integrations that
+  fetch presence data for a user using this endpoint will need to be
+  updated after upgrading. (See the [API changelog][api-changelog] for
+  the dozens of other API changes in this release; this specific
+  change is notable only because backwards-compatibility was not
+  implemented, because the endpoint is rarely used).
 
+[api-changelog]: https://zulip.com/api/changelog
 [docker-upgrade-to-12]: https://zulip.readthedocs.io/projects/docker/en/latest/how-to/compose-upgrading.html#upgrading-from-zulip-docker-zulip-11-x-and-earlier
 
 ## Zulip Server 11.x series
