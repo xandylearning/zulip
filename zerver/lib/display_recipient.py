@@ -218,9 +218,6 @@ def get_display_recipient_by_id(
     If the type is a stream, the type_id must be an int; a string is returned.
     Otherwise, type_id may be None; an array of recipient dicts is returned.
     """
-    # Have to import here, to avoid circular dependency.
-    from zerver.lib.display_recipient import get_display_recipient_remote_cache
-
     return get_display_recipient_remote_cache(recipient_id, recipient_type, recipient_type_id)
 
 
