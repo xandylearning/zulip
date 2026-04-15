@@ -226,6 +226,9 @@ def get_recipient_ids(
         recipient_type_str = "stream"
         to = [recipient.type_id]
     else:
+        # We're somewhat weirdly using the display recipient cache,
+        # for the fact that it is a probably-cached lookup which knows
+        # the user-ids which are members of a group DM.
         recipient_type_str = "private"
         to = []
         recipients = get_display_recipient(recipient)
