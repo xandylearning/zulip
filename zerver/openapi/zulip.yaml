@@ -11741,6 +11741,11 @@ paths:
         Changing a user's API key will immediately log them out of Zulip
         on devices registered for [mobile push notifications][mobile-push].
 
+        **Changes**: Before Zulip 12.0 (feature level 492),
+        regenerating a user's API key didn't remove all of the user's
+        [E2EE push device registrations](/api/register-push-device),
+        so E2EE push notifications could still be sent.
+
         [mobile-push]: https://zulip.readthedocs.io/en/latest/production/mobile-push-notifications.html
       responses:
         "200":

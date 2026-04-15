@@ -20,6 +20,13 @@ format used by the Zulip server that they are interacting with.
 
 ## Changes in Zulip 12.0
 
+**Feature level 492**
+
+* [`POST /users/me/api_key/regenerate`](/api/regenerate-api-key): When
+  a user's API key is regenerated, the server now also removes all of
+  the user's E2EE push device registrations, stopping E2EE push
+  notifications to those devices.
+
 **Feature level 491**
 
 * [`GET /events`](/api/get-events): A new `individual_emoji_changes`
