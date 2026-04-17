@@ -4341,7 +4341,7 @@ paths:
                                 Only sent to clients that set the
                                 `individual_emoji_changes` client capability.
 
-                                **Changes**: New in Zulip 12.0 (feature level ZF-dccf1a.md),
+                                **Changes**: New in Zulip 12.0 (feature level 491),
                                 replacing half of the functionality of the
                                 `realm_emoji/update` event.
                               properties:
@@ -4387,7 +4387,7 @@ paths:
                                 Only sent to clients that set the
                                 `individual_emoji_changes` client capability.
 
-                                **Changes**: New in Zulip 12.0 (feature level ZF-dccf1a.md),
+                                **Changes**: New in Zulip 12.0 (feature level 491),
                                 replacing half of the functionality of the
                                 `realm_emoji/update` event.
                               properties:
@@ -4444,7 +4444,7 @@ paths:
                                 the `individual_emoji_changes` client capability.
 
                                 **Changes**: Before Zulip 12.0 (feature level
-                                ZF-dccf1a.md), this was the only format of
+                                491), this was the only format of
                                 `realm_emoji` event sent. Clients should set the
                                 `individual_emoji_changes` capability and handle
                                 `realm_emoji/add` and `realm_emoji/edit` events
@@ -17782,7 +17782,7 @@ paths:
                       will send the legacy `realm_emoji/update` event containing all
                       custom emoji for the organization.
                       <br />
-                      **Changes**: New in Zulip 12.0 (feature level ZF-dccf1a.md).
+                      **Changes**: New in Zulip 12.0 (feature level 491).
 
                     [help-linkifiers]: /help/add-a-custom-linkifier
                     [rfc6570]: https://www.rfc-editor.org/rfc/rfc6570.html
