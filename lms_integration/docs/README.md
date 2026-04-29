@@ -16,6 +16,7 @@ This documentation provides complete information about the LMS integration syste
 ### 🔧 **Technical Documentation**
 - **[API.md](API.md)** - Complete API reference for all components
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Comprehensive troubleshooting guide
+- **[PLAY_STORE_DEMO_ACCOUNT_FILTERING.md](PLAY_STORE_DEMO_ACCOUNT_FILTERING.md)** - Demo account user-list restriction notes
 
 ### 🚀 **Quick Start**
 
@@ -180,5 +181,6 @@ This system is part of the Zulip LMS integration and follows the same license te
 - **[Installation Guide →](INSTALLATION.md)**
 - **[API Documentation →](API.md)**
 - **[Troubleshooting Guide →](TROUBLESHOOTING.md)**
+- **[Play Store Demo Filter Notes →](PLAY_STORE_DEMO_ACCOUNT_FILTERING.md)**
 - **[Changelog →](../CHANGELOG.md)**
 

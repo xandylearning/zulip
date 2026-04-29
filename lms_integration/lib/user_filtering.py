@@ -21,6 +21,19 @@ from lms_integration.models import (
 
 logger = logging.getLogger(__name__)
 
+DEMO_MENTOR_ONLY_STUDENTS_EMAILS = frozenset(
+    {
+        "xandybooks@gmail.com",
+    }
+)
+
+
+def is_demo_mentor_restricted_account(user_profile: UserProfile) -> bool:
+    emails = {user_profile.email.casefold()}
+    if user_profile.delivery_email is not None:
+        emails.add(user_profile.delivery_email.casefold())
+    return len(emails & DEMO_MENTOR_ONLY_STUDENTS_EMAILS) > 0
+
 
 def get_user_role(user_profile: UserProfile, realm: Realm) -> str:
     """
@@ -100,29 +113,31 @@ def get_mentor_filtered_user_ids(
             user_id=mentor_lms_id
         ).values_list('id', flat=True).first()
         
-        user_ids = set()
-        
-        # Always include admins and owners
-        admin_owners = UserProfile.objects.filter(
-            realm=realm,
-            is_active=True
-        ).filter(
-            models.Q(role=UserProfile.ROLE_REALM_OWNER) |
-            models.Q(role=UserProfile.ROLE_REALM_ADMINISTRATOR)
-        ).values_list('id', flat=True)
-        user_ids.update(admin_owners)
-        
-        # Include other mentors (LMSUserMapping has no realm field; filter via zulip_user)
-        other_mentors = LMSUserMapping.objects.filter(
-            zulip_user__realm=realm,
-            lms_user_type='mentor',
-            is_active=True
-        ).exclude(zulip_user=user_profile).values_list('zulip_user_id', flat=True)
-        user_ids.update(other_mentors)
-        
+        user_ids = {user_profile.id}
+        demo_restricted_account = is_demo_mentor_restricted_account(user_profile)
+
+        if not demo_restricted_account:
+            # Always include admins and owners
+            admin_owners = UserProfile.objects.filter(
+                realm=realm,
+                is_active=True
+            ).filter(
+                models.Q(role=UserProfile.ROLE_REALM_OWNER) |
+                models.Q(role=UserProfile.ROLE_REALM_ADMINISTRATOR)
+            ).values_list('id', flat=True)
+            user_ids.update(admin_owners)
+
+            # Include other mentors (LMSUserMapping has no realm field; filter via zulip_user)
+            other_mentors = LMSUserMapping.objects.filter(
+                zulip_user__realm=realm,
+                lms_user_type='mentor',
+                is_active=True
+            ).exclude(zulip_user=user_profile).values_list('zulip_user_id', flat=True)
+            user_ids.update(other_mentors)
+
         # Include the requesting mentor so they appear in their own chat list
         user_ids.add(user_profile.id)
-        
+
         # Include students (only if we could resolve mentor PK from LMS)
         direct_student_ids = []
         if mentor_pk is not None:
@@ -132,18 +147,20 @@ def get_mentor_filtered_user_ids(
                 ).values_list('b_id', flat=True)
             )
         
-        # Get batches where mentor has students
-        batch_ids = Batchtostudent.objects.using('lms_db').filter(
-            b_id__in=direct_student_ids
-        ).values_list('a_id', flat=True).distinct()
-        
-        # Get all students in those batches (expanding visibility)
-        batch_student_ids = Batchtostudent.objects.using('lms_db').filter(
-            a_id__in=batch_ids
-        ).values_list('b_id', flat=True).distinct()
-        
-        # Combine direct and batch students
-        all_student_ids = set(direct_student_ids) | set(batch_student_ids)
+        all_student_ids = set(direct_student_ids)
+        if not demo_restricted_account:
+            # Get batches where mentor has students
+            batch_ids = Batchtostudent.objects.using('lms_db').filter(
+                b_id__in=direct_student_ids
+            ).values_list('a_id', flat=True).distinct()
+
+            # Get all students in those batches (expanding visibility)
+            batch_student_ids = Batchtostudent.objects.using('lms_db').filter(
+                a_id__in=batch_ids
+            ).values_list('b_id', flat=True).distinct()
+
+            # Combine direct and batch students
+            all_student_ids |= set(batch_student_ids)
         
         # Map LMS student IDs to Zulip user IDs
         student_mappings = LMSUserMapping.objects.filter(
