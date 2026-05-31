@@ -12,7 +12,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from django.contrib.auth.backends import BaseBackend
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import HttpRequest
 
 from zerver.lib.exceptions import JsonableError
@@ -149,15 +149,26 @@ class TestPressJWTAuthBackend(ZulipAuthMixin, BaseBackend):
         return None
 
     def _add_username_mapping(self, user_profile: UserProfile, username: str, realm: Realm) -> None:
-        """Add LMS username mapping to ExternalAuthID for future lookups."""
+        """Add LMS username mapping to ExternalAuthID for future lookups.
+
+        Idempotent: if the mapping already exists (e.g. a concurrent request
+        created it), this is a no-op. The insert runs in its own savepoint so a
+        duplicate does not poison the surrounding transaction.
+        """
         try:
-            ExternalAuthID.objects.create(
-                user=user_profile,
-                realm=realm,
-                external_auth_method_name=LMS_USERNAME_AUTH_METHOD,
-                external_auth_id=username
-            )
-            logger.info(f"Added username mapping '{username}' for user {user_profile.delivery_email}")
+            with transaction.atomic(savepoint=True):
+                _, created = ExternalAuthID.objects.get_or_create(
+                    realm=realm,
+                    external_auth_method_name=LMS_USERNAME_AUTH_METHOD,
+                    external_auth_id=username,
+                    defaults={"user": user_profile},
+                )
+            if created:
+                logger.info(f"Added username mapping '{username}' for user {user_profile.delivery_email}")
+        except IntegrityError as e:
+            # Lost a race to create the mapping; another request inserted it
+            # first. The savepoint was rolled back, so the transaction is clean.
+            logger.info(f"Username mapping '{username}' already exists for {user_profile.delivery_email}: {e}")
         except Exception as e:
             logger.warning(f"Failed to add username mapping '{username}' for user {user_profile.delivery_email}: {e}")
 
@@ -281,13 +292,18 @@ class TestPressJWTAuthBackend(ZulipAuthMixin, BaseBackend):
             validated_full_name = email.split("@")[0]
             logger.warning(f"Invalid full name '{full_name}' for {email}, using '{validated_full_name}'")
 
-        try:
-            with transaction.atomic():
-                # Create the external auth ID mapping for LMS username
-                external_auth_id_dict = {
-                    LMS_USERNAME_AUTH_METHOD: username
-                }
+        # Create the external auth ID mapping for LMS username
+        external_auth_id_dict = {
+            LMS_USERNAME_AUTH_METHOD: username
+        }
 
+        try:
+            # savepoint=True is essential: if do_create_user raises (e.g. a
+            # concurrent login already created this user), Django rolls back to
+            # this savepoint, leaving the surrounding transaction usable. Without
+            # it, the failed INSERT poisons the transaction and every recovery
+            # query below would fail with "current transaction is aborted".
+            with transaction.atomic(savepoint=True):
                 new_user = do_create_user(
                     email=email,
                     password=None,  # No password for JWT auth
@@ -299,55 +315,95 @@ class TestPressJWTAuthBackend(ZulipAuthMixin, BaseBackend):
                 logger.info(f"Created new user: {email} (ID: {new_user.id}) with LMS username: {username}")
                 return new_user
 
+        except IntegrityError as e:
+            # Expected under concurrency: another request (a parallel login or a
+            # bulk sync) created this user between our lookups above and the
+            # INSERT here. The savepoint has been rolled back, so the connection
+            # is clean and we can safely re-query and return the existing user.
+            logger.warning(
+                f"User {email} was created concurrently (IntegrityError: {e}); "
+                f"recovering the existing user"
+            )
+            existing_user = self._recover_existing_user(username, email, realm, user_info)
+            if existing_user is not None:
+                return existing_user
+
+            # An IntegrityError that is NOT a "user already exists" collision
+            # (e.g. some other constraint) and that we cannot recover from.
+            logger.error(f"Could not find or create user {email} after IntegrityError: {e}")
+            return None
+
         except Exception as e:
-            error_str = str(e)
-            logger.error(f"Error creating user {email}: {e}")
-            
-            # Check if this is a duplicate key error (user already exists)
-            if "duplicate key" in error_str.lower() or "already exists" in error_str.lower():
-                logger.warning(f"User {email} appears to already exist (duplicate key error), attempting to find existing user")
-            
-            # Try one more time to find if user was created by another process or already exists
-            # Use comprehensive lookup strategy
-            existing_user = None
-            
-            # First try by username
-            existing_user = self._find_existing_user_by_username(username, realm)
-            if existing_user:
-                logger.info(f"Found existing user by username after creation error: {existing_user.delivery_email} (ID: {existing_user.id})")
-                self._add_username_mapping(existing_user, username, realm)
-                if not existing_user.is_active and user_info["is_active"]:
-                    do_reactivate_user(existing_user, acting_user=None)
+            # Unexpected, non-integrity failure. The savepoint has been rolled
+            # back, so recovery queries run against a clean transaction.
+            logger.error(f"Error creating user {email}: {e}", exc_info=True)
+            existing_user = self._recover_existing_user(username, email, realm, user_info)
+            if existing_user is not None:
                 return existing_user
-            
-            # Then try by email (comprehensive)
-            existing_user = self._find_existing_user_by_email(email, realm)
-            if existing_user:
-                logger.info(f"Found existing user by email after creation error: {email} (ID: {existing_user.id})")
-                self._add_username_mapping(existing_user, username, realm)
-                if not existing_user.is_active and user_info["is_active"]:
-                    do_reactivate_user(existing_user, acting_user=None)
-                return existing_user
-            
-            # Last resort: direct database query
-            try:
-                from django.contrib.auth.models import UserManager
-                normalized_email = UserManager.normalize_email(email)
-                existing_user = UserProfile.objects.get(
-                    delivery_email__iexact=normalized_email.strip(),
-                    realm=realm
-                )
-                logger.info(f"Found existing user by direct DB query after creation error: {email} (ID: {existing_user.id})")
-                self._add_username_mapping(existing_user, username, realm)
-                if not existing_user.is_active and user_info["is_active"]:
-                    do_reactivate_user(existing_user, acting_user=None)
-                return existing_user
-            except (UserProfile.DoesNotExist, UserProfile.MultipleObjectsReturned):
-                pass
-            
-            # If we still can't find the user, return None (will cause auth to fail)
+
             logger.error(f"Could not find or create user {email} after error: {e}")
             return None
+
+    def _recover_existing_user(
+        self,
+        username: str,
+        email: str,
+        realm: Realm,
+        user_info: Dict[str, Any],
+    ) -> Optional[UserProfile]:
+        """Locate a user that already exists after a failed creation attempt.
+
+        Called only after the creation savepoint has been rolled back, so the
+        database connection is in a clean, usable state. Tries username, then
+        email, then a direct case-insensitive query, and ensures the LMS
+        username mapping and active status are in place before returning.
+        """
+        # First try by username (primary lookup).
+        existing_user = self._find_existing_user_by_username(username, realm)
+        if existing_user is not None:
+            logger.info(
+                f"Found existing user by username after creation error: "
+                f"{existing_user.delivery_email} (ID: {existing_user.id})"
+            )
+            return self._finalize_recovered_user(existing_user, username, realm, user_info)
+
+        # Then try by email (comprehensive).
+        existing_user = self._find_existing_user_by_email(email, realm)
+        if existing_user is not None:
+            logger.info(
+                f"Found existing user by email after creation error: "
+                f"{email} (ID: {existing_user.id})"
+            )
+            return self._finalize_recovered_user(existing_user, username, realm, user_info)
+
+        # Last resort: direct case-insensitive database query.
+        try:
+            from django.contrib.auth.models import UserManager
+            normalized_email = UserManager.normalize_email(email)
+            existing_user = UserProfile.objects.get(
+                delivery_email__iexact=normalized_email.strip(),
+                realm=realm,
+            )
+            logger.info(
+                f"Found existing user by direct DB query after creation error: "
+                f"{email} (ID: {existing_user.id})"
+            )
+            return self._finalize_recovered_user(existing_user, username, realm, user_info)
+        except (UserProfile.DoesNotExist, UserProfile.MultipleObjectsReturned):
+            return None
+
+    def _finalize_recovered_user(
+        self,
+        existing_user: UserProfile,
+        username: str,
+        realm: Realm,
+        user_info: Dict[str, Any],
+    ) -> UserProfile:
+        """Attach the LMS username mapping and reactivate a recovered user."""
+        self._add_username_mapping(existing_user, username, realm)
+        if not existing_user.is_active and user_info["is_active"]:
+            do_reactivate_user(existing_user, acting_user=None)
+        return existing_user
 
     @log_auth_attempts
     def authenticate(

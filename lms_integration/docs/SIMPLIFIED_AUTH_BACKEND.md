@@ -93,28 +93,97 @@ def _get_or_create_user(self, user_info, realm):
     """Get existing user or create new user."""
     email = user_info["email"]
     full_name = user_info["full_name"]
+    username = user_info["username"]
 
-    # Try to find existing user
-    existing_user = self._find_existing_user(email, realm)
+    # Find existing user: by LMS username (primary), then by email (migration
+    # fallback), then a final case-insensitive email check.
+    existing_user = self._find_existing_user_by_username(username, realm)
     if existing_user:
-        # Reactivate if needed
         if not existing_user.is_active and user_info["is_active"]:
             do_reactivate_user(existing_user, acting_user=None)
         return existing_user
+    # ... (email fallbacks omitted for brevity) ...
 
-    # Create new user
+    # Create new user inside its own savepoint so a failure can be rolled back
+    # without poisoning the surrounding transaction.
     validated_full_name = check_full_name(full_name, user_profile=None, realm=realm)
+    external_auth_id_dict = {LMS_USERNAME_AUTH_METHOD: username}
 
-    new_user = do_create_user(
-        email=email,
-        password=None,  # No password for JWT auth
-        realm=realm,
-        full_name=validated_full_name,
-        acting_user=None,
-    )
-
-    return new_user
+    try:
+        with transaction.atomic(savepoint=True):
+            new_user = do_create_user(
+                email=email,
+                password=None,  # No password for JWT auth
+                realm=realm,
+                full_name=validated_full_name,
+                acting_user=None,
+                external_auth_id_dict=external_auth_id_dict,
+            )
+            return new_user
+    except IntegrityError as e:
+        # A concurrent login created this user first. The savepoint has been
+        # rolled back, so the connection is clean — re-query and return the
+        # already-created user instead of failing.
+        existing_user = self._recover_existing_user(username, email, realm, user_info)
+        if existing_user is not None:
+            return existing_user
+        return None
 ```
+
+> The two helpers `_recover_existing_user()` and `_finalize_recovered_user()`
+> perform the post-failure lookup (username → email → direct query) and attach
+> the LMS username mapping / reactivate, respectively. They are only ever called
+> **after** the savepoint has been rolled back, which is what makes their queries
+> safe to run. See [Concurrency & Transaction Safety](#concurrency--transaction-safety).
+
+## Concurrency & Transaction Safety
+
+First-time login provisions the Zulip account inline (`do_create_user`), and the
+two login endpoints (`lms_jwt_auth_api`, `lms_jwt_web_login`) take no lock. Two
+near-simultaneous logins for the **same brand-new user** can therefore both pass
+the "user does not exist" checks and both call `do_create_user`. The second one
+collides — the first row to conflict is the new user's membership in the realm's
+system user group, raising:
+
+```
+IntegrityError: duplicate key value violates unique constraint
+"zerver_usergroupmembersh_user_group_id_user_profi_5b32ea4b_uniq"
+```
+
+### Two rules make this safe
+
+1. **Every write that may collide runs in its own `transaction.atomic(savepoint=True)`.**
+   `do_create_user` is decorated `@transaction.atomic(savepoint=False)`, so on its
+   own it does **not** create a savepoint — a failure inside it marks the whole
+   surrounding transaction "aborted," after which *every* subsequent query fails
+   with `current transaction is aborted, commands ignored until end of
+   transaction block`. Wrapping the call in `savepoint=True` gives Django a
+   savepoint to roll back to, leaving the connection usable for recovery.
+   The same pattern protects `_add_username_mapping()` (its `ExternalAuthID`
+   insert can also collide under concurrency).
+
+2. **`IntegrityError` is treated as "someone beat me to it," not as a failure.**
+   After the savepoint rollback we re-query for the user the winning request
+   created and return it. The operation is therefore idempotent: N concurrent
+   first-time logins create exactly one account, and all N requests return it.
+
+```
+Request A ──► lookups: not found ──► do_create_user ──► COMMIT (user 23194, group 14)
+Request B ──► lookups: not found ──► do_create_user ──► IntegrityError (14, 23194)
+                                          │
+                                          ▼  savepoint rolled back → connection clean
+                                   _recover_existing_user() ──► returns user 23194 ✔
+```
+
+This is why the backend keeps the "comprehensive lookup" recovery code rather
+than a single happy-path create: it is the mechanism that converts a lost race
+into a successful login.
+
+> ⚠️ **Do not** "simplify" by removing the `savepoint=True`, by catching the
+> error and re-querying *without* a savepoint, or by swallowing `IntegrityError`
+> with a bare `except Exception` that keeps using the same transaction. All three
+> reintroduce the aborted-transaction cascade documented in the
+> [2026-05-12 postmortem](POSTMORTEM_2026-05-12_jwt_user_creation_race.md).
 
 ## Key Features
 
@@ -132,12 +201,14 @@ def _get_or_create_user(self, user_info, realm):
 - Clear error messages
 - Proper logging
 - Graceful fallbacks
+- **Race-safe creation** — see [Concurrency & Transaction Safety](#concurrency--transaction-safety)
 
-### ✅ **No Complex Logic**
-- Removed retry mechanisms
-- Removed complex user lookup strategies
-- Removed role mapping complexity
-- Simple, readable code
+### ✅ **Deliberately Retained Complexity**
+- The multi-strategy user lookup (username → email → direct query) is **not**
+  dead code: it is the recovery path that turns a lost creation race into a
+  successful login. Keep it.
+- Creation is wrapped in a savepoint and `IntegrityError` is handled explicitly.
+  Do not collapse this back into a single happy-path `do_create_user` call.
 
 ## Usage Examples
 

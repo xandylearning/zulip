@@ -102,6 +102,18 @@ Creates Zulip user:
 - **Full Name**: John Doe
 - **Active**: Based on TestPress status
 
+> **Concurrency note**
+> First-time login provisions the Zulip account on the spot. If the same
+> brand-new user triggers two logins at almost the same moment (a double-click,
+> an SSO retry, a link prefetch, or an overlapping bulk sync), both requests can
+> reach the "create user" step. The backend handles this race safely: only one
+> account is created, and the request that loses the race transparently returns
+> the account the winner just created. No special client behavior is required.
+> See [Concurrency & Transaction Safety](SIMPLIFIED_AUTH_BACKEND.md#concurrency--transaction-safety)
+> for the implementation details, and the
+> [2026-05-12 postmortem](POSTMORTEM_2026-05-12_jwt_user_creation_race.md) for the
+> incident this protects against.
+
 ## User Types and Email Handling
 
 ### Students with Email
@@ -409,8 +421,14 @@ The LMS integration endpoints expect a **POST** body with `token`. Passing the J
 - **Solution**: Generate new token from TestPress
 
 #### "User creation failed"
-- **Cause**: Username conflicts or invalid data
+- **Cause**: Invalid TestPress user data (missing/garbled fields), or, historically,
+  a concurrent first-time login race (see note below)
 - **Solution**: Check TestPress user data format
+- **Note**: As of v1.0.1 a concurrent-login race no longer causes this. If you
+  still see `Could not find or create user … after error` in the logs together
+  with a `duplicate key value violates unique constraint
+  "zerver_usergroupmembersh_…"` message, verify you are running v1.0.1 or later.
+  See the [2026-05-12 postmortem](POSTMORTEM_2026-05-12_jwt_user_creation_race.md).
 
 #### "TestPress API unreachable"
 - **Cause**: Network issues or wrong API URL

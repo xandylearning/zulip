@@ -5,6 +5,37 @@ All notable changes to the LMS Activity Event Listener and Notification System w
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-05-31
+
+### Fixed
+
+#### JWT Authentication
+- **Concurrent first-time login race condition** — Two near-simultaneous JWT
+  logins for the same brand-new user could both reach `do_create_user`, causing
+  the second to fail with `duplicate key value violates unique constraint
+  "zerver_usergroupmembersh_user_group_id_user_profi_5b32ea4b_uniq"` and the
+  login to fail with `Could not find or create user … after error`.
+  - `TestPressJWTAuthBackend._get_or_create_user` now wraps `do_create_user` in
+    `transaction.atomic(savepoint=True)` so a failed creation rolls back cleanly
+    instead of poisoning the surrounding transaction (which had made the recovery
+    queries fail with "current transaction is aborted").
+  - `IntegrityError` is now caught explicitly and treated as "a concurrent
+    request created this user first": the backend re-queries and returns the
+    existing user, making creation idempotent under concurrency.
+  - Recovery logic extracted into `_recover_existing_user()` /
+    `_finalize_recovered_user()`, which run only after the savepoint rollback.
+  - `_add_username_mapping()` is now idempotent (`get_or_create` inside its own
+    savepoint), fixing the same latent "swallow error, poison transaction" bug
+    for the `ExternalAuthID` mapping insert.
+
+### Added
+- Regression tests in `tests/test_placeholder_emails.py`
+  (`test_concurrent_creation_recovers_existing_user`,
+  `test_creation_failure_with_no_existing_user_returns_none`).
+- `docs/POSTMORTEM_2026-05-12_jwt_user_creation_race.md` documenting the incident.
+- Updated `docs/JWT_AUTHENTICATION.md`, `docs/SIMPLIFIED_AUTH_BACKEND.md`, and
+  `docs/TROUBLESHOOTING.md` with concurrency/transaction-safety guidance.
+
 ## [1.0.0] - 2024-10-24
 
 ### Added

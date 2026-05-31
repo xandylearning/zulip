@@ -566,6 +566,56 @@ python manage.py shell
 >>> LMSActivityEvent.objects.filter(student_id__isnull=True).count()
 ```
 
+### JWT login fails with "duplicate key … usergroupmembership" (concurrent creation race)
+
+#### Symptoms
+- A first-time JWT login intermittently fails for a brand-new user.
+- Server log shows, in this order:
+  ```
+  Error creating user <email>: duplicate key value violates unique constraint
+  "zerver_usergroupmembersh_user_group_id_user_profi_5b32ea4b_uniq"
+  DETAIL: Key (user_group_id, user_profile_id)=(14, 23194) already exists.
+  ...
+  Could not find or create user <email> after error: ...
+  ```
+- The user usually succeeds on a later retry (because the account now exists).
+
+#### Cause
+Two near-simultaneous logins for the **same new user** both passed the
+"user does not exist" checks and both called `do_create_user`. The second one
+collides on the new user's system-user-group membership. Historically the
+recovery code then ran inside an already-aborted transaction and could not find
+the user, so auth failed.
+
+#### Solutions
+1. **Upgrade.** This is fixed in **v1.0.1**. Creation now runs in a savepoint and
+   `IntegrityError` is caught and recovered. Confirm your deployed version:
+   ```bash
+   grep -m1 '## \[' lms_integration/CHANGELOG.md
+   ```
+2. **Verify the affected user is actually fine.** The race never creates a broken
+   account — exactly one account exists. Confirm and, if needed, repair the LMS
+   username mapping:
+   ```python
+   python manage.py shell
+   >>> from zerver.models import UserProfile, Realm
+   >>> from zerver.models.users import ExternalAuthID
+   >>> realm = Realm.objects.get(string_id="your_realm")
+   >>> u = UserProfile.objects.get(delivery_email__iexact="user@school.edu", realm=realm)
+   >>> ExternalAuthID.objects.filter(user=u, external_auth_method_name="testpress-username").exists()
+   ```
+   The next login by that user re-attaches the `testpress-username` mapping
+   automatically if it is missing.
+
+#### Debug Steps
+```bash
+# Find affected logins in the logs
+grep "Could not find or create user" /var/log/zulip/errors.log
+grep "was created concurrently" /var/log/zulip/server.log   # v1.0.1+: the recovery path firing
+```
+> See the full writeup in
+> [POSTMORTEM_2026-05-12_jwt_user_creation_race.md](POSTMORTEM_2026-05-12_jwt_user_creation_race.md).
+
 ## Notification Issues
 
 ### No Recipients Found

@@ -24,9 +24,12 @@
 /tools/conf.ini
 /tools/custom_provision
 /tools/droplets/conf.ini
+/graphify-out/
+
 
 # LMS credentials (never commit)
 /lms_integration/cred.md
+/lms_integration/graphify-out/
 
 ## Byproducts of setting up and using the dev environment
 *.pyc

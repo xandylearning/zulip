@@ -15,8 +15,14 @@ This documentation provides complete information about the LMS integration syste
 
 ### 🔧 **Technical Documentation**
 - **[API.md](API.md)** - Complete API reference for all components
+- **[JWT_AUTHENTICATION.md](JWT_AUTHENTICATION.md)** - JWT auth flow, endpoints, and configuration
+- **[SIMPLIFIED_AUTH_BACKEND.md](SIMPLIFIED_AUTH_BACKEND.md)** - Auth backend internals & concurrency/transaction safety
+- **[USER_SYNC.md](USER_SYNC.md)** - Bulk user synchronization
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Comprehensive troubleshooting guide
 - **[PLAY_STORE_DEMO_ACCOUNT_FILTERING.md](PLAY_STORE_DEMO_ACCOUNT_FILTERING.md)** - Demo account user-list restriction notes
+
+### 🚨 **Incident Reports**
+- **[POSTMORTEM_2026-05-12_jwt_user_creation_race.md](POSTMORTEM_2026-05-12_jwt_user_creation_race.md)** - Concurrent first-time JWT login race (fixed in v1.0.1)
 
 ### 🚀 **Quick Start**
 
@@ -29,10 +35,14 @@ This documentation provides complete information about the LMS integration syste
 
 ```
 docs/
-├── README.md              # This file - documentation index
-├── INSTALLATION.md        # Installation and setup guide
-├── API.md                 # Complete API reference
-└── TROUBLESHOOTING.md     # Troubleshooting guide
+├── README.md                                          # This file - documentation index
+├── INSTALLATION.md                                    # Installation and setup guide
+├── API.md                                             # Complete API reference
+├── JWT_AUTHENTICATION.md                              # JWT auth flow & configuration
+├── SIMPLIFIED_AUTH_BACKEND.md                         # Auth backend internals & concurrency safety
+├── USER_SYNC.md                                       # Bulk user synchronization
+├── TROUBLESHOOTING.md                                 # Troubleshooting guide
+└── POSTMORTEM_2026-05-12_jwt_user_creation_race.md    # Incident report
 
 ../
 ├── README.md              # Main documentation
@@ -165,8 +175,8 @@ For code contributions:
 
 ## Version Information
 
-- **Current Version**: 1.0.0
-- **Release Date**: 2024-10-24
+- **Current Version**: 1.0.1
+- **Release Date**: 2026-05-31
 - **Compatibility**: Zulip 8.0+, Python 3.8+, PostgreSQL 12+
 
 ## License

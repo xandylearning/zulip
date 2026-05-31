@@ -10,6 +10,7 @@ These tests cover:
 
 import unittest
 from unittest.mock import patch, MagicMock, Mock
+from django.db import IntegrityError
 from django.test import TestCase, override_settings
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import AnonymousUser
@@ -319,6 +320,99 @@ class AuthenticationBackendTest(ZulipTestCase):
             realm=self.realm,
             return_data={}
         )
+
+        self.assertIsNone(user)
+
+    @patch('lms_integration.auth_backend.testpress_jwt_validator.validate_token')
+    def test_concurrent_creation_recovers_existing_user(self, mock_validate):
+        """A concurrent login that created the user first must not break us.
+
+        Regression test for the race where two JWT logins for the same new
+        user both pass the "does not exist" checks and both call
+        do_create_user. The second one collides on the system user-group
+        membership (IntegrityError). We must roll back cleanly and return the
+        user the other request created, instead of returning None.
+        """
+        mock_validate.return_value = {
+            'email': 'racer@school.edu',
+            'username': 'racer',
+            'first_name': 'Race',
+            'last_name': 'Condition',
+            'is_active': True,
+            'id': 999,
+        }
+
+        # Simulate the winning request: the user already exists by the time
+        # our do_create_user runs.
+        winner = self.backend.authenticate(
+            request=None,
+            testpress_jwt_token="valid_token",
+            realm=self.realm,
+        )
+        self.assertIsNotNone(winner)
+
+        # Drop the username mapping so our lookups fall through to creation,
+        # exactly as they would for the losing request whose snapshot predates
+        # the winner's commit.
+        from zerver.models.users import ExternalAuthID
+        ExternalAuthID.objects.filter(
+            realm=self.realm,
+            external_auth_id='racer',
+        ).delete()
+
+        # Make do_create_user raise the same IntegrityError Postgres raises on
+        # the duplicate system-group membership.
+        duplicate_error = IntegrityError(
+            'duplicate key value violates unique constraint '
+            '"zerver_usergroupmembersh_user_group_id_user_profi_5b32ea4b_uniq"'
+        )
+        with patch(
+            'lms_integration.auth_backend.do_create_user',
+            side_effect=duplicate_error,
+        ):
+            loser = self.backend.authenticate(
+                request=None,
+                testpress_jwt_token="valid_token",
+                realm=self.realm,
+                return_data={},
+            )
+
+        # The losing request must recover the already-created user, not fail.
+        self.assertIsNotNone(loser)
+        self.assertEqual(loser.id, winner.id)
+        self.assertEqual(loser.delivery_email, 'racer@school.edu')
+
+        # And the username mapping must be restored for future logins.
+        self.assertTrue(
+            ExternalAuthID.objects.filter(
+                realm=self.realm,
+                external_auth_id='racer',
+                user=loser,
+            ).exists()
+        )
+
+    @patch('lms_integration.auth_backend.testpress_jwt_validator.validate_token')
+    def test_creation_failure_with_no_existing_user_returns_none(self, mock_validate):
+        """An unrecoverable creation failure (no user to find) returns None."""
+        mock_validate.return_value = {
+            'email': 'ghost@school.edu',
+            'username': 'ghost',
+            'first_name': 'No',
+            'last_name': 'User',
+            'is_active': True,
+            'id': 1000,
+        }
+
+        with patch(
+            'lms_integration.auth_backend.do_create_user',
+            side_effect=IntegrityError('some unrelated constraint'),
+        ):
+            user = self.backend.authenticate(
+                request=None,
+                testpress_jwt_token="valid_token",
+                realm=self.realm,
+                return_data={},
+            )
 
         self.assertIsNone(user)
 
