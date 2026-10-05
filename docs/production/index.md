@@ -19,6 +19,7 @@ authentication-methods
 export-and-import
 postgresql
 upload-backends
+google-cloud-storage
 ssl-certificates
 email
 deployment

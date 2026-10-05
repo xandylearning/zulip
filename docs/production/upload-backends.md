@@ -81,6 +81,12 @@ below for those steps.
 
 ### Google Cloud Platform
 
+For a complete, security-focused walkthrough — including `gcloud`
+provisioning commands, the two-credential model (HMAC key for Django,
+service-account JSON for `tusd`), bucket access policies, migration, and
+troubleshooting — see the dedicated
+[Google Cloud Storage guide](google-cloud-storage.md).
+
 In addition to configuring `settings.py` as suggested above:
 
 ```python
