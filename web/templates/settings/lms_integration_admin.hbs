@@ -34,12 +34,12 @@
             </li>
             <li class="nav-item">
                 <a class="nav-link" href="#lms-batch-management" role="tab" data-toggle="tab">
-                    <i class="fa fa-layer-group"></i> {{t "Batch Management"}}
+                    <i class="fa fa-object-group"></i> {{t "Batch Management"}}
                 </a>
             </li>
             <li class="nav-item">
                 <a class="nav-link" href="#lms-activity-monitoring" role="tab" data-toggle="tab">
-                    <i class="fa fa-chart-line"></i> {{t "Activity Monitoring"}}
+                    <i class="fa fa-line-chart"></i> {{t "Activity Monitoring"}}
                 </a>
             </li>
             <li class="nav-item">
@@ -84,7 +84,7 @@
 
                         <div class="lms-stat-card">
                             <div class="stat-icon">
-                                <i class="fa fa-chalkboard-teacher"></i>
+                                <i class="fa fa-id-badge"></i>
                             </div>
                             <div class="stat-content">
                                 <div class="stat-number" id="total-mentors">—</div>
@@ -94,7 +94,7 @@
 
                         <div class="lms-stat-card">
                             <div class="stat-icon">
-                                <i class="fa fa-layer-group"></i>
+                                <i class="fa fa-object-group"></i>
                             </div>
                             <div class="stat-content">
                                 <div class="stat-number" id="total-batches">—</div>
@@ -127,7 +127,7 @@
                         <h4>{{t "Quick Actions"}}</h4>
                         <div class="quick-actions">
                             <button class="btn btn-primary" id="trigger-full-sync">
-                                <i class="fa fa-sync"></i> {{t "Full User Sync"}}
+                                <i class="fa fa-refresh"></i> {{t "Full User Sync"}}
                             </button>
                             <button class="btn btn-outline" id="test-lms-connection">
                                 <i class="fa fa-plug"></i> {{t "Test LMS Connection"}}
@@ -198,7 +198,7 @@
                                             <i class="fa fa-edit text-info"></i> <span id="progress-updated">0</span> {{t "Updated"}}
                                         </span>
                                         <span class="stat-item">
-                                            <i class="fa fa-skip-forward text-muted"></i> <span id="progress-skipped">0</span> {{t "Skipped"}}
+                                            <i class="fa fa-step-forward text-muted"></i> <span id="progress-skipped">0</span> {{t "Skipped"}}
                                         </span>
                                         <span class="stat-item">
                                             <i class="fa fa-exclamation-triangle text-danger"></i> <span id="progress-errors">0</span> {{t "Errors"}}
@@ -316,7 +316,7 @@
 
                     <div class="batch-controls">
                         <button class="btn btn-primary" id="sync-batches">
-                            <i class="fa fa-sync"></i> {{t "Sync Batches"}}
+                            <i class="fa fa-refresh"></i> {{t "Sync Batches"}}
                         </button>
                         <button class="btn btn-outline" id="create-batch-group">
                             <i class="fa fa-plus"></i> {{t "Create Group Manually"}}

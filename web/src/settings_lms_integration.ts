@@ -705,7 +705,7 @@ function render_users_table(users: any[]): void {
                 <td><span class="status-badge ${user.status}">${user.status}</span></td>
                 <td class="actions">
                     <button class="btn btn-sm btn-outline" onclick="resync_user(${user.id})">
-                        <i class="fa fa-sync"></i> Resync
+                        <i class="fa fa-refresh"></i> Resync
                     </button>
                 </td>
             </tr>
@@ -902,7 +902,7 @@ function get_notification_status_badge(status: string): string {
         case "error":
             return '<i class="fa fa-times text-danger"></i>';
         case "pending":
-            return '<i class="fa fa-clock text-warning"></i>';
+            return '<i class="fa fa-clock-o text-warning"></i>';
         default:
             return '<i class="fa fa-question text-muted"></i>';
     }
@@ -1141,7 +1141,7 @@ function render_batch_groups_table(batches: any[]): void {
                 <td><span class="${status_class}"><i class="fa fa-circle"></i> ${batch.status}</span></td>
                 <td class="actions">
                     <button class="btn btn-sm btn-outline" onclick="sync_batch_group(${batch.id})">
-                        <i class="fa fa-sync"></i> Sync
+                        <i class="fa fa-refresh"></i> Sync
                     </button>
                     <button class="btn btn-sm btn-outline" onclick="view_batch_details(${batch.id})">
                         <i class="fa fa-eye"></i> View
@@ -2028,7 +2028,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
                             </main>
                             <footer class="modal__footer">
                                 <button type="button" class="modal__button dialog_submit_button" onclick="sync_batch_group(${batch.id}); modals.close('batch-details-modal');">
-                                    <i class="fa fa-sync"></i> Sync Batch
+                                    <i class="fa fa-refresh"></i> Sync Batch
                                 </button>
                                 <button type="button" class="modal__button dialog_exit_button" data-micromodal-close>Close</button>
                             </footer>
@@ -2168,9 +2168,6 @@ function debounce<T extends (...args: any[]) => void>(func: T, delay: number): (
         }
     }
 };
-
-// Export main initialization function
-export {initialize as lms_integration_admin_init};
 
 export function set_up(): void {
     // Only initialize if not already done and if the LMS integration section exists
