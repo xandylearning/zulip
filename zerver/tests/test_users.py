@@ -61,6 +61,7 @@ from zerver.lib.utils import assert_is_not_none
 from zerver.models import (
     CustomProfileField,
     Message,
+    NamedUserGroup,
     OnboardingStep,
     PreregistrationUser,
     RealmAuditLog,
@@ -1195,6 +1196,71 @@ class BulkCreateUserTest(ZulipTestCase):
             user_group_names,
             expected_user_group_names,
         )
+
+
+class CreateUserSystemGroupMembershipTest(ZulipTestCase):
+    def get_direct_group_names(self, user_profile: UserProfile) -> set[str]:
+        return set(
+            NamedUserGroup.objects.filter(direct_members=user_profile).values_list(
+                "name", flat=True
+            )
+        )
+
+    def test_full_member_faculty_joins_faculty_and_full_members_groups(self) -> None:
+        # Regression test: the role group for faculty is role:faculty, so
+        # adding role:faculty again for full members violated the unique
+        # (user_group, user_profile) constraint and aborted user creation.
+        realm = get_realm("zulip")
+        do_set_realm_property(realm, "waiting_period_threshold", 0, acting_user=None)
+
+        user_profile = do_create_user(
+            "new-faculty@zulip.com",
+            password=None,
+            realm=realm,
+            full_name="New Faculty",
+            acting_user=None,
+        )
+
+        self.assertEqual(user_profile.role, UserProfile.ROLE_FACULTY)
+        self.assertSetEqual(
+            self.get_direct_group_names(user_profile),
+            {SystemGroups.FACULTY, SystemGroups.FULL_MEMBERS},
+        )
+
+    def test_provisional_faculty_not_added_to_full_members_group(self) -> None:
+        realm = get_realm("zulip")
+        do_set_realm_property(realm, "waiting_period_threshold", 10, acting_user=None)
+
+        user_profile = do_create_user(
+            "provisional-faculty@zulip.com",
+            password=None,
+            realm=realm,
+            full_name="Provisional Faculty",
+            acting_user=None,
+        )
+
+        self.assertTrue(user_profile.is_provisional_member)
+        self.assertSetEqual(self.get_direct_group_names(user_profile), {SystemGroups.FACULTY})
+
+    def test_faculty_created_when_realm_lacks_full_members_group(self) -> None:
+        # Realms created before the role:full_members rename only have the
+        # legacy group name; user creation must still succeed there.
+        legacy_full_members_group_name = "role:fullmembers"
+        realm = get_realm("zulip")
+        do_set_realm_property(realm, "waiting_period_threshold", 0, acting_user=None)
+        NamedUserGroup.objects.filter(
+            realm=realm, name=SystemGroups.FULL_MEMBERS, is_system_group=True
+        ).update(name=legacy_full_members_group_name)
+
+        user_profile = do_create_user(
+            "legacy-realm-faculty@zulip.com",
+            password=None,
+            realm=realm,
+            full_name="Legacy Realm Faculty",
+            acting_user=None,
+        )
+
+        self.assertSetEqual(self.get_direct_group_names(user_profile), {SystemGroups.FACULTY})
 
 
 class UpdateUserByEmailEndpointTest(ZulipTestCase):

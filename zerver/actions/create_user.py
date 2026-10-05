@@ -608,19 +608,26 @@ def do_create_user(
         acting_user=acting_user,
     )
 
+    # Faculty are already in role:faculty via system_user_group above;
+    # full membership is tracked separately in role:full_members. Realms
+    # created before that group was renamed only have the legacy
+    # role:fullmembers group, so skip the membership there rather than
+    # failing user creation.
+    full_members_system_group: NamedUserGroup | None = None
     if user_profile.role == UserProfile.ROLE_FACULTY and not user_profile.is_provisional_member:
-        faculty_system_group = NamedUserGroup.objects.get(
-            name=SystemGroups.FACULTY,
+        full_members_system_group = NamedUserGroup.objects.filter(
+            name=SystemGroups.FULL_MEMBERS,
             realm=user_profile.realm,
             is_system_group=True,
-        )
+        ).first()
+    if full_members_system_group is not None:
         UserGroupMembership.objects.create(
-            user_profile=user_profile, user_group=faculty_system_group
+            user_profile=user_profile, user_group=full_members_system_group
         )
         RealmAuditLog.objects.create(
             realm=user_profile.realm,
             modified_user=user_profile,
-            modified_user_group=faculty_system_group,
+            modified_user_group=full_members_system_group,
             event_type=AuditLogEventType.USER_GROUP_DIRECT_USER_MEMBERSHIP_ADDED,
             event_time=event_time,
             acting_user=acting_user,
@@ -631,7 +638,7 @@ def do_create_user(
     notify_created_user(user_profile, [])
 
     do_send_user_group_members_update_event("add_members", system_user_group, [user_profile.id])
-    if user_profile.role == UserProfile.ROLE_FACULTY and not user_profile.is_provisional_member:
+    if full_members_system_group is not None:
         do_send_user_group_members_update_event(
             "add_members", full_members_system_group, [user_profile.id]
         )

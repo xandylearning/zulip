@@ -5,6 +5,31 @@ All notable changes to the LMS Activity Event Listener and Notification System w
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-10-05
+
+### Fixed
+
+#### JWT Authentication
+- **First JWT login failed for every new full-member faculty user** — Logins
+  failed with `Could not find or create user … after IntegrityError: duplicate
+  key value violates unique constraint
+  "zerver_usergroupmembersh_user_group_id_user_profi_5b32ea4b_uniq"`. The root
+  cause was not a race (see 1.0.1): in realms with
+  `waiting_period_threshold = 0`, `do_create_user`
+  (`zerver/actions/create_user.py`) added new faculty users to `role:faculty`
+  twice — once as their role group and again in the "full members" branch,
+  which had been changed from `role:full_members` to `role:faculty`.
+  - The full-members branch adds `role:full_members` again, and skips it for
+    realms that only have the legacy `role:fullmembers` group instead of
+    failing user creation.
+  - Fixed the `NameError` on the undefined `full_members_system_group` that the
+    same branch would have hit next.
+
+### Added
+- Regression tests that exercise the real `do_create_user`:
+  `zerver/tests/test_users.py` (`CreateUserSystemGroupMembershipTest`) and
+  `tests/test_jwt_user_creation.py`.
+
 ## [1.0.1] - 2026-05-31
 
 ### Fixed
