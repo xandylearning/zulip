@@ -481,6 +481,15 @@ def parse_fcm_options(options: dict[str, Any], data: dict[str, Any]) -> str:
     return priority  # when this grows a second option, can make it a tuple
 
 
+# Android notification channel for regular (non-call) notifications;
+# must match the channel id the mobile app registers.
+FCM_MESSAGES_CHANNEL_ID = "messages-4"
+
+# `event`/`type` of the push sent when a student's doubt gets an answer
+# (see lms_integration.doubt_notifications).
+DOUBT_ANSWER_PUSH_EVENT = "doubt_answer"
+
+
 def _create_fcm_notification_content(data: dict[str, Any], options: dict[str, Any]) -> dict[str, Any] | None:
     """
     Create notification content for FCM messages to support terminated app notifications.
@@ -528,9 +537,20 @@ def _create_fcm_notification_content(data: dict[str, Any], options: dict[str, An
         return {
             "title": sender_name,
             "body": content,
-            "channel_id": "messages-4"
+            "channel_id": FCM_MESSAGES_CHANNEL_ID
         }
-    
+
+    elif event_type == DOUBT_ANSWER_PUSH_EVENT:
+        # Doubt answer notifications - same channel as messages (not the
+        # calls channel). Tagged per answer so a duplicate push replaces
+        # the shown notification instead of stacking a second one.
+        return {
+            "title": data.get("title", ""),
+            "body": data.get("body", ""),
+            "channel_id": FCM_MESSAGES_CHANNEL_ID,
+            "tag": f"{DOUBT_ANSWER_PUSH_EVENT}:{data.get('answer_id', 'unknown')}",
+        }
+
     elif event_type == "remove":
         # Remove notifications don't need to show in terminated state
         return None
@@ -540,7 +560,7 @@ def _create_fcm_notification_content(data: dict[str, Any], options: dict[str, An
         return {
             "title": "Zulip",
             "body": "New notification",
-            "channel_id": "messages-4"
+            "channel_id": FCM_MESSAGES_CHANNEL_ID
         }
 
 def create_fcm_call_notification_message(
@@ -789,7 +809,7 @@ def send_android_push_notification(
             android_notification = firebase_messaging.AndroidNotification(
                 title=notification_content.get("title"),
                 body=notification_content.get("body"),
-                channel_id=notification_content.get("channel_id", "messages-4"),
+                channel_id=notification_content.get("channel_id", FCM_MESSAGES_CHANNEL_ID),
                 sound="default",
                 tag=notification_content.get("tag"),
                 click_action="android.intent.action.VIEW"
@@ -881,7 +901,10 @@ def send_notifications_to_bouncer(
     gcm_options: dict[str, Any],
     android_devices: Sequence[DeviceToken],
     apple_devices: Sequence[DeviceToken],
-) -> None:
+) -> int:
+    """Returns the number of devices the bouncer pushed to, as counted
+    by the `mobile_pushes_sent::day` stat; 0 if the bouncer refused.
+    The legacy bouncer API does not report per-device delivery results."""
     assert len(android_devices) + len(apple_devices) != 0
 
     logger.info(
@@ -926,7 +949,7 @@ def send_notifications_to_bouncer(
             acting_user=None,
         )
         do_set_push_notifications_enabled_end_timestamp(user_profile.realm, None, acting_user=None)
-        return
+        return 0
     except PushNotificationBouncerServerError as e:
         logger.error("Bouncer server error (5xx) for user %s: %s", user_profile.id, str(e))
         raise
@@ -995,6 +1018,7 @@ def send_notifications_to_bouncer(
         total_android_devices,
         total_apple_devices,
     )
+    return total_android_devices + total_apple_devices
 
 
 #
@@ -1722,7 +1746,8 @@ def send_push_notifications_legacy(
     apns_payload: dict[str, Any],
     gcm_payload: dict[str, Any],
     gcm_options: dict[str, Any],
-) -> None:
+) -> int:
+    """Returns the number of devices the notification was sent to."""
     android_devices = list(
         PushDeviceToken.objects.filter(user=user_profile, kind=PushDeviceToken.FCM).order_by("id")
     )
@@ -1737,7 +1762,7 @@ def send_push_notifications_legacy(
             "Skipping legacy push notifications for user %s because there are no registered devices",
             user_profile.id,
         )
-        return
+        return 0
 
     logger.info(
         "Processing legacy push notifications for user %s with %d total devices",
@@ -1761,10 +1786,9 @@ def send_push_notifications_legacy(
             "Using notification bouncer for user %s push notifications",
             user_profile.id
         )
-        send_notifications_to_bouncer(
+        return send_notifications_to_bouncer(
             user_profile, apns_payload, gcm_payload, gcm_options, android_devices, apple_devices
         )
-        return
 
     logger.info(
         "Sending mobile push notifications for local user %s: %s via FCM devices, %s via APNs devices",
@@ -1794,6 +1818,7 @@ def send_push_notifications_legacy(
         timezone_now(),
         increment=total_sent,
     )
+    return total_sent
 
 
 class RealmPushStatusDict(TypedDict):
@@ -1863,7 +1888,8 @@ def send_push_notifications(
     user_profile: UserProfile,
     payload_data_to_encrypt: dict[str, Any],
     test_notification_to_push_devices: QuerySet[PushDevice] | None = None,
-) -> None:
+) -> int:
+    """Returns the number of devices the notification was sent to."""
     if test_notification_to_push_devices is not None:
         assert len(test_notification_to_push_devices) != 0
         push_devices = test_notification_to_push_devices
@@ -1878,7 +1904,7 @@ def send_push_notifications(
             "Skipping E2EE push notifications for user %s because there are no registered devices",
             user_profile.id,
         )
-        return
+        return 0
 
     logger.info(
         "Processing E2EE push notifications for user %s with %d devices",
@@ -1967,7 +1993,7 @@ def send_push_notifications(
             # about the error while attempting to send test push notification.
             raise e
 
-        return
+        return 0
 
     # Handle success response data
     delete_device_ids = response_data["delete_device_ids"]
@@ -2024,6 +2050,8 @@ def send_push_notifications(
         # that there's no active registered push device. Inform the
         # same to the client.
         raise NoActivePushDeviceError
+
+    return apple_successfully_sent_count + android_successfully_sent_count
 
 
 def handle_push_notification(user_profile_id: int, missed_message: dict[str, Any]) -> None:

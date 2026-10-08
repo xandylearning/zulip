@@ -768,5 +768,8 @@ MIN_PARTIAL_SUBSCRIBERS_CHANNEL_SIZE = 1000
 # LMS User Sync Configuration
 # Secret token for webhook authentication (stored in secrets file)
 LMS_WEBHOOK_SECRET: str | None = None
+# Bearer token the doubt-solving service uses to call
+# POST /api/v1/lms/notify/doubt-answer (stored in secrets file).
+DOUBT_NOTIFY_SECRET: str | None = None
 # Realm string_id for user sync (optional, defaults to first realm)
 LMS_USER_SYNC_REALM: str | None = None

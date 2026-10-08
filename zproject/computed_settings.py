@@ -438,6 +438,7 @@ if TESTPRESS_JWT_ENABLED:
 
 # LMS User Sync Settings
 LMS_WEBHOOK_SECRET = get_secret("lms_webhook_secret")
+DOUBT_NOTIFY_SECRET = get_secret("doubt_notify_secret")
 LMS_USER_SYNC_REALM = get_config("lms_user_sync", "realm", None)
 
 ########################################################################

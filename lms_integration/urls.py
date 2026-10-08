@@ -32,6 +32,7 @@ from lms_integration.views import (
     lms_jwt_auth_api,
     lms_jwt_web_login,
 )
+from lms_integration.views_doubt_notifications import lms_notify_doubt_answer
 from lms_integration.views_permissions import (
     get_dm_permissions,
     update_dm_permissions,
@@ -42,6 +43,11 @@ app_name = 'lms_integration'
 urlpatterns = [
     # Webhook endpoint for LMS to notify Zulip when new users are created
     path('webhook/user-created', lms_user_webhook, name='lms_user_webhook'),
+
+    # Server-to-server: the doubt-solving service pushes "your doubt has an
+    # answer" to a student. Bearer-secret auth only, so plain `path`
+    # (no rest_dispatch user auth) and CSRF-exempt like the webhook above.
+    path("notify/doubt-answer", lms_notify_doubt_answer, name="lms_notify_doubt_answer"),
 
     # Admin API endpoints (require realm admin permissions)
     # Use rest_path so they go through rest_dispatch which handles authentication
